@@ -3,6 +3,12 @@
 /build
 /*/build
 /local.properties
+secrets.properties
+*.keystore
+*.jks
+*.enc
+*.tmp
+test_audius.mp3
 .idea
 .DS_Store
 *.apk
@@ -10,3 +16,4 @@
 *.exe
 *.msi
 Запустить_MusicApp.bat
+

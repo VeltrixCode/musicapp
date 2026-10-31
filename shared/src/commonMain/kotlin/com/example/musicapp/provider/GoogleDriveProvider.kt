@@ -1,9 +1,11 @@
 package com.example.musicapp.provider
 
+import com.example.musicapp.config.AppConfig
 import com.example.musicapp.model.Page
 import com.example.musicapp.model.RemoteTrack
 import com.example.musicapp.model.StreamSource
 import com.example.musicapp.model.TrackSource
+import com.example.musicapp.security.SecureStorage
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -27,7 +29,7 @@ private data class GDriveFile(
 )
 
 class GoogleDriveProvider(
-    private var accessToken: String? = null,
+    private var accessToken: String? = SecureStorage.getSecret(AppConfig.TOKEN_GDRIVE_ACCESS),
     private val onTokenRefreshNeeded: (suspend () -> String?)? = null,
 ) : MusicProvider {
     override val id: String = "gdrive"
@@ -40,6 +42,12 @@ class GoogleDriveProvider(
 
     fun updateToken(token: String?) {
         accessToken = token
+        if (!token.isNullOrBlank()) {
+            SecureStorage.saveSecret(AppConfig.TOKEN_GDRIVE_ACCESS, token)
+        } else {
+            SecureStorage.removeSecret(AppConfig.TOKEN_GDRIVE_ACCESS)
+            SecureStorage.removeSecret(AppConfig.TOKEN_GDRIVE_REFRESH)
+        }
         _isSignedIn.value = !token.isNullOrBlank()
     }
 

@@ -333,3 +333,6 @@ private class AndroidPlayerEngine : PlayerEngine {
         pendingSeekMs = null
     }
 }
+
+actual fun getEnv(name: String): String? = System.getenv(name)
+

@@ -114,7 +114,7 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
 }
 
 actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String {
-    return if (streamSource.headers.isNotEmpty()) {
+    return if (streamSource.url.startsWith("http://") || streamSource.url.startsWith("https://")) {
         com.example.musicapp.proxy.LocalStreamingProxy.registerStream(trackId, streamSource)
     } else {
         streamSource.url
@@ -266,3 +266,6 @@ private class JavaFxPlayerEngine : PlayerEngine {
         pendingSeekMs = null
     }
 }
+
+actual fun getEnv(name: String): String? = System.getenv(name) ?: System.getProperty(name)
+

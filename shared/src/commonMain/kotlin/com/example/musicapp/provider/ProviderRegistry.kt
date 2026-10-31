@@ -4,6 +4,7 @@ import com.example.musicapp.model.RemoteTrack
 import com.example.musicapp.model.StreamSource
 import com.example.musicapp.model.Track
 import com.example.musicapp.model.TrackSource
+import com.example.musicapp.util.TrackDeduplicator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -85,14 +86,14 @@ class ProviderRegistry(
         _isSyncing.value = true
         scope.launch {
             val newlyDiscovered = mutableListOf<Track>()
-            val seenKeys = existingTracks.map { trackKey(it.title, it.artist) }.toMutableSet()
+            val seenKeys = existingTracks.map { TrackDeduplicator.computeKey(it.title, it.artist, it.durationMs) }.toMutableSet()
 
             for (provider in listOf(gdrive, yandex)) {
                 if (provider.isSignedIn.value) {
                     try {
                         val page = provider.listTracks()
                         for (remote in page.items) {
-                            val key = trackKey(remote.title, remote.artist)
+                            val key = TrackDeduplicator.computeKey(remote.title, remote.artist, remote.durationMs ?: 0L)
                             if (!seenKeys.contains(key)) {
                                 seenKeys.add(key)
                                 newlyDiscovered.add(remote.toTrack())
@@ -109,7 +110,4 @@ class ProviderRegistry(
             onSynced(newlyDiscovered)
         }
     }
-
-    private fun trackKey(title: String, artist: String): String =
-        "${title.lowercase().trim()}::${artist.lowercase().trim()}"
 }

@@ -1,5 +1,6 @@
 package com.example.musicapp.ui
 
+import com.example.musicapp.util.formatTime
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -3348,9 +3349,3 @@ private fun highlightQuery(text: String, query: String, isCurrent: Boolean): Ann
     }
 }
 
-private fun formatTime(ms: Long): String {
-    val totalSeconds = (ms / 1000).coerceAtLeast(0L)
-    val minutes = totalSeconds / 60
-    val seconds = (totalSeconds % 60).toString().padStart(2, '0')
-    return "$minutes:$seconds"
-}

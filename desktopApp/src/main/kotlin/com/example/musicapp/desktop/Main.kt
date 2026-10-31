@@ -91,6 +91,7 @@ fun main() = application {
 
     Window(
         onCloseRequest = {
+            com.example.musicapp.proxy.LocalStreamingProxy.stop()
             player.release()
             exitApplication()
         },

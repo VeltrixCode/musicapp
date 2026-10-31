@@ -529,6 +529,8 @@ class PlayerController(
     }
 
     override fun release() {
+        com.example.musicapp.cache.AudioOfflineCache.currentlyPlayingTrackId = null
+        com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds = emptySet()
         scope.cancel()
         sleepTimerJob?.cancel()
         engine.release()
@@ -541,6 +543,8 @@ class PlayerController(
         pendingSeekTargetMs = null
         lyrics = emptyList()
         unsupportedFormatNotice = null
+        com.example.musicapp.cache.AudioOfflineCache.currentlyPlayingTrackId = track.id
+        com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds = _queue.map { it.id }.toSet()
 
         scope.launch {
             val cachedPath = com.example.musicapp.cache.AudioOfflineCache.getCachedPath(track.id)

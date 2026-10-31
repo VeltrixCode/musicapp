@@ -1,9 +1,11 @@
 package com.example.musicapp.provider
 
+import com.example.musicapp.config.AppConfig
 import com.example.musicapp.model.Page
 import com.example.musicapp.model.RemoteTrack
 import com.example.musicapp.model.StreamSource
 import com.example.musicapp.model.TrackSource
+import com.example.musicapp.security.SecureStorage
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -34,7 +36,7 @@ private data class YandexDownloadResponse(
 )
 
 class YandexDiskProvider(
-    private var token: String? = null,
+    private var token: String? = SecureStorage.getSecret(AppConfig.TOKEN_YANDEX_ACCESS),
     private val onTokenRefreshNeeded: (suspend () -> String?)? = null,
 ) : MusicProvider {
     override val id: String = "yandex"
@@ -45,8 +47,16 @@ class YandexDiskProvider(
     private val _isSignedIn = MutableStateFlow(!token.isNullOrBlank())
     override val isSignedIn: StateFlow<Boolean> = _isSignedIn.asStateFlow()
 
+    // Map track ID to Yandex disk path for renewing download links
+    private val trackPaths = mutableMapOf<String, String>()
+
     fun updateToken(newToken: String?) {
         token = newToken
+        if (!newToken.isNullOrBlank()) {
+            SecureStorage.saveSecret(AppConfig.TOKEN_YANDEX_ACCESS, newToken)
+        } else {
+            SecureStorage.removeSecret(AppConfig.TOKEN_YANDEX_ACCESS)
+        }
         _isSignedIn.value = !newToken.isNullOrBlank()
     }
 
@@ -75,9 +85,11 @@ class YandexDiskProvider(
                 val parts = cleanTitle.split(" - ", limit = 2)
                 val artist = if (parts.size == 2) parts[0].trim() else "Яндекс Диск"
                 val title = if (parts.size == 2) parts[1].trim() else cleanTitle
+                val trackId = "yandex_${item.path.hashCode().toUInt()}"
+                trackPaths[trackId] = item.path
 
                 RemoteTrack(
-                    id = "yandex_${item.path.hashCode()}",
+                    id = trackId,
                     title = title,
                     artist = artist,
                     album = "Яндекс Диск",
@@ -101,10 +113,57 @@ class YandexDiskProvider(
         return page.items.filter { it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) }
     }
 
+    /**
+     * Obtains a fresh direct download/streaming link from Yandex Disk API.
+     * Essential for handling expired links (403/410) seamlessly during playback.
+     */
+    suspend fun fetchFreshDownloadLink(path: String): String? {
+        val oauth = token ?: return null
+        return try {
+            val encodedPath = path.replace(" ", "%20")
+            val url = "https://cloud-api.yandex.net/v1/disk/resources/download?path=$encodedPath"
+            val response = appHttpClient.get(url) {
+                header("Authorization", "OAuth $oauth")
+            }.body<YandexDownloadResponse>()
+            response.href
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     override suspend fun getStream(track: RemoteTrack): StreamSource {
-        val directUrl = track.streamUrl
+        val oauth = token
+        val originalPath = trackPaths[track.id]
+        var streamUrl = track.streamUrl
+
+        if (streamUrl.isNullOrBlank() && originalPath != null) {
+            streamUrl = fetchFreshDownloadLink(originalPath)
+        }
+
         val headers = mutableMapOf<String, String>()
-        token?.let { headers["Authorization"] = "OAuth $it" }
-        return StreamSource(url = directUrl ?: "", headers = headers, supportsRange = true)
+        if (!oauth.isNullOrBlank()) {
+            headers["Authorization"] = "OAuth $oauth"
+        }
+
+        return StreamSource(
+            url = streamUrl ?: "",
+            headers = headers,
+            supportsRange = true
+        )
+    }
+
+    suspend fun getStreamWithAutoRefresh(track: RemoteTrack): Pair<StreamSource, (suspend () -> StreamSource?)?> {
+        val originalStream = getStream(track)
+        val path = trackPaths[track.id]
+        val refreshCallback: (suspend () -> StreamSource?)? = if (path != null) {
+            {
+                val freshHref = fetchFreshDownloadLink(path)
+                if (freshHref != null) {
+                    StreamSource(url = freshHref, headers = originalStream.headers, supportsRange = true)
+                } else null
+            }
+        } else null
+
+        return originalStream to refreshCallback
     }
 }

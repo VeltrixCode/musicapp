@@ -48,7 +48,7 @@ class AudiusProvider : MusicProvider {
     override val isSignedIn: StateFlow<Boolean> = _isSignedIn.asStateFlow()
 
     private val host = "https://discoveryprovider.audius.co/v1"
-    private val appName = "JVXMusic"
+    private val appName: String get() = com.example.musicapp.config.AppConfig.audiusAppName
 
     override suspend fun signIn() {
         _isSignedIn.value = true

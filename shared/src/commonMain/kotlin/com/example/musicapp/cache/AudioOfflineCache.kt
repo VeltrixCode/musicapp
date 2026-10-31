@@ -3,7 +3,6 @@ package com.example.musicapp.cache
 import com.example.musicapp.model.Track
 import com.example.musicapp.platform.AppStorage
 import com.example.musicapp.provider.appHttpClient
-import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsChannel
@@ -20,6 +19,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.io.readByteArray
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.UUID
 
 object AudioOfflineCache {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -27,21 +29,32 @@ object AudioOfflineCache {
     // Default 2 GB
     var maxSizeBytes: Long = 2L * 1024L * 1024L * 1024L
 
+    @Volatile
+    var currentlyPlayingTrackId: String? = null
+
+    @Volatile
+    var currentlyQueuedTrackIds: Set<String> = emptySet()
+
     private val _downloadProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
     val downloadProgress: StateFlow<Map<String, Float>> = _downloadProgress.asStateFlow()
 
-    private val cacheDir: File get() = File(AppStorage.getCacheDir()).apply { mkdirs() }
+    val cacheDir: File get() = File(AppStorage.getCacheDir()).apply { mkdirs() }
 
     fun isCached(trackId: String): Boolean {
         return getCachedFile(trackId)?.exists() == true
     }
 
-    fun getCachedPath(trackId: String): String? {
+    fun getCachedPath(trackId: String, touch: Boolean = true): String? {
         val file = getCachedFile(trackId)
-        return if (file != null && file.exists()) file.absolutePath else null
+        return if (file != null && file.exists()) {
+            if (touch) {
+                runCatching { file.setLastModified(System.currentTimeMillis()) }
+            }
+            file.absolutePath
+        } else null
     }
 
-    private fun getCachedFile(trackId: String): File? {
+    fun getCachedFile(trackId: String): File? {
         val sanitized = trackId.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
         return File(cacheDir, "$sanitized.mp3")
     }
@@ -59,10 +72,11 @@ object AudioOfflineCache {
         }
 
         scope.launch {
+            val targetFile = getCachedFile(trackId) ?: return@launch
+            val tempFile = File(cacheDir, "${targetFile.name}.${UUID.randomUUID()}.download")
+
             try {
                 _downloadProgress.update { it + (trackId to 0.05f) }
-                val targetFile = getCachedFile(trackId) ?: return@launch
-                val tempFile = File(cacheDir, "${targetFile.name}.download")
 
                 val response = appHttpClient.get(streamUrl) {
                     headers.forEach { (k, v) -> header(k, v) }
@@ -85,15 +99,37 @@ object AudioOfflineCache {
                             }
                         }
                     }
+                    fos.flush()
                 }
 
-                tempFile.renameTo(targetFile)
+                // Atomic write: move temporary file to final target file
+                atomicMove(tempFile, targetFile)
+
                 _downloadProgress.update { it - trackId }
                 enforceLruLimit()
                 onCompleted(targetFile.absolutePath)
             } catch (e: Exception) {
+                tempFile.delete()
                 _downloadProgress.update { it - trackId }
             }
+        }
+    }
+
+    private fun atomicMove(source: File, target: File) {
+        try {
+            Files.move(
+                source.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: Exception) {
+            // Fallback for filesystems that do not support ATOMIC_MOVE
+            Files.move(
+                source.toPath(),
+                target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
         }
     }
 
@@ -113,19 +149,28 @@ object AudioOfflineCache {
     }
 
     fun getUsedSizeBytes(): Long {
-        return cacheDir.listFiles()?.sumOf { it.length() } ?: 0L
+        return cacheDir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
     }
 
-    private fun enforceLruLimit() {
+    fun enforceLruLimit(protectedIds: Set<String> = emptySet()) {
         val files = cacheDir.listFiles()?.filter { it.isFile && !it.name.endsWith(".download") } ?: return
         var total = files.sumOf { it.length() }
         if (total <= maxSizeBytes) return
 
-        val sorted = files.sortedBy { it.lastModified() }
-        for (f in sorted) {
-            total -= f.length()
-            f.delete()
-            if (total <= maxSizeBytes * 0.85) break
+        val combinedProtected = protectedIds +
+                listOfNotNull(currentlyPlayingTrackId) +
+                currentlyQueuedTrackIds
+
+        val protectedFileNames = combinedProtected.mapNotNull { getCachedFile(it)?.name }.toSet()
+
+        // Sort by least recently modified/accessed first
+        val candidates = files.filter { it.name !in protectedFileNames }.sortedBy { it.lastModified() }
+        for (f in candidates) {
+            val len = f.length()
+            if (f.delete()) {
+                total -= len
+            }
+            if (total <= (maxSizeBytes * 0.85).toLong()) break
         }
     }
 }

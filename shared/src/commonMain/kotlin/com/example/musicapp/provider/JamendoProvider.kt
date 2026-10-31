@@ -1,5 +1,6 @@
 package com.example.musicapp.provider
 
+import com.example.musicapp.config.AppConfig
 import com.example.musicapp.model.Page
 import com.example.musicapp.model.RemoteTrack
 import com.example.musicapp.model.StreamSource
@@ -38,7 +39,7 @@ class JamendoProvider : MusicProvider {
     private val _isSignedIn = MutableStateFlow(true)
     override val isSignedIn: StateFlow<Boolean> = _isSignedIn.asStateFlow()
 
-    private val clientId = "56d30c95"
+    private val clientId: String get() = AppConfig.jamendoClientId
 
     override suspend fun signIn() {
         _isSignedIn.value = true
@@ -49,6 +50,7 @@ class JamendoProvider : MusicProvider {
     }
 
     override suspend fun listTracks(folderId: String?, pageToken: String?): Page<RemoteTrack> {
+        if (clientId.isBlank()) return Page(items = emptyList())
         return try {
             val offset = pageToken?.toIntOrNull() ?: 0
             val url = "https://api.jamendo.com/v3.0/tracks/?client_id=$clientId&format=json&limit=30&offset=$offset&order=popularity_total&audioformat=mp32"
@@ -74,6 +76,7 @@ class JamendoProvider : MusicProvider {
     }
 
     override suspend fun search(query: String): List<RemoteTrack> {
+        if (clientId.isBlank()) return emptyList()
         return try {
             val encoded = query.trim().replace(" ", "+")
             val url = "https://api.jamendo.com/v3.0/tracks/?client_id=$clientId&format=json&limit=25&namesearch=$encoded&audioformat=mp32"
