@@ -45,6 +45,15 @@ data class ProxySession(
         // Sliding timeout: expires after 30 minutes of complete inactivity
         if (now - lastAccessMs > ttlMs) return true
 
+        // Grace period: if player has not yet initialized active playback queue, allow grace period
+        // for newly registered sessions so that initial requests succeed before player state updates
+        val hasActivePlaybackState = AudioOfflineCache.currentlyPlayingTrackId != null ||
+                AudioOfflineCache.currentlyQueuedTrackIds.isNotEmpty()
+        if (!hasActivePlaybackState) {
+            val isNew = now - createdAtMs < 120_000L
+            if (isNew) return false
+        }
+
         // Session stays alive as long as the track is currently playing/paused or queued in player
         val isCurrentOrQueued = AudioOfflineCache.currentlyPlayingTrackId == trackId ||
                 AudioOfflineCache.currentlyQueuedTrackIds.contains(trackId)

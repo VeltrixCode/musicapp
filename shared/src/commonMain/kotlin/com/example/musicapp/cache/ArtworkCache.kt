@@ -3,16 +3,25 @@ package com.example.musicapp.cache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toPixelMap
+import com.example.musicapp.platform.synchronizedPlatform
 
 object ArtworkCache {
     private const val MAX_ENTRIES = 100
+    private val lock = Any()
     private val map = mutableMapOf<String, ImageBitmap>()
     private val accessOrder = mutableListOf<String>()
     private val dominantColorMap = mutableMapOf<String, Color>()
 
-    fun get(path: String): ImageBitmap? = map[path]
+    fun get(path: String): ImageBitmap? = synchronizedPlatform(lock) {
+        val bitmap = map[path]
+        if (bitmap != null) {
+            accessOrder.remove(path)
+            accessOrder.add(path)
+        }
+        bitmap
+    }
 
-    fun put(path: String, bitmap: ImageBitmap) {
+    fun put(path: String, bitmap: ImageBitmap) = synchronizedPlatform(lock) {
         if (map.containsKey(path)) {
             accessOrder.remove(path)
         } else if (accessOrder.size >= MAX_ENTRIES) {
@@ -24,17 +33,21 @@ object ArtworkCache {
         map[path] = bitmap
     }
 
-    fun getDominantColor(path: String): Color? = dominantColorMap[path]
+    fun getDominantColor(path: String): Color? = synchronizedPlatform(lock) {
+        dominantColorMap[path]
+    }
 
-    fun clear() {
+    fun clear() = synchronizedPlatform(lock) {
         map.clear()
         accessOrder.clear()
         dominantColorMap.clear()
     }
 
     fun computeAndStoreDominantColor(path: String, bitmap: ImageBitmap): Color {
-        val existing = dominantColorMap[path]
-        if (existing != null) return existing
+        synchronizedPlatform(lock) {
+            val existing = dominantColorMap[path]
+            if (existing != null) return existing
+        }
 
         val color = runCatching {
             val pixelMap = bitmap.toPixelMap()
@@ -104,7 +117,10 @@ object ArtworkCache {
             } else null
         }.getOrNull() ?: Color(0xFF0F3D2E) // JVX signature deep emerald fallback
 
-        dominantColorMap[path] = color
-        return color
+        val finalColor = color
+        synchronizedPlatform(lock) {
+            dominantColorMap[path] = finalColor
+        }
+        return finalColor
     }
 }

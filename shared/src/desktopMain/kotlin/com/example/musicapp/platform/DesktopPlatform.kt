@@ -118,6 +118,9 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
 }
 
 actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String {
+    if (streamSource.url.startsWith("http://127.0.0.1:") || streamSource.url.startsWith("http://localhost:")) {
+        return streamSource.url
+    }
     return if (streamSource.url.startsWith("http://") || streamSource.url.startsWith("https://")) {
         com.example.musicapp.proxy.LocalStreamingProxy.registerStream(trackId, streamSource)
     } else {
@@ -161,6 +164,19 @@ private class JavaFxPlayerEngine : PlayerEngine {
         }
     }
 
+    private fun safeDisposePlayer() {
+        player?.let { p ->
+            try { p.stop() } catch (_: Throwable) {}
+            p.audioSpectrumListener = null
+            p.onReady = null
+            p.onEndOfMedia = null
+            p.onError = null
+            p.onHalted = null
+            try { p.dispose() } catch (_: Throwable) {}
+        }
+        player = null
+    }
+
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit) {
         load(path, onReady, onFinished, null)
     }
@@ -168,7 +184,7 @@ private class JavaFxPlayerEngine : PlayerEngine {
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit, onError: ((String) -> Unit)?) {
         Platform.runLater {
             try {
-                player?.dispose()
+                safeDisposePlayer()
                 val isRemote = path.startsWith("http://") || path.startsWith("https://")
                 val uri = if (isRemote) path else File(path).toURI().toString()
 
@@ -220,8 +236,8 @@ private class JavaFxPlayerEngine : PlayerEngine {
                         runOnUiThread { onError?.invoke(msg) }
                     }
                 }
-            } catch (e: Exception) {
-                val msg = e.message ?: "Failed to load audio"
+            } catch (t: Throwable) {
+                val msg = t.message ?: "Failed to load audio"
                 System.err.println("Failed to load audio: $msg")
                 runOnUiThread { onError?.invoke(msg) }
             }
@@ -283,11 +299,13 @@ private class JavaFxPlayerEngine : PlayerEngine {
         player?.media?.duration?.toMillis()?.takeIf { !it.isNaN() && it > 0 }?.toLong() ?: 0L
 
     override fun release() = Platform.runLater {
-        player?.dispose()
-        player = null
+        safeDisposePlayer()
         pendingSeekMs = null
     }
 }
 
 actual fun getEnv(name: String): String? = System.getenv(name) ?: System.getProperty(name)
+
+actual inline fun <R> synchronizedPlatform(lock: Any, block: () -> R): R = synchronized(lock) { block() }
+
 

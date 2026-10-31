@@ -372,3 +372,6 @@ private class AndroidPlayerEngine : PlayerEngine {
 }
 
 actual fun getEnv(name: String): String? = System.getenv(name)
+
+actual inline fun <R> synchronizedPlatform(lock: Any, block: () -> R): R = synchronized(lock) { block() }
+

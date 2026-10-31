@@ -247,6 +247,8 @@ class PlayerController(
     private var pendingSeekTargetMs: Long? = null
     private var seekTimestamp: Long = 0L
 
+    private var consecutivePlaybackErrors = 0
+
     private var sleepTimerJob: Job? = null
 
     init {
@@ -396,6 +398,7 @@ class PlayerController(
     }
 
     override fun play(track: Track, context: List<Track>) {
+        consecutivePlaybackErrors = 0
         _queue.clear()
         _queue.addAll(context)
         currentIndex = _queue.indexOfFirst { it.id == track.id }
@@ -586,48 +589,51 @@ class PlayerController(
         com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds = _queue.map { it.id }.toSet()
 
         scope.launch {
-            val cachedPath = com.example.musicapp.cache.AudioOfflineCache.getCachedPath(track.id)
-            val effectiveSource: String? = when {
-                cachedPath != null -> cachedPath
-                track.sourceProvider != com.example.musicapp.model.TrackSource.LOCAL -> {
-                    val isFlacOrOgg = track.mimeType?.contains("flac") == true ||
-                            track.mimeType?.contains("ogg") == true ||
-                            track.source?.endsWith(".flac", ignoreCase = true) == true ||
-                            track.source?.endsWith(".ogg", ignoreCase = true) == true
-                    if (isFlacOrOgg) {
-                        unsupportedFormatNotice = "Формат FLAC/OGG не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC или библиотека VLCJ."
-                    }
-
-                    val streamSource = providerRegistry.getStreamSource(track)
-                    if (streamSource != null) {
-                        com.example.musicapp.platform.prepareStreamUrlForPlayback(track.id, streamSource)
-                    } else {
-                        track.source
-                    }
-                }
-                else -> track.source
-            }
-
-            if (effectiveSource == null) {
-                runOnUiThread {
-                    engine.release()
-                    isPlaying = false
-                    syncState()
-                }
-                return@launch
-            }
-
-            // Asynchronously load lyrics if available (local file or cached)
-            if (cachedPath != null || track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) {
-                val lrcText = readLrcContent(effectiveSource)
-                lyrics = if (lrcText != null) LrcParser.parse(lrcText) else emptyList()
-            }
-
             try {
+                val cachedPath = com.example.musicapp.cache.AudioOfflineCache.getCachedPath(track.id)
+                val effectiveSource: String? = when {
+                    cachedPath != null -> cachedPath
+                    track.sourceProvider != com.example.musicapp.model.TrackSource.LOCAL -> {
+                        val isFlacOrOgg = track.mimeType?.contains("flac") == true ||
+                                track.mimeType?.contains("ogg") == true ||
+                                track.source?.endsWith(".flac", ignoreCase = true) == true ||
+                                track.source?.endsWith(".ogg", ignoreCase = true) == true
+                        if (isFlacOrOgg) {
+                            unsupportedFormatNotice = "Формат FLAC/OGG не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC или библиотека VLCJ."
+                        }
+
+                        val streamSource = providerRegistry.getStreamSource(track)
+                        if (streamSource != null) {
+                            com.example.musicapp.platform.prepareStreamUrlForPlayback(track.id, streamSource)
+                        } else {
+                            track.source
+                        }
+                    }
+                    else -> track.source
+                }
+
+                if (effectiveSource == null) {
+                    runOnUiThread {
+                        engine.release()
+                        isPlaying = false
+                        val msg = "Не удалось получить аудиопоток для «${track.title}»"
+                        postError(com.example.musicapp.model.AppError.Generic(msg))
+                        syncState()
+                    }
+                    return@launch
+                }
+
+                // Asynchronously load lyrics if available (local file or cached)
+                if (cachedPath != null || track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) {
+                    val lrcText = readLrcContent(effectiveSource)
+                    lyrics = if (lrcText != null) LrcParser.parse(lrcText) else emptyList()
+                }
+
                 engine.load(
                     path = effectiveSource,
                     onReady = { authoritativeDur ->
                         runOnUiThread {
+                            consecutivePlaybackErrors = 0
                             val isLive = track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
                             if (!isLive && authoritativeDur > 0) {
                                 durationMs = authoritativeDur
@@ -664,10 +670,12 @@ class PlayerController(
                                 else com.example.musicapp.model.AppError.Generic(userMsg)
                             )
 
-                            // Transition to next track in queue
-                            if (_queue.size > 1) {
+                            // Transition to next track in queue with circuit breaker to avoid tight native crash loops
+                            consecutivePlaybackErrors++
+                            if (consecutivePlaybackErrors < 3 && consecutivePlaybackErrors < _queue.size) {
                                 advance(+1)
                             } else {
+                                consecutivePlaybackErrors = 0
                                 isPlaying = false
                                 syncState()
                             }
@@ -699,9 +707,14 @@ class PlayerController(
                         }
                     }
                 }
-            } catch (e: Exception) {
-                isPlaying = false
-                syncState()
+            } catch (t: Throwable) {
+                runOnUiThread {
+                    engine.release()
+                    isPlaying = false
+                    val msg = "Ошибка запуска воспроизведения «${track.title}»: ${t.message ?: "неизвестная ошибка"}"
+                    postError(com.example.musicapp.model.AppError.Generic(msg))
+                    syncState()
+                }
             }
         }
     }

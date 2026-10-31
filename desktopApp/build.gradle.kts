@@ -33,8 +33,12 @@ compose.desktop {
                 "java.xml",
                 "java.prefs",
                 "java.management",
+                "java.instrument",
+                "java.naming",
+                "java.net.http",
                 "jdk.unsupported",
-                "jdk.crypto.ec"
+                "jdk.crypto.ec",
+                "jdk.jfr"
             )
             windows {
                 console = false

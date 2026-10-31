@@ -69,6 +69,9 @@ expect fun onPlaybackReleased()
 
 expect fun getEnv(name: String): String?
 
+expect inline fun <R> synchronizedPlatform(lock: Any, block: () -> R): R
+
+
 /** Builds a Track from a copied file, using its tags when present and the file name otherwise. */
 fun importedTrack(path: String, fileName: String, info: TrackInfo? = readTrackInfo(path)): Track {
     return Track(

@@ -64,6 +64,7 @@ import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.example.musicapp.library.Library
+import com.example.musicapp.platform.CrashReporter
 import com.example.musicapp.platform.importLocalAudioFile
 import com.example.musicapp.player.PlayerController
 import com.example.musicapp.theme.AppColors
@@ -79,6 +80,7 @@ import java.awt.dnd.DropTargetListener
 import java.io.File
 
 fun main() {
+    CrashReporter.init()
     Runtime.getRuntime().addShutdownHook(Thread {
         com.example.musicapp.provider.closeAppHttpClient()
     })
