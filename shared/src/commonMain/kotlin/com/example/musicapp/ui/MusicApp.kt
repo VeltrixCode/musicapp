@@ -635,7 +635,7 @@ private fun SpotifySidebar(
             if (!isCompact) {
                 Spacer(Modifier.width(spacing.xs))
                 Text(
-                    "MusicApp",
+                    "Vibe Music",
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
                         color = AppColors.TextPrimary
@@ -1586,6 +1586,7 @@ private fun PlaylistDetailView(
     if (pendingDeletePlaylist) {
         AlertDialog(
             onDismissRequest = { pendingDeletePlaylist = false },
+            shape = RoundedCornerShape(16.dp),
             title = { Text("Удалить плейлист «${playlist.name}»?", fontWeight = FontWeight.Bold) },
             text = { Text("Плейлист будет удален. Сами треки останутся в вашей медиатеке.") },
             confirmButton = {
@@ -2465,7 +2466,7 @@ private fun FullscreenNowPlayingView(
                         .size(280.dp)
                         .shadow(24.dp, RoundedCornerShape(12.dp))
                         .clip(RoundedCornerShape(12.dp))
-                        .background(fallbackGradientFor(track?.title ?: "MusicApp")),
+                        .background(fallbackGradientFor(track?.title ?: "Vibe Music")),
                     contentAlignment = Alignment.Center
                 ) {
                     if (activeArtwork != null) {
@@ -2638,6 +2639,7 @@ private fun EqualizerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
         title = { Text("Эквалайзер", fontWeight = FontWeight.Bold) },
         text = {
             Column(Modifier.fillMaxWidth()) {
@@ -2717,6 +2719,7 @@ private fun SleepTimerDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
         title = { Text("Таймер сна", fontWeight = FontWeight.Bold) },
         text = {
             Column {
@@ -2743,7 +2746,14 @@ private fun SleepTimerDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
+        confirmButton = {
+            TextButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.textButtonColors(contentColor = AppColors.Accent)
+            ) {
+                Text("Закрыть", fontWeight = FontWeight.SemiBold)
+            }
+        },
         containerColor = AppColors.SurfaceElevated
     )
 }
@@ -2760,6 +2770,7 @@ private fun SpeedDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
         title = { Text("Скорость воспроизведения", fontWeight = FontWeight.Bold) },
         text = {
             Column {
@@ -2802,6 +2813,7 @@ private fun RenameTrackDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
         title = { Text("Редактировать трек", fontWeight = FontWeight.Bold) },
         text = {
             Column {
@@ -2849,6 +2861,7 @@ private fun CreatePlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
         title = { Text("Новый плейлист", color = AppColors.TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             OutlinedTextField(
@@ -2882,6 +2895,7 @@ private fun DeleteTrackDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(16.dp),
         title = { Text("Удалить трек «${track.title}»?", fontWeight = FontWeight.Bold) },
         text = {
             Text(

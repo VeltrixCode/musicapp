@@ -54,6 +54,7 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -93,7 +94,8 @@ fun main() = application {
             player.release()
             exitApplication()
         },
-        title = "MusicApp",
+        title = "Vibe Music",
+        icon = painterResource("icon.png"),
         undecorated = true,
         alwaysOnTop = isMiniPlayer,
         state = windowState,
@@ -243,10 +245,10 @@ fun main() = application {
                                     }
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        "MusicApp",
+                                        "Vibe Music",
                                         color = AppColors.TextPrimary,
                                         fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
 
@@ -397,7 +399,7 @@ private fun androidx.compose.ui.window.WindowScope.MiniPlayerView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("MusicApp Mini", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text("Vibe Mini", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Row {
                     WindowControlButton(onClick = onExpand, hoverColor = AppColors.WindowButtonHover) {
                         Icon(imageVector = Icons.Rounded.PictureInPicture, contentDescription = "Развернуть", tint = AppColors.TextSecondary, modifier = Modifier.size(13.dp))

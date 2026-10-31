@@ -21,8 +21,11 @@ compose.desktop {
         mainClass = "com.example.musicapp.desktop.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
-            packageName = "MusicApp"
+            packageName = "VibeMusic"
             packageVersion = "1.0.0"
+            description = "Vibe Music Player"
+            copyright = "© 2026 Vibe Music"
+            vendor = "Vibe"
             modules(
                 "java.base",
                 "java.desktop",
@@ -35,6 +38,9 @@ compose.desktop {
             )
             windows {
                 console = false
+                iconFile.set(project.file("src/main/resources/icon.ico"))
+                menu = true
+                shortcut = true
             }
         }
     }

@@ -6,7 +6,9 @@
 
     <application
         android:name=".MusicApplication"
-        android:label="MusicApp"
+        android:label="Vibe Music"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
