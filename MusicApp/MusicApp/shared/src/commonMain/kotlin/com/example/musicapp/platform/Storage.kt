@@ -1,0 +1,9 @@
+package com.example.musicapp.platform
+
+/** Small key-value file storage in the app's private data directory. */
+expect object AppStorage {
+    fun read(name: String): String?
+    fun write(name: String, text: String)
+    /** Deletes a file by absolute path, such as an uploaded song. Missing files are ignored. */
+    fun deleteFile(absolutePath: String)
+}
