@@ -99,6 +99,10 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
     launchAudioImport { track -> onImported(listOf(track)) }
 }
 
+actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String {
+    return streamSource.url
+}
+
 private fun importFromUri(uri: Uri, onImported: (Track) -> Unit) {
     val ctx = AndroidBridge.appContext
     val name = ctx.contentResolver

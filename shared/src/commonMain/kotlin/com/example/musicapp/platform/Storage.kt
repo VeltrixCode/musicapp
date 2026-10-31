@@ -6,4 +6,6 @@ expect object AppStorage {
     fun write(name: String, text: String)
     /** Deletes a file by absolute path, such as an uploaded song. Missing files are ignored. */
     fun deleteFile(absolutePath: String)
+    /** Returns the absolute path of the local audio cache directory. */
+    fun getCacheDir(): String
 }

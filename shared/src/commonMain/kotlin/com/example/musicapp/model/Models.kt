@@ -3,18 +3,80 @@ package com.example.musicapp.model
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class TrackSource {
+    LOCAL,
+    GOOGLE_DRIVE,
+    YANDEX_DISK,
+    JAMENDO,
+    AUDIUS,
+    WEBDAV,
+}
+
+@Serializable
 data class Track(
     val id: String,
     val title: String,
     val artist: String,
     val album: String = "",
     val year: Int? = null,
-    /** Local file path. Null means a sample track with no audio. */
+    /** Local file path or direct stream url. */
     val source: String? = null,
     val durationMs: Long = 0L,
     val playCount: Int = 0,
     val addedAt: Long = 0L,
     val isFavorite: Boolean = false,
+    val sourceProvider: TrackSource = TrackSource.LOCAL,
+    val remoteId: String? = null,
+    val artworkUrl: String? = null,
+    val isOfflineAvailable: Boolean = false,
+    val cachedFilePath: String? = null,
+    val license: String? = null,
+    val mimeType: String? = null,
+) {
+    val playableUri: String? get() = cachedFilePath ?: source
+    val isCloud: Boolean get() = sourceProvider != TrackSource.LOCAL
+}
+
+@Serializable
+data class RemoteTrack(
+    val id: String,
+    val title: String,
+    val artist: String,
+    val album: String? = null,
+    val durationMs: Long? = null,
+    val streamUrl: String? = null,
+    val artworkUrl: String? = null,
+    val license: String? = null,
+    val sizeBytes: Long? = null,
+    val source: TrackSource = TrackSource.LOCAL,
+    val mimeType: String? = null,
+) {
+    fun toTrack(): Track = Track(
+        id = id,
+        title = title,
+        artist = artist,
+        album = album ?: "",
+        source = streamUrl,
+        durationMs = durationMs ?: 0L,
+        sourceProvider = source,
+        remoteId = id,
+        artworkUrl = artworkUrl,
+        license = license,
+        mimeType = mimeType,
+    )
+}
+
+@Serializable
+data class Page<T>(
+    val items: List<T>,
+    val nextPageToken: String? = null,
+)
+
+@Serializable
+data class StreamSource(
+    val url: String,
+    val headers: Map<String, String> = emptyMap(),
+    val supportsRange: Boolean = true,
 )
 
 @Serializable
@@ -23,6 +85,7 @@ data class Playlist(
     val name: String,
     val trackIds: List<String> = emptyList(),
     val isSystem: Boolean = false,
+    val coverUrl: String? = null,
 )
 
 @Serializable

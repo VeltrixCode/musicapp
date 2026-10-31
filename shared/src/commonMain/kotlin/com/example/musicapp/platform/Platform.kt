@@ -52,6 +52,9 @@ expect fun launchAudioImport(onImported: (Track) -> Unit)
 /** Opens folder picker on desktop or file picker to import multiple tracks with full tags. */
 expect fun launchFolderImport(onImported: (List<Track>) -> Unit)
 
+/** Prepares a stream URL for playback on the platform engine (e.g. desktop local proxy for auth headers). */
+expect fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String
+
 /** Builds a Track from a copied file, using its tags when present and the file name otherwise. */
 fun importedTrack(path: String, fileName: String, info: TrackInfo? = readTrackInfo(path)): Track {
     return Track(

@@ -15,4 +15,7 @@ actual object AppStorage {
     actual fun deleteFile(absolutePath: String) {
         File(absolutePath).delete()
     }
+
+    actual fun getCacheDir(): String =
+        File(AndroidBridge.appContext.cacheDir, "audio").apply { mkdirs() }.absolutePath
 }

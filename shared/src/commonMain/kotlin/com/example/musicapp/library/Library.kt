@@ -234,6 +234,31 @@ class Library {
     fun tracksIn(playlist: Playlist): List<Track> =
         playlist.trackIds.mapNotNull { id -> tracks.find { it.id == id } }
 
+    fun getMixOfTheDay(): List<Track> {
+        if (tracks.isEmpty()) return emptyList()
+        val daySeed = currentTimeMillis() / (1000L * 60 * 60 * 24)
+        val rnd = kotlin.random.Random(daySeed)
+        return tracks.shuffled(rnd).take(15)
+    }
+
+    fun getRecentlyAdded(limit: Int = 20): List<Track> =
+        tracks.sortedByDescending { it.addedAt }.take(limit)
+
+    fun getFrequentlyPlayed(limit: Int = 20): List<Track> =
+        tracks.sortedByDescending { it.playCount }.take(limit)
+
+    fun getCloudTracks(): List<Track> =
+        tracks.filter { it.isCloud }
+
+    fun getOfflineDownloadedTracks(): List<Track> =
+        tracks.filter { it.isOfflineAvailable || !it.isCloud }
+
+    fun getTrackRadio(track: Track): List<Track> {
+        val sameArtist = tracks.filter { it.artist.equals(track.artist, ignoreCase = true) && it.id != track.id }
+        val remaining = tracks.filter { it.id != track.id && it !in sameArtist }.shuffled()
+        return listOf(track) + sameArtist + remaining.take(15)
+    }
+
     private fun save() {
         val data = LibraryData(tracks.toList(), playlists.toList(), recentlyPlayedIds.toList())
         AppStorage.write(LIBRARY_FILE, json.encodeToString(data))

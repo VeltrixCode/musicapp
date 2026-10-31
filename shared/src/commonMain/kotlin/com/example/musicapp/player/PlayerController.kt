@@ -81,6 +81,12 @@ interface AudioPlayer {
     val equalizerGains: FloatArray
     val lyrics: List<LrcLine>
     val queue: List<Track>
+    val unsupportedFormatNotice: String?
+    val providerRegistry: com.example.musicapp.provider.ProviderRegistry
+
+    fun dismissFormatNotice()
+    fun downloadForOffline(track: Track)
+    fun deleteOffline(trackId: String)
 
     fun play(track: Track, context: List<Track> = listOf(track))
     fun toggle()
@@ -152,6 +158,48 @@ class PlayerController(
 
     override var lyrics by mutableStateOf<List<LrcLine>>(emptyList())
         private set
+
+    override var unsupportedFormatNotice by mutableStateOf<String?>(null)
+        private set
+
+    override val providerRegistry = com.example.musicapp.provider.ProviderRegistry()
+
+    override fun dismissFormatNotice() {
+        unsupportedFormatNotice = null
+    }
+
+    override fun downloadForOffline(track: Track) {
+        if (track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) return
+        scope.launch {
+            val stream = providerRegistry.getStreamSource(track)
+            if (stream != null) {
+                com.example.musicapp.cache.AudioOfflineCache.downloadTrack(
+                    track = track,
+                    streamUrl = stream.url,
+                    headers = stream.headers
+                ) { cachedPath ->
+                    val idx = _queue.indexOfFirst { it.id == track.id }
+                    if (idx >= 0) {
+                        _queue[idx] = _queue[idx].copy(isOfflineAvailable = true, cachedFilePath = cachedPath)
+                    }
+                    if (current?.id == track.id) {
+                        current = current?.copy(isOfflineAvailable = true, cachedFilePath = cachedPath)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun deleteOffline(trackId: String) {
+        com.example.musicapp.cache.AudioOfflineCache.deleteFromCache(trackId)
+        val idx = _queue.indexOfFirst { it.id == trackId }
+        if (idx >= 0) {
+            _queue[idx] = _queue[idx].copy(isOfflineAvailable = false, cachedFilePath = null)
+        }
+        if (current?.id == trackId) {
+            current = current?.copy(isOfflineAvailable = false, cachedFilePath = null)
+        }
+    }
 
     private val _queue = mutableStateListOf<Track>()
     override val queue: List<Track> get() = _queue
@@ -492,47 +540,90 @@ class PlayerController(
         durationMs = track.durationMs
         pendingSeekTargetMs = null
         lyrics = emptyList()
+        unsupportedFormatNotice = null
 
-        val path = track.source
-        if (path == null) {
-            engine.release()
-            isPlaying = false
-            syncState()
-            return
-        }
-
-        // Asynchronously load lyrics if available
         scope.launch {
-            val lrcText = readLrcContent(path)
-            lyrics = if (lrcText != null) LrcParser.parse(lrcText) else emptyList()
-        }
-
-        try {
-            engine.load(
-                path = path,
-                onReady = { authoritativeDur ->
-                    runOnUiThread {
-                        if (authoritativeDur > 0) {
-                            durationMs = authoritativeDur
-                            if (current?.id == track.id) {
-                                current = track.copy(durationMs = authoritativeDur)
-                            }
-                        }
-                        syncState()
+            val cachedPath = com.example.musicapp.cache.AudioOfflineCache.getCachedPath(track.id)
+            val effectiveSource: String? = when {
+                cachedPath != null -> cachedPath
+                track.sourceProvider != com.example.musicapp.model.TrackSource.LOCAL -> {
+                    val isFlacOrOgg = track.mimeType?.contains("flac") == true ||
+                            track.mimeType?.contains("ogg") == true ||
+                            track.source?.endsWith(".flac", ignoreCase = true) == true ||
+                            track.source?.endsWith(".ogg", ignoreCase = true) == true
+                    if (isFlacOrOgg) {
+                        unsupportedFormatNotice = "Формат FLAC/OGG не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC или библиотека VLCJ."
                     }
-                },
-                onFinished = {
-                    runOnUiThread { onTrackFinished() }
+
+                    val streamSource = providerRegistry.getStreamSource(track)
+                    if (streamSource != null) {
+                        com.example.musicapp.platform.prepareStreamUrlForPlayback(track.id, streamSource)
+                    } else {
+                        track.source
+                    }
                 }
-            )
-            engine.setVolume(volume)
-            engine.setPlaybackSpeed(speed)
-            engine.play()
-            isPlaying = true
-            syncState()
-        } catch (e: Exception) {
-            isPlaying = false
-            syncState()
+                else -> track.source
+            }
+
+            if (effectiveSource == null) {
+                runOnUiThread {
+                    engine.release()
+                    isPlaying = false
+                    syncState()
+                }
+                return@launch
+            }
+
+            // Asynchronously load lyrics if available (local file or cached)
+            if (cachedPath != null || track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) {
+                val lrcText = readLrcContent(effectiveSource)
+                lyrics = if (lrcText != null) LrcParser.parse(lrcText) else emptyList()
+            }
+
+            try {
+                engine.load(
+                    path = effectiveSource,
+                    onReady = { authoritativeDur ->
+                        runOnUiThread {
+                            if (authoritativeDur > 0) {
+                                durationMs = authoritativeDur
+                                if (current?.id == track.id) {
+                                    current = track.copy(durationMs = authoritativeDur)
+                                }
+                            }
+                            syncState()
+                        }
+                    },
+                    onFinished = {
+                        runOnUiThread { onTrackFinished() }
+                    }
+                )
+                engine.setVolume(volume)
+                engine.setPlaybackSpeed(speed)
+                engine.play()
+                isPlaying = true
+                syncState()
+
+                // Preload next track in queue
+                val nextIdx = if (shuffleState && shufflePointer in shuffledIndices.indices) {
+                    val p = shufflePointer + 1
+                    if (p in shuffledIndices.indices) shuffledIndices[p] else -1
+                } else {
+                    currentIndex + 1
+                }
+                if (nextIdx in _queue.indices) {
+                    val nextTrack = _queue[nextIdx]
+                    if (nextTrack.sourceProvider != com.example.musicapp.model.TrackSource.LOCAL && !com.example.musicapp.cache.AudioOfflineCache.isCached(nextTrack.id)) {
+                        val nextStream = providerRegistry.getStreamSource(nextTrack)
+                        if (nextStream != null) {
+                            com.example.musicapp.cache.AudioOfflineCache.preloadNextTrack(nextTrack, nextStream.url, nextStream.headers)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                isPlaying = false
+                syncState()
+            }
         }
     }
 

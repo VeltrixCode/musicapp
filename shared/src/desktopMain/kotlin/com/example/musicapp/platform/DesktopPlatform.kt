@@ -80,7 +80,7 @@ actual fun launchAudioImport(onImported: (Track) -> Unit) {
     val dir = dialog.directory ?: return
     val name = dialog.file ?: return
 
-    val uploads = File(System.getProperty("user.home"), "MusicApp/uploads").apply { mkdirs() }
+    val uploads = File(System.getProperty("user.home"), "JVXMusic/uploads").apply { mkdirs() }
     val dest = File(uploads, "${newId()}_$name")
     File(dir, name).copyTo(dest, overwrite = true)
     onImported(importedTrack(dest.absolutePath, name))
@@ -96,7 +96,7 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
         val result = chooser.showOpenDialog(null)
         if (result == JFileChooser.APPROVE_OPTION) {
             val selectedDir = chooser.selectedFile ?: return@invokeLater
-            val uploads = File(System.getProperty("user.home"), "MusicApp/uploads").apply { mkdirs() }
+            val uploads = File(System.getProperty("user.home"), "JVXMusic/uploads").apply { mkdirs() }
             val tracks = mutableListOf<Track>()
             selectedDir.walkTopDown().filter { it.isFile }.forEach { file ->
                 val lower = file.name.lowercase()
@@ -113,9 +113,17 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
     }
 }
 
+actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String {
+    return if (streamSource.headers.isNotEmpty()) {
+        com.example.musicapp.proxy.LocalStreamingProxy.registerStream(trackId, streamSource)
+    } else {
+        streamSource.url
+    }
+}
+
 /** Handles external drag-and-drop of audio files into the desktop app. */
 fun importLocalAudioFile(sourceFile: File): Track {
-    val uploads = File(System.getProperty("user.home"), "MusicApp/uploads").apply { mkdirs() }
+    val uploads = File(System.getProperty("user.home"), "JVXMusic/uploads").apply { mkdirs() }
     val dest = File(uploads, "${newId()}_${sourceFile.name}")
     sourceFile.copyTo(dest, overwrite = true)
     return importedTrack(dest.absolutePath, sourceFile.name)
@@ -143,7 +151,15 @@ private class JavaFxPlayerEngine : PlayerEngine {
         Platform.runLater {
             try {
                 player?.dispose()
-                val uri = File(path).toURI().toString()
+                val isRemote = path.startsWith("http://") || path.startsWith("https://")
+                val uri = if (isRemote) path else File(path).toURI().toString()
+
+                // Check for FLAC/OGG which JavaFX Media cannot play natively
+                val lower = path.lowercase()
+                if (lower.endsWith(".flac") || lower.endsWith(".ogg")) {
+                    System.err.println("Предупреждение: Формат FLAC/OGG не поддерживается встроенным движком JavaFX Media.")
+                }
+
                 player = MediaPlayer(Media(uri)).apply {
                     volume = currentVolume.toDouble()
                     rate = currentRate.toDouble()

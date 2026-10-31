@@ -94,7 +94,7 @@ fun main() = application {
             player.release()
             exitApplication()
         },
-        title = "Vibe Music",
+        title = "JVXMusic",
         icon = painterResource("icon.png"),
         undecorated = true,
         alwaysOnTop = isMiniPlayer,
@@ -245,7 +245,7 @@ fun main() = application {
                                     }
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        "Vibe Music",
+                                        "JVXMusic",
                                         color = AppColors.TextPrimary,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
@@ -399,7 +399,7 @@ private fun androidx.compose.ui.window.WindowScope.MiniPlayerView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Vibe Mini", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text("JVXMusic Mini", color = AppColors.TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Row {
                     WindowControlButton(onClick = onExpand, hoverColor = AppColors.WindowButtonHover) {
                         Icon(imageVector = Icons.Rounded.PictureInPicture, contentDescription = "Развернуть", tint = AppColors.TextSecondary, modifier = Modifier.size(13.dp))

@@ -4,7 +4,7 @@ import java.io.File
 
 actual object AppStorage {
     private val dir: File by lazy {
-        File(System.getProperty("user.home"), "MusicApp").apply { mkdirs() }
+        File(System.getProperty("user.home"), "JVXMusic").apply { mkdirs() }
     }
 
     actual fun read(name: String): String? =
@@ -17,4 +17,7 @@ actual object AppStorage {
     actual fun deleteFile(absolutePath: String) {
         File(absolutePath).delete()
     }
+
+    actual fun getCacheDir(): String =
+        File(dir, "cache/audio").apply { mkdirs() }.absolutePath
 }

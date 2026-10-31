@@ -14,6 +14,9 @@ kotlin {
     }
     jvm("desktop")
 
+    val ktorVersion = "3.0.1"
+    val media3Version = "1.5.0"
+
     sourceSets {
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -23,6 +26,9 @@ kotlin {
             implementation(compose.ui)
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+            implementation("io.ktor:ktor-client-core:$ktorVersion")
+            implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
+            implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
@@ -37,6 +43,19 @@ kotlin {
                 implementation("org.openjfx:javafx-media:$fx:win")
                 // ID3 / audio tag reading on desktop
                 implementation("net.jthink:jaudiotagger:3.0.1")
+                // Ktor client & embedded streaming proxy for Desktop JavaFX Media
+                implementation("io.ktor:ktor-client-cio:$ktorVersion")
+                implementation("io.ktor:ktor-server-core:$ktorVersion")
+                implementation("io.ktor:ktor-server-cio:$ktorVersion")
+                implementation("io.ktor:ktor-server-cors:$ktorVersion")
+            }
+        }
+        val androidMain by getting {
+            dependencies {
+                implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
+                implementation("androidx.media3:media3-exoplayer:$media3Version")
+                implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
+                implementation("androidx.media3:media3-common:$media3Version")
             }
         }
     }
