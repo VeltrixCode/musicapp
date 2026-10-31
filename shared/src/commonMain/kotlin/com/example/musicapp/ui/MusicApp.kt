@@ -13,6 +13,10 @@ import androidx.compose.runtime.derivedStateOf
 import com.example.musicapp.settings.AppSettings
 import com.example.musicapp.settings.SettingsRepository
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -28,7 +32,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.SearchOff
 import com.example.musicapp.ui.components.FavoritesCoverBox
+import com.example.musicapp.ui.components.ContentCard
 import com.example.musicapp.ui.components.RightNowPlayingDrawer
 import com.example.musicapp.ui.components.TrackActionMenu
 import com.example.musicapp.service.CoverArtService
@@ -55,9 +66,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -195,6 +211,8 @@ sealed class AppScreen {
     object Home : AppScreen()
     object Search : AppScreen()
     object Library : AppScreen()
+    object Albums : AppScreen()
+    object Artists : AppScreen()
     object CloudSources : AppScreen()
     data class PlaylistView(val playlistId: String) : AppScreen()
     data class SmartMixView(val title: String) : AppScreen()
@@ -203,7 +221,7 @@ sealed class AppScreen {
 /**
  * Root JVXMusic Composable.
  * Features:
- * - Spotify Dark Theme & Green Accent (#1DB954)
+ * - JVX Dark Theme & Signature Emerald Accent (#00D26A)
  * - Navigation history stack with back/forward controls
  * - Resizable & collapsible sidebar (72dp - 360dp)
  * - Home screen with time-of-day greeting, quick cards, and horizontal shelves
@@ -256,12 +274,16 @@ fun MusicApp(
     var searchQuery by remember { mutableStateOf("") }
     var debouncedQuery by remember { mutableStateOf("") }
 
+    val settingsRepo = remember { (player as? PlayerController)?.settingsRepository ?: SettingsRepository() }
+    val initialSettings = remember { settingsRepo.load() }
+    var isRightPanelPinned by remember { mutableStateOf(initialSettings.isRightPanelPinned) }
+    var showQueueDrawer by remember { mutableStateOf(initialSettings.isRightPanelOpen || initialSettings.isRightPanelPinned) }
+
     // Dialogs & panels
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var showEqualizerDialog by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
-    var showQueueDrawer by remember { mutableStateOf(false) }
     var isFullscreenNowPlaying by remember { mutableStateOf(false) }
     var renamingTrack by remember { mutableStateOf<Track?>(null) }
 
@@ -304,7 +326,7 @@ fun MusicApp(
                     ) {
                         // Left Sidebar Navigation with Resizable Width
                         if (!isCompact) {
-                            SpotifySidebar(
+                            AppSidebar(
                                 library = library,
                                 currentScreen = currentScreen,
                                 sidebarWidth = sidebarWidth,
@@ -328,7 +350,7 @@ fun MusicApp(
                                     .fillMaxSize()
                             ) {
                                 // Top Action Bar with History Back/Forward
-                                SpotifyTopBar(
+                                AppTopBar(
                                     canGoBack = backStack.size > 1,
                                     canGoForward = forwardStack.isNotEmpty(),
                                     onGoBack = { goBack() },
@@ -501,6 +523,22 @@ fun MusicApp(
                                                     onRename = { renamingTrack = it }
                                                 )
                                             }
+                                            is AppScreen.Albums -> {
+                                                AlbumsGroupView(
+                                                    library = library,
+                                                    player = player,
+                                                    onNavigateToAlbum = { alb -> navigateTo(AppScreen.SmartMixView(alb)) },
+                                                    onBack = { goBack() }
+                                                )
+                                            }
+                                            is AppScreen.Artists -> {
+                                                ArtistsGroupView(
+                                                    library = library,
+                                                    player = player,
+                                                    onNavigateToArtist = { art -> navigateTo(AppScreen.SmartMixView(art)) },
+                                                    onBack = { goBack() }
+                                                )
+                                            }
                                             is AppScreen.CloudSources -> {
                                                 CloudSourcesScreen(
                                                     library = library,
@@ -549,25 +587,43 @@ fun MusicApp(
 
                         // Right Drawer ("Сейчас играет" / Очередь / Синхронизированный текст)
                         AnimatedVisibility(
-                            visible = showQueueDrawer,
+                            visible = showQueueDrawer || isRightPanelPinned,
                             enter = fadeIn(tween(200)) + slideInHorizontally(tween(200)) { it },
                             exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { it }
                         ) {
                             RightNowPlayingDrawer(
                                 player = player,
                                 library = library,
-                                onClose = { showQueueDrawer = false }
+                                isPinned = isRightPanelPinned,
+                                onTogglePin = {
+                                    val nextPinned = !isRightPanelPinned
+                                    isRightPanelPinned = nextPinned
+                                    if (nextPinned) showQueueDrawer = true
+                                    settingsRepo.save(settingsRepo.load().copy(isRightPanelPinned = nextPinned, isRightPanelOpen = showQueueDrawer))
+                                },
+                                onClose = {
+                                    if (!isRightPanelPinned) {
+                                        showQueueDrawer = false
+                                        settingsRepo.save(settingsRepo.load().copy(isRightPanelOpen = false))
+                                    }
+                                }
                             )
                         }
                     }
 
                     // Bottom Fixed Player Bar (Stretches full width)
-                    SpotifyNowPlayingBar(
+                    NowPlayingBar(
                         player = player,
                         library = library,
                         isCompact = isCompact,
                         onOpenFullscreen = { isFullscreenNowPlaying = true },
-                        onToggleQueue = { showQueueDrawer = !showQueueDrawer },
+                        onToggleQueue = {
+                            if (!isRightPanelPinned) {
+                                val next = !showQueueDrawer
+                                showQueueDrawer = next
+                                settingsRepo.save(settingsRepo.load().copy(isRightPanelOpen = next))
+                            }
+                        },
                         onOpenEqualizer = { showEqualizerDialog = true },
                         onOpenSleepTimer = { showSleepTimerDialog = true },
                         onOpenSpeed = { showSpeedDialog = true },
@@ -718,7 +774,7 @@ fun MusicApp(
 // Top Bar with Centered Search & Upload Buttons
 // ==========================================
 @Composable
-private fun SpotifyTopBar(
+private fun AppTopBar(
     canGoBack: Boolean,
     canGoForward: Boolean,
     onGoBack: () -> Unit,
@@ -891,7 +947,7 @@ private fun SpotifyTopBar(
 // Sidebar Component with Empty State
 // ==========================================
 @Composable
-private fun SpotifySidebar(
+private fun AppSidebar(
     library: Library,
     currentScreen: AppScreen,
     sidebarWidth: Dp,
@@ -1000,12 +1056,21 @@ private fun SpotifySidebar(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     listOf("Плейлисты", "Альбомы", "Исполнители", "Скачанные").forEach { f ->
-                        val isSel = selectedFilter == f
+                        val isSel = (f == "Альбомы" && currentScreen is AppScreen.Albums) ||
+                                (f == "Исполнители" && currentScreen is AppScreen.Artists) ||
+                                (f == "Плейлисты" && selectedFilter == "Плейлисты" && currentScreen !is AppScreen.Albums && currentScreen !is AppScreen.Artists) ||
+                                (f == "Скачанные" && selectedFilter == "Скачанные")
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(if (isSel) AppColors.Accent else AppColors.SurfaceElevated)
-                                .clickable { selectedFilter = if (isSel && f != "Плейлисты") "Плейлисты" else f }
+                                .clickable {
+                                    when (f) {
+                                        "Альбомы" -> onNavigate(AppScreen.Albums)
+                                        "Исполнители" -> onNavigate(AppScreen.Artists)
+                                        else -> selectedFilter = f
+                                    }
+                                }
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
@@ -1097,6 +1162,9 @@ private fun SpotifySidebar(
 
             Spacer(Modifier.height(spacing.xxs))
 
+            var draggedPlaylistId by remember { mutableStateOf<String?>(null) }
+            var dragOffsetY by remember { mutableStateOf(0f) }
+
             val displayedPlaylists = remember(library.playlists.size, sortOrder, library.playlists.map { it.name }) {
                 when (sortOrder) {
                     "По алфавиту" -> library.playlists.sortedBy { it.name.lowercase() }
@@ -1176,84 +1244,165 @@ private fun SpotifySidebar(
                         }
                     }
                     else -> {
-                        itemsIndexed(displayedPlaylists, key = { _, p -> p.id }) { _, p ->
-                            val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
-                            val isFav = p.id == FAVORITES_PLAYLIST_ID
-                            val itemInteraction = remember { MutableInteractionSource() }
-                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                        if (isGrid && !isCompact && effectiveWidth > 180.dp) {
+                            val chunks = displayedPlaylists.chunked(2)
+                            itemsIndexed(chunks, key = { idx, chunk -> "${idx}_${chunk.firstOrNull()?.id}" }) { _, chunk ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    chunk.forEach { p ->
+                                        val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
+                                        val isFav = p.id == FAVORITES_PLAYLIST_ID
+                                        val itemInteraction = remember { MutableInteractionSource() }
+                                        val isItemHovered by itemInteraction.collectIsHoveredAsState()
 
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .hoverable(itemInteraction)
-                                    .background(
-                                        when {
-                                            isSelected -> AppColors.SurfaceElevated
-                                            isItemHovered -> AppColors.CardHover
-                                            else -> Color.Transparent
+                                        Column(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .hoverable(itemInteraction)
+                                                .background(if (isSelected) AppColors.SurfaceElevated else if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                                .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
+                                                .padding(6.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            if (isFav) {
+                                                FavoritesCoverBox(modifier = Modifier.fillMaxWidth().aspectRatio(1f), iconSize = 24.dp, shape = RoundedCornerShape(6.dp))
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(fallbackGradientFor(p.name)),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                                                }
+                                            }
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(p.name, style = MaterialTheme.typography.bodySmall.copy(color = if (isSelected) AppColors.Accent else AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         }
-                                    )
-                                    .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
-                                    .padding(horizontal = if (isCompact) spacing.xxs else spacing.xs, vertical = spacing.xs),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
-                            ) {
-                                if (isFav) {
-                                    FavoritesCoverBox(
-                                        modifier = Modifier.size(32.dp),
-                                        iconSize = 16.dp,
-                                        shape = RoundedCornerShape(6.dp)
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(fallbackGradientFor(p.name)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.QueueMusic,
-                                            contentDescription = null,
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                    }
+                                    if (chunk.size == 1) {
+                                        Spacer(Modifier.weight(1f))
                                     }
                                 }
-                                if (!isCompact) {
-                                    Spacer(Modifier.width(spacing.xs))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            p.name,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                color = if (isSelected) AppColors.Accent else if (isItemHovered) AppColors.TextPrimary else AppColors.TextSecondary,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                            ),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Text(
-                                            pluralRu(p.trackIds.size, "трек", "трека", "треков"),
-                                            style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
-                                            fontSize = 11.sp
-                                        )
-                                    }
+                            }
+                        } else {
+                            itemsIndexed(displayedPlaylists, key = { _, p -> p.id }) { _, p ->
+                                val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
+                                val isFav = p.id == FAVORITES_PLAYLIST_ID
+                                val itemInteraction = remember { MutableInteractionSource() }
+                                val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                                val isDragged = draggedPlaylistId == p.id
 
-                                    // Manual playlist reordering (up/down arrows when custom sort)
-                                    if (isItemHovered && sortOrder == "Пользовательский" && !p.isSystem) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            IconButton(
-                                                onClick = { library.movePlaylist(p.id, moveUp = true) },
-                                                modifier = Modifier.size(20.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.ArrowUpward, contentDescription = "Выше", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .zIndex(if (isDragged) 10f else 1f)
+                                        .offset {
+                                            if (isDragged) IntOffset(0, dragOffsetY.roundToInt())
+                                            else IntOffset.Zero
+                                        }
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .hoverable(itemInteraction)
+                                        .background(
+                                            when {
+                                                isDragged -> AppColors.SurfaceElevated.copy(alpha = 0.95f)
+                                                isSelected -> AppColors.SurfaceElevated
+                                                isItemHovered -> AppColors.CardHover
+                                                else -> Color.Transparent
                                             }
-                                            IconButton(
-                                                onClick = { library.movePlaylist(p.id, moveUp = false) },
-                                                modifier = Modifier.size(20.dp)
-                                            ) {
-                                                Icon(Icons.Rounded.ArrowDownward, contentDescription = "Ниже", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                        )
+                                        .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
+                                        .pointerInput(p.id, sortOrder) {
+                                            if (!p.isSystem && sortOrder == "Пользовательский") {
+                                                detectDragGesturesAfterLongPress(
+                                                    onDragStart = {
+                                                        draggedPlaylistId = p.id
+                                                        dragOffsetY = 0f
+                                                    },
+                                                    onDragEnd = {
+                                                        draggedPlaylistId = null
+                                                        dragOffsetY = 0f
+                                                    },
+                                                    onDragCancel = {
+                                                        draggedPlaylistId = null
+                                                        dragOffsetY = 0f
+                                                    },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        dragOffsetY += dragAmount.y
+                                                        val threshold = 40.dp.toPx()
+                                                        if (dragOffsetY > threshold) {
+                                                            library.movePlaylist(p.id, moveUp = false)
+                                                            dragOffsetY -= threshold
+                                                        } else if (dragOffsetY < -threshold) {
+                                                            library.movePlaylist(p.id, moveUp = true)
+                                                            dragOffsetY += threshold
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        }
+                                        .padding(horizontal = if (isCompact) spacing.xxs else spacing.xs, vertical = spacing.xs),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
+                                ) {
+                                    if (isFav) {
+                                        FavoritesCoverBox(
+                                            modifier = Modifier.size(32.dp),
+                                            iconSize = 16.dp,
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(fallbackGradientFor(p.name)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.QueueMusic,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                    if (!isCompact) {
+                                        Spacer(Modifier.width(spacing.xs))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                p.name,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    color = if (isSelected) AppColors.Accent else if (isItemHovered) AppColors.TextPrimary else AppColors.TextSecondary,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                ),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                pluralRu(p.trackIds.size, "трек", "трека", "треков"),
+                                                style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+
+                                        // Manual playlist reordering (up/down arrows when custom sort)
+                                        if (isItemHovered && sortOrder == "Пользовательский" && !p.isSystem) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = { library.movePlaylist(p.id, moveUp = true) },
+                                                    modifier = Modifier.size(20.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.ArrowUpward, contentDescription = "Выше", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = { library.movePlaylist(p.id, moveUp = false) },
+                                                    modifier = Modifier.size(20.dp)
+                                                ) {
+                                                    Icon(Icons.Rounded.ArrowDownward, contentDescription = "Ниже", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                                }
                                             }
                                         }
                                     }
@@ -1706,6 +1855,7 @@ private fun TrackRowItem(
 
     val rowInteraction = remember { MutableInteractionSource() }
     val isRowHovered by rowInteraction.collectIsHoveredAsState()
+    val isRowFocused by rowInteraction.collectIsFocusedAsState()
 
     // Artwork with multi-tier cache & online cover lookup
     val artworkBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = track.id) {
@@ -1722,6 +1872,12 @@ private fun TrackRowItem(
                     isRowHovered -> AppColors.CardHover
                     else -> Color.Transparent
                 }
+            )
+            .focusable(interactionSource = rowInteraction)
+            .border(
+                width = if (isRowFocused) 1.5.dp else 0.dp,
+                color = if (isRowFocused) AppColors.Accent else Color.Transparent,
+                shape = RoundedCornerShape(6.dp)
             )
             .hoverable(rowInteraction)
             .combinedClickable(
@@ -2025,6 +2181,7 @@ private fun LibraryView(
     var pendingDelete by remember { mutableStateOf<Track?>(null) }
     var selectedFilter by remember { mutableStateOf("Все") }
     var isGridView by remember { mutableStateOf(false) }
+    val isSyncing by player.providerRegistry.isSyncing.collectAsState()
 
     val onSortChange: (SortColumn) -> Unit = { col ->
         val newDir = if (sortColumn == col) {
@@ -2143,26 +2300,61 @@ private fun LibraryView(
                 }
 
                 if (sorted.isEmpty()) {
-                    item {
-                        Box(
-                            Modifier.fillMaxWidth().height(260.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = null,
-                                    tint = AppColors.TextMuted,
-                                    modifier = Modifier.size(48.dp)
-                                )
-                                Spacer(Modifier.height(spacing.sm))
-                                Text(
-                                    if (searchQuery.isBlank()) "В медиатеке пока нет треков" else "По запросу «$searchQuery» ничего не найдено",
-                                    style = MaterialTheme.typography.bodyLarge.copy(color = AppColors.TextSecondary)
-                                )
+                    if (isSyncing) {
+                        item {
+                            Spacer(Modifier.height(8.dp))
+                            TableSkeleton(rows = 6)
+                        }
+                    } else {
+                        item {
+                            Box(
+                                Modifier.fillMaxWidth().height(280.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(24.dp)
+                            ) {
+                                if (searchQuery.isNotBlank()) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.SearchOff,
+                                        contentDescription = null,
+                                        tint = AppColors.TextMuted,
+                                        modifier = Modifier.size(54.dp)
+                                    )
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        "По запросу «$searchQuery» ничего не найдено",
+                                        style = MaterialTheme.typography.titleMedium.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        "Проверьте написание или сбросьте строку поиска",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary)
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Rounded.LibraryMusic,
+                                        contentDescription = null,
+                                        tint = AppColors.Accent,
+                                        modifier = Modifier.size(54.dp)
+                                    )
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        "В вашей медиатеке пока нет треков",
+                                        style = MaterialTheme.typography.titleMedium.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        "Перетащите музыкальные файлы в окно плеера или подключите облако в разделе «Облако и Источники»",
+                                        style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
                             }
                         }
                     }
+                }
                 } else {
                     itemsIndexed(sorted, key = { _, track -> track.id }) { index, track ->
                         TrackRowItem(
@@ -2311,18 +2503,43 @@ private fun PlaylistDetailView(
                 }
 
                 if (tracks.isEmpty()) {
-                    item {
-                        Box(
-                            Modifier.fillMaxWidth().height(260.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "В этом плейлисте пока нет треков. Добавьте их из Медиатеки!",
-                                color = AppColors.TextMuted,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                    val isSyncing = player.providerRegistry.isSyncing.value
+                    if (isSyncing) {
+                        item {
+                            Spacer(Modifier.height(8.dp))
+                            TableSkeleton(rows = 5)
+                        }
+                    } else {
+                        item {
+                            Box(
+                                Modifier.fillMaxWidth().height(280.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.QueueMusic,
+                                    contentDescription = null,
+                                    tint = AppColors.TextMuted,
+                                    modifier = Modifier.size(54.dp)
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                Text(
+                                    "В этом плейлисте пока нет треков",
+                                    style = MaterialTheme.typography.titleMedium.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "Найдите треки в медиатеке и добавьте их в плейлист через меню ⋮",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
                         }
                     }
+                }
                 } else {
                     itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
                         TrackRowItem(
@@ -2496,10 +2713,231 @@ private fun SmartMixDetailView(
 }
 
 // ==========================================
+// Table Shimmer Skeleton
+// ==========================================
+@Composable
+fun TableSkeleton(rows: Int = 6, modifier: Modifier = Modifier) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = AnimRepeatMode.Reverse
+        )
+    )
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        repeat(rows) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(16.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = alpha)))
+                Spacer(Modifier.width(16.dp))
+                Box(Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = alpha)))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Box(Modifier.fillMaxWidth(0.5f).height(14.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = alpha)))
+                    Spacer(Modifier.height(6.dp))
+                    Box(Modifier.fillMaxWidth(0.3f).height(10.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = alpha)))
+                }
+                Box(Modifier.width(36.dp).height(12.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = alpha)))
+            }
+        }
+    }
+}
+
+// ==========================================
+// Albums Group View (Tags-based real screen)
+// ==========================================
+@Composable
+private fun AlbumsGroupView(
+    library: Library,
+    player: AudioPlayer,
+    onNavigateToAlbum: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val albumsMap = remember(library.tracks.size) {
+        library.tracks
+            .filter { it.album.isNotBlank() && it.album != "Неизвестный альбом" }
+            .groupBy { it.album }
+            .toList()
+            .sortedBy { it.first.lowercase() }
+    }
+
+    val listState = rememberLazyGridState()
+    val showStickyHeader by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 200 }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            HeroBanner(
+                title = "Альбомы",
+                subtitle = pluralRu(albumsMap.size, "альбом", "альбома", "альбомов"),
+                badge = "КОЛЛЕКЦИЯ",
+                coverSource = albumsMap.firstOrNull()?.second?.firstOrNull()?.source,
+                canPlay = albumsMap.isNotEmpty(),
+                isPlaying = false,
+                onPlayAll = {
+                    val all = albumsMap.flatMap { it.second }
+                    if (all.isNotEmpty()) player.play(all.first(), all)
+                }
+            )
+
+            if (albumsMap.isEmpty()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(64.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("В медиатеке пока нет альбомов", style = MaterialTheme.typography.titleMedium, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Теги альбомов появятся здесь автоматически после импорта треков.", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextSecondary)
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 170.dp),
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 96.dp)
+                ) {
+                    items(albumsMap, key = { it.first }) { (albumName, albumTracks) ->
+                        val firstTrack = albumTracks.firstOrNull()
+                        ContentCard(
+                            title = albumName,
+                            subtitle = firstTrack?.artist ?: pluralRu(albumTracks.size, "трек", "трека", "треков"),
+                            cardWidth = 175.dp,
+                            badgeText = "${albumTracks.size}",
+                            isPlaying = player.isPlaying && albumTracks.any { it.id == player.current?.id },
+                            onClick = { onNavigateToAlbum(albumName) },
+                            onPlayClick = {
+                                if (albumTracks.isNotEmpty()) player.play(albumTracks.first(), albumTracks)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        StickyCompactHeader(
+            title = "Альбомы",
+            dominantColor = AppColors.SurfaceElevated,
+            canPlay = albumsMap.isNotEmpty(),
+            isPlaying = false,
+            onPlayAll = {
+                val all = albumsMap.flatMap { it.second }
+                if (all.isNotEmpty()) player.play(all.first(), all)
+            },
+            visible = showStickyHeader
+        )
+    }
+}
+
+// ==========================================
+// Artists Group View (Tags-based real screen)
+// ==========================================
+@Composable
+private fun ArtistsGroupView(
+    library: Library,
+    player: AudioPlayer,
+    onNavigateToArtist: (String) -> Unit,
+    onBack: () -> Unit,
+) {
+    val artistsMap = remember(library.tracks.size) {
+        library.tracks
+            .filter { it.artist.isNotBlank() && it.artist != "Неизвестный исполнитель" }
+            .groupBy { it.artist }
+            .toList()
+            .sortedBy { it.first.lowercase() }
+    }
+
+    val listState = rememberLazyGridState()
+    val showStickyHeader by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 200 }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            HeroBanner(
+                title = "Исполнители",
+                subtitle = pluralRu(artistsMap.size, "исполнитель", "исполнителя", "исполнителей"),
+                badge = "КОЛЛЕКЦИЯ",
+                coverSource = artistsMap.firstOrNull()?.second?.firstOrNull()?.source,
+                canPlay = artistsMap.isNotEmpty(),
+                isPlaying = false,
+                onPlayAll = {
+                    val all = artistsMap.flatMap { it.second }
+                    if (all.isNotEmpty()) player.play(all.first(), all)
+                }
+            )
+
+            if (artistsMap.isEmpty()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        Icon(Icons.Rounded.Person, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(64.dp))
+                        Spacer(Modifier.height(16.dp))
+                        Text("В медиатеке пока нет исполнителей", style = MaterialTheme.typography.titleMedium, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Имена исполнителей появятся здесь после импорта треков.", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextSecondary)
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 160.dp),
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 96.dp)
+                ) {
+                    items(artistsMap, key = { it.first }) { (artistName, artistTracks) ->
+                        ContentCard(
+                            title = artistName,
+                            subtitle = pluralRu(artistTracks.size, "трек", "трека", "треков"),
+                            cardWidth = 165.dp,
+                            isArtist = true,
+                            isPlaying = player.isPlaying && artistTracks.any { it.id == player.current?.id },
+                            onClick = { onNavigateToArtist(artistName) },
+                            onPlayClick = {
+                                if (artistTracks.isNotEmpty()) player.play(artistTracks.first(), artistTracks)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        StickyCompactHeader(
+            title = "Исполнители",
+            dominantColor = AppColors.SurfaceElevated,
+            canPlay = artistsMap.isNotEmpty(),
+            isPlaying = false,
+            onPlayAll = {
+                val all = artistsMap.flatMap { it.second }
+                if (all.isNotEmpty()) player.play(all.first(), all)
+            },
+            visible = showStickyHeader
+        )
+    }
+}
+
+// ==========================================
 // Bottom Fixed Player Bar with Spectrum & Real Seek
 // ==========================================
 @Composable
-private fun SpotifyNowPlayingBar(
+private fun NowPlayingBar(
     player: AudioPlayer,
     library: Library,
     isCompact: Boolean,

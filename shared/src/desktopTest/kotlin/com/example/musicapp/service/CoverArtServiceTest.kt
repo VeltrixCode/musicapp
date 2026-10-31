@@ -97,6 +97,32 @@ class CoverArtServiceTest {
     }
 
     @Test
+    fun testSettingLoadOnlineCoversFalsePreventsRequests(): Unit = runBlocking {
+        var networkCalls = 0
+        val mockEngine = MockEngine {
+            networkCalls++
+            respond("{}", HttpStatusCode.OK)
+        }
+        val client = HttpClient(mockEngine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+
+        CoverArtService.loadOnlineCovers = false
+
+        val track = Track(
+            id = "t_no_online_covers",
+            title = "Adventure of a Lifetime",
+            artist = "Coldplay",
+            album = "A Head Full of Dreams",
+            durationMs = 210_000L
+        )
+
+        val result = CoverArtService.loadArtworkForTrack(track, client)
+        assertNull(result)
+        assertEquals(0, networkCalls, "Setting loadOnlineCovers=false must prevent all network requests")
+    }
+
+    @Test
     fun testItunesSearchSuccess(): Unit = runBlocking {
         val mockEngine = MockEngine { request ->
             val url = request.url.toString()

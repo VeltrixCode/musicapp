@@ -58,7 +58,38 @@ class DurationResolutionTest {
         val updated = library.tracks.find { it.id == "track_dur_test" }
         assertEquals(215_000L, updated?.durationMs)
 
+        // Rule: At most one save per track per session -> second call ignored
+        library.updateTrackDuration("track_dur_test", 300_000L)
+        assertEquals(215_000L, library.tracks.find { it.id == "track_dur_test" }?.durationMs)
+
         // Clean up
         library.removeTrack("track_dur_test")
+    }
+
+    @Test
+    fun testUpdateTrackDurationThresholdAndInvalidValues() {
+        val library = Library()
+        val track = Track(
+            id = "track_thresh_test",
+            title = "Threshold Track",
+            artist = "Veltrix",
+            album = "JVX",
+            durationMs = 120_000L
+        )
+        library.addTrack(track)
+
+        // Threshold test: diff < 1000ms should be ignored
+        library.updateTrackDuration("track_thresh_test", 120_450L)
+        assertEquals(120_000L, library.tracks.find { it.id == "track_thresh_test" }?.durationMs)
+
+        // Invalid values: 0 or negative or unknown Long.MAX_VALUE should be ignored
+        library.updateTrackDuration("track_thresh_test", 0L)
+        assertEquals(120_000L, library.tracks.find { it.id == "track_thresh_test" }?.durationMs)
+        library.updateTrackDuration("track_thresh_test", -500L)
+        assertEquals(120_000L, library.tracks.find { it.id == "track_thresh_test" }?.durationMs)
+        library.updateTrackDuration("track_thresh_test", Long.MAX_VALUE)
+        assertEquals(120_000L, library.tracks.find { it.id == "track_thresh_test" }?.durationMs)
+
+        library.removeTrack("track_thresh_test")
     }
 }

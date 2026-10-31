@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.SearchOff
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -117,7 +119,7 @@ fun SearchScreen(
             .fillMaxSize()
             .padding(bottom = 96.dp)
     ) {
-        // When no search query: Show Recent History & Spotify-style Genre Grid
+        // When no search query: Show Recent History & Genre Grid
         if (searchQuery.isBlank()) {
             if (searchHistory.isNotEmpty()) {
                 item {
@@ -208,7 +210,7 @@ fun SearchScreen(
                             val itemIndex = rowIndex * columns + colIndex
                             if (itemIndex < GENRES.size) {
                                 val genre = GENRES[itemIndex]
-                                SpotifyGenreCard(
+                                GenreCard(
                                     category = genre,
                                     onClick = { onSearchQueryChange(genre.name) },
                                     modifier = Modifier.weight(1f)
@@ -286,10 +288,31 @@ fun SearchScreen(
             if (!isSearching && localMatches.isEmpty() && cloudResults.values.all { it.isEmpty() }) {
                 item {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(48.dp),
+                        modifier = Modifier.fillMaxWidth().height(280.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("По запросу «$searchQuery» ничего не найдено", color = AppColors.TextMuted)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SearchOff,
+                                contentDescription = null,
+                                tint = AppColors.TextMuted,
+                                modifier = Modifier.size(54.dp)
+                            )
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                "По запросу «$searchQuery» ничего не найдено",
+                                style = MaterialTheme.typography.titleMedium.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Bold)
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Проверьте написание запроса или попробуйте найти исполнителя или трек по-другому",
+                                style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             }
@@ -298,11 +321,11 @@ fun SearchScreen(
 }
 
 /**
- * Spotify-fidelity Genre Tile:
+ * JVX Genre Tile:
  * Vibrant color, bold top-left text, 25-degree tilted art card in bottom-right corner.
  */
 @Composable
-private fun SpotifyGenreCard(
+private fun GenreCard(
     category: GenreCategory,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

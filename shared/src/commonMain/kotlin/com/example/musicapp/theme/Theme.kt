@@ -30,9 +30,9 @@ object AppColors {
     val Surface = Color(0xFF181818)
     val SurfaceElevated = Color(0xFF282828)
     val CardHover = Color(0xFF2E2E2E)
-    val Accent = Color(0xFF1DB954)
-    val AccentHover = Color(0xFF1ED760)
-    val AccentPressed = Color(0xFF169C46)
+    val Accent = Color(0xFF00D26A)
+    val AccentHover = Color(0xFF10E278)
+    val AccentPressed = Color(0xFF00A854)
 
     val TextPrimary = Color(0xFFFFFFFF)
     // #B3B3B3 on #121212 yields ~7.5:1 contrast ratio (exceeds WCAG AA 4.5:1 requirement)

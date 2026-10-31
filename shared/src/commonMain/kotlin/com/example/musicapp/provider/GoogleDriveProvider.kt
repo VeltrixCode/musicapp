@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Serializable
 private data class GDriveFileList(
@@ -99,6 +102,33 @@ class GoogleDriveProvider(
         } catch (e: Exception) {
             Page(emptyList())
         }
+    }
+
+    suspend fun fetchAccountEmail(): String? {
+        val t = accessToken ?: return null
+        return runCatching {
+            val url = "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress)"
+            val jsonText = appHttpClient.get(url) {
+                header("Authorization", "Bearer $t")
+            }.body<String>()
+            val json = Json { ignoreUnknownKeys = true }
+            val root = json.parseToJsonElement(jsonText).jsonObject
+            val user = root["user"]?.jsonObject
+            user?.get("emailAddress")?.jsonPrimitive?.content
+                ?: user?.get("displayName")?.jsonPrimitive?.content
+        }.getOrNull()
+    }
+
+    suspend fun listFolders(): List<Pair<String, String>> {
+        val t = accessToken ?: return emptyList()
+        return runCatching {
+            val q = "mimeType='application/vnd.google-apps.folder' and trashed=false".replace(" ", "%20").replace("'", "%27")
+            val url = "https://www.googleapis.com/drive/v3/files?q=$q&fields=files(id,name)&pageSize=100"
+            val response = appHttpClient.get(url) {
+                header("Authorization", "Bearer $t")
+            }.body<GDriveFileList>()
+            response.files.map { it.id to it.name }
+        }.getOrDefault(emptyList())
     }
 
     override suspend fun search(query: String): List<RemoteTrack> {

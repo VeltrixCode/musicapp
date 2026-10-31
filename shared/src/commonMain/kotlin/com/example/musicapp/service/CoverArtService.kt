@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -51,17 +52,47 @@ private data class ITunesSearchResult(
  */
 object CoverArtService {
     const val USER_AGENT = "JVXMusic/1.0 (https://github.com/VeltrixCode/MusicApp)"
+    const val MUSICBRAINZ_USER_AGENT = "JVXMusic/1.0 ( https://github.com/VeltrixCode/MusicApp; support@jvxmusic.org )"
     const val NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000L // 7 days
+    private const val NEGATIVE_CACHE_FILE = "negative_cover_cache.json"
 
     var loadOnlineCovers by mutableStateOf(true)
     var offlineMode by mutableStateOf(false)
 
-    // Rate limiter mutex: ensures at least 350ms between external iTunes API calls
-    private val rateLimiterMutex = Mutex()
-    private var lastRequestTimeMs = 0L
+    // Rate limiter mutexes: ensures at least 350ms between iTunes calls, 1000ms between MusicBrainz calls
+    private val itunesRateLimiterMutex = Mutex()
+    private var lastItunesTimeMs = 0L
+
+    private val mbRateLimiterMutex = Mutex()
+    private var lastMbTimeMs = 0L
 
     // Negative cache: normalizedKey -> timestamp of failed query
     internal val negativeCache = mutableMapOf<String, Long>()
+    private var isNegativeCacheLoaded = false
+
+    private fun loadNegativeCacheIfNeeded() {
+        if (isNegativeCacheLoaded) return
+        isNegativeCacheLoaded = true
+        runCatching {
+            val text = AppStorage.read(NEGATIVE_CACHE_FILE) ?: return
+            val json = Json { ignoreUnknownKeys = true }
+            val map = json.decodeFromString<Map<String, Long>>(text)
+            val now = System.currentTimeMillis()
+            map.forEach { (k, time) ->
+                if (now - time < NEGATIVE_CACHE_TTL_MS) {
+                    negativeCache[k] = time
+                }
+            }
+        }
+    }
+
+    private fun persistNegativeCache() {
+        runCatching {
+            val json = Json { prettyPrint = false }
+            val encoded = json.encodeToString<Map<String, Long>>(negativeCache)
+            AppStorage.write(NEGATIVE_CACHE_FILE, encoded)
+        }
+    }
 
     /**
      * Checks whether an artist or title string looks like a local file path or extension.
@@ -132,6 +163,8 @@ object CoverArtService {
             }
         }
 
+        loadNegativeCacheIfNeeded()
+
         // Negative cache check (do not search again for 7 days)
         val lastFailedTime = negativeCache[normalizedKey]
         if (lastFailedTime != null) {
@@ -140,6 +173,7 @@ object CoverArtService {
                 return@withContext null
             } else {
                 negativeCache.remove(normalizedKey)
+                persistNegativeCache()
             }
         }
 
@@ -155,8 +189,9 @@ object CoverArtService {
             return@withContext archiveBitmap
         }
 
-        // Record negative cache entry for 7 days
+        // Record negative cache entry for 7 days and persist to disk
         negativeCache[normalizedKey] = System.currentTimeMillis()
+        persistNegativeCache()
         null
     }
 
@@ -169,13 +204,13 @@ object CoverArtService {
     ): ImageBitmap? {
         return runCatching {
             // Apply rate limit queue: 350ms between requests
-            rateLimiterMutex.withLock {
+            itunesRateLimiterMutex.withLock {
                 val now = System.currentTimeMillis()
-                val delta = now - lastRequestTimeMs
+                val delta = now - lastItunesTimeMs
                 if (delta < 350L) {
                     delay(350L - delta)
                 }
-                lastRequestTimeMs = System.currentTimeMillis()
+                lastItunesTimeMs = System.currentTimeMillis()
             }
 
             val term = "$artist $title".encodeURLQueryComponent()
@@ -213,10 +248,20 @@ object CoverArtService {
         client: HttpClient
     ): ImageBitmap? {
         return runCatching {
+            // Apply rate limit queue: at least 1000ms between requests for MusicBrainz/CAA policy
+            mbRateLimiterMutex.withLock {
+                val now = System.currentTimeMillis()
+                val delta = now - lastMbTimeMs
+                if (delta < 1000L) {
+                    delay(1000L - delta)
+                }
+                lastMbTimeMs = System.currentTimeMillis()
+            }
+
             val q = "artist:\"$artist\" AND recording:\"$title\"".encodeURLQueryComponent()
             val mbUrl = "https://musicbrainz.org/ws/2/recording?query=$q&fmt=json&limit=1"
             val mbText = client.get(mbUrl) {
-                header(HttpHeaders.UserAgent, USER_AGENT)
+                header(HttpHeaders.UserAgent, MUSICBRAINZ_USER_AGENT)
             }.body<String>()
 
             val json = Json { ignoreUnknownKeys = true }
@@ -229,7 +274,7 @@ object CoverArtService {
 
             val coverUrl = "https://coverartarchive.org/release/$releaseId/front-250"
             val imageBytes = client.get(coverUrl) {
-                header(HttpHeaders.UserAgent, USER_AGENT)
+                header(HttpHeaders.UserAgent, MUSICBRAINZ_USER_AGENT)
             }.bodyAsBytes()
 
             if (imageBytes.isNotEmpty()) {
@@ -246,5 +291,6 @@ object CoverArtService {
 
     fun clearNegativeCache() {
         negativeCache.clear()
+        AppStorage.write(NEGATIVE_CACHE_FILE, "{}")
     }
 }

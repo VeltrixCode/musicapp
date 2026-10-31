@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -55,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -80,6 +82,8 @@ fun RightNowPlayingDrawer(
     player: AudioPlayer,
     library: Library,
     initialTab: RightDrawerTab = RightDrawerTab.NOW_PLAYING,
+    isPinned: Boolean = false,
+    onTogglePin: (() -> Unit)? = null,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -131,11 +135,26 @@ fun RightNowPlayingDrawer(
                 }
             }
 
-            IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+            if (onTogglePin != null) {
+                IconButton(onClick = onTogglePin, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        imageVector = Icons.Rounded.PushPin,
+                        contentDescription = if (isPinned) "Открепить панель" else "Закрепить панель",
+                        tint = if (isPinned) AppColors.Accent else AppColors.TextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onClose,
+                enabled = !isPinned,
+                modifier = Modifier.size(28.dp)
+            ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
-                    contentDescription = "Закрыть панель",
-                    tint = AppColors.TextSecondary,
+                    contentDescription = if (isPinned) "Панель закреплена" else "Закрыть панель",
+                    tint = if (isPinned) AppColors.TextMuted.copy(alpha = 0.35f) else AppColors.TextSecondary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -396,7 +415,13 @@ private fun QueuePane(
 
         if (upNext.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Очередь пуста", color = AppColors.TextMuted, style = MaterialTheme.typography.bodySmall)
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
+                    Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(36.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Очередь воспроизведения пуста", color = AppColors.TextSecondary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Включите любой альбом или добавьте треки в очередь", color = AppColors.TextMuted, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                }
             }
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth()) {

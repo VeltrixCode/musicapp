@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Serializable
 private data class YandexFilesResponse(
@@ -105,6 +109,46 @@ class YandexDiskProvider(
         } catch (e: Exception) {
             Page(emptyList())
         }
+    }
+
+    suspend fun fetchAccountEmail(): String? {
+        val oauth = token ?: return null
+        return runCatching {
+            val url = "https://cloud-api.yandex.net/v1/disk/"
+            val jsonText = appHttpClient.get(url) {
+                header("Authorization", "OAuth $oauth")
+            }.body<String>()
+            val json = Json { ignoreUnknownKeys = true }
+            val root = json.parseToJsonElement(jsonText).jsonObject
+            val user = root["user"]?.jsonObject
+            user?.get("display_name")?.jsonPrimitive?.content
+                ?: user?.get("login")?.jsonPrimitive?.content
+        }.getOrNull()
+    }
+
+    suspend fun listFolders(): List<Pair<String, String>> {
+        val oauth = token ?: return emptyList()
+        return runCatching {
+            val url = "https://cloud-api.yandex.net/v1/disk/resources?path=/&fields=_embedded.items.name,_embedded.items.type,_embedded.items.path&limit=100"
+            val jsonText = appHttpClient.get(url) {
+                header("Authorization", "OAuth $oauth")
+            }.body<String>()
+            val json = Json { ignoreUnknownKeys = true }
+            val root = json.parseToJsonElement(jsonText).jsonObject
+            val embedded = root["_embedded"]?.jsonObject
+            val items = embedded?.get("items")?.jsonArray ?: return emptyList()
+            val result = mutableListOf<Pair<String, String>>()
+            for (item in items) {
+                val obj = item.jsonObject
+                val type = obj["type"]?.jsonPrimitive?.content
+                if (type == "dir") {
+                    val path = obj["path"]?.jsonPrimitive?.content ?: continue
+                    val name = obj["name"]?.jsonPrimitive?.content ?: path
+                    result.add(path to name)
+                }
+            }
+            result
+        }.getOrDefault(emptyList())
     }
 
     override suspend fun search(query: String): List<RemoteTrack> {

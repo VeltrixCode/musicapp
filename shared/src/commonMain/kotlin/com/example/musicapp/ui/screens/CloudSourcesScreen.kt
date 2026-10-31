@@ -1,6 +1,7 @@
 package com.example.musicapp.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,9 +10,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Save
@@ -43,6 +48,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -94,6 +100,7 @@ fun CloudSourcesScreen(
 
     // Synchronize settings with singleton services
     remember(appSettings.fetchOnlineLyrics) { LyricsService.fetchOnlineLyrics = appSettings.fetchOnlineLyrics }
+    remember(appSettings.fetchOnlineCovers) { CoverArtService.loadOnlineCovers = appSettings.fetchOnlineCovers }
     remember(appSettings.offlineMode) {
         LyricsService.offlineMode = appSettings.offlineMode
         CoverArtService.offlineMode = appSettings.offlineMode
@@ -102,6 +109,26 @@ fun CloudSourcesScreen(
     val isGDriveSignedIn by registry.gdrive.isSignedIn.collectAsState()
     val isYandexSignedIn by registry.yandex.isSignedIn.collectAsState()
     val isSyncing by registry.isSyncing.collectAsState()
+
+    // Auto-fetch real user account emails from APIs
+    LaunchedEffect(isGDriveSignedIn) {
+        if (isGDriveSignedIn && (appSettings.gdriveAccountEmail == null || appSettings.gdriveAccountEmail == "Google OAuth User" || appSettings.gdriveAccountEmail == "Google Token User")) {
+            val email = registry.gdrive.fetchAccountEmail()
+            if (!email.isNullOrBlank()) {
+                appSettings = appSettings.copy(gdriveAccountEmail = email)
+                settingsRepo.save(appSettings)
+            }
+        }
+    }
+    LaunchedEffect(isYandexSignedIn) {
+        if (isYandexSignedIn && (appSettings.yandexAccountEmail == null || appSettings.yandexAccountEmail == "Yandex OAuth User")) {
+            val email = registry.yandex.fetchAccountEmail()
+            if (!email.isNullOrBlank()) {
+                appSettings = appSettings.copy(yandexAccountEmail = email)
+                settingsRepo.save(appSettings)
+            }
+        }
+    }
 
     var gdriveTokenInput by remember { mutableStateOf("") }
     var yandexTokenInput by remember { mutableStateOf("") }
@@ -112,6 +139,9 @@ fun CloudSourcesScreen(
     var showGDriveFolderDialog by remember { mutableStateOf(false) }
     var showYandexFolderDialog by remember { mutableStateOf(false) }
     var folderInput by remember { mutableStateOf("") }
+    var gdriveFolders by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var yandexFolders by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var isLoadingFolders by remember { mutableStateOf(false) }
 
     // API Config State
     var googleClientIdInput by remember { mutableStateOf(AppConfig.googleClientId) }
@@ -160,6 +190,11 @@ fun CloudSourcesScreen(
             onSelectFolder = {
                 folderInput = appSettings.gdriveSyncFolderId ?: ""
                 showGDriveFolderDialog = true
+                isLoadingFolders = true
+                scope.launch {
+                    gdriveFolders = registry.gdrive.listFolders()
+                    isLoadingFolders = false
+                }
             },
             onConnect = {
                 showGDriveTokenDialog = true
@@ -226,6 +261,11 @@ fun CloudSourcesScreen(
             onSelectFolder = {
                 folderInput = appSettings.yandexSyncFolderId ?: ""
                 showYandexFolderDialog = true
+                isLoadingFolders = true
+                scope.launch {
+                    yandexFolders = registry.yandex.listFolders()
+                    isLoadingFolders = false
+                }
             },
             onConnect = {
                 showYandexTokenDialog = true
@@ -265,6 +305,8 @@ fun CloudSourcesScreen(
             FolderSelectionDialog(
                 title = "Папка синхронизации Google Диска",
                 currentFolder = folderInput,
+                folders = gdriveFolders,
+                isLoading = isLoadingFolders,
                 onDismiss = { showGDriveFolderDialog = false },
                 onSave = { selected ->
                     appSettings = appSettings.copy(gdriveSyncFolderId = selected.takeIf { it.isNotBlank() })
@@ -279,6 +321,8 @@ fun CloudSourcesScreen(
             FolderSelectionDialog(
                 title = "Папка синхронизации Яндекс Диска",
                 currentFolder = folderInput,
+                folders = yandexFolders,
+                isLoading = isLoadingFolders,
                 onDismiss = { showYandexFolderDialog = false },
                 onSave = { selected ->
                     appSettings = appSettings.copy(yandexSyncFolderId = selected.takeIf { it.isNotBlank() })
@@ -408,9 +452,40 @@ fun CloudSourcesScreen(
                     )
                 }
 
+                // Privacy toggle 2: Online covers
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Загружать обложки альбомов из интернета",
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "Поиск недостающих обложек в iTunes и MusicBrainz / Cover Art Archive с rate limit и 7-дневным негативным кэшем.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppColors.TextSecondary
+                        )
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Switch(
+                        checked = appSettings.fetchOnlineCovers,
+                        onCheckedChange = { enabled ->
+                            appSettings = appSettings.copy(fetchOnlineCovers = enabled)
+                            CoverArtService.loadOnlineCovers = enabled
+                            settingsRepo.save(appSettings)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
+                    )
+                }
+
                 Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
 
-                // Privacy toggle 2: Offline mode
+                // Privacy toggle 3: Offline mode
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -860,6 +935,8 @@ private fun CloudProviderItem(
 private fun FolderSelectionDialog(
     title: String,
     currentFolder: String,
+    folders: List<Pair<String, String>> = emptyList(),
+    isLoading: Boolean = false,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
 ) {
@@ -869,17 +946,77 @@ private fun FolderSelectionDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
-            Column {
+            Column(modifier = Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
                 Text(
-                    "Укажите ID или путь к папке (оставьте пустым для синхронизации всех аудиофайлов):",
+                    "Выберите папку из списка или укажите вручную:",
                     style = MaterialTheme.typography.bodySmall,
                     color = AppColors.TextSecondary
                 )
                 Spacer(Modifier.height(8.dp))
+
+                if (isLoading) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(color = AppColors.Accent, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Загрузка папок из хранилища...", style = MaterialTheme.typography.bodySmall, color = AppColors.TextMuted)
+                    }
+                } else if (folders.isNotEmpty()) {
+                    Text("Найденные папки в облаке:", style = MaterialTheme.typography.labelSmall, color = AppColors.TextMuted)
+                    Spacer(Modifier.height(4.dp))
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(AppColors.Background)
+                            .padding(4.dp)
+                    ) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (text.isBlank()) AppColors.SurfaceElevated else Color.Transparent)
+                                    .clickable { text = "" }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Корень хранилища (вся музыка)", style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary))
+                            }
+                        }
+                        items(folders) { pair ->
+                            val fId = pair.first
+                            val fName = pair.second
+                            val isSel = text == fId || text == fName
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isSel) AppColors.SurfaceElevated else Color.Transparent)
+                                    .clickable { text = fId }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.Folder, contentDescription = null, tint = if (isSel) AppColors.Accent else AppColors.TextMuted, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(fName, style = MaterialTheme.typography.bodySmall.copy(color = if (isSel) AppColors.Accent else AppColors.TextPrimary), maxLines = 1)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    placeholder = { Text("Например: Music или folder_id", color = AppColors.TextMuted) },
+                    label = { Text("ID или имя папки") },
+                    placeholder = { Text("Оставьте пустым для всей музыки", color = AppColors.TextMuted) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -890,7 +1027,7 @@ private fun FolderSelectionDialog(
                 onClick = { onSave(text.trim()) },
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
             ) {
-                Text("Сохранить", color = Color.Black, fontWeight = FontWeight.Bold)
+                Text("Выбрать", color = Color.Black, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

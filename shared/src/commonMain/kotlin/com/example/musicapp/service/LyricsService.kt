@@ -111,4 +111,8 @@ object LyricsService {
     fun clearCache() {
         memoryCache.clear()
     }
+
+    fun close() {
+        clearCache()
+    }
 }

@@ -199,15 +199,26 @@ class Library {
         track.source?.let { AppStorage.deleteFile(it) }
     }
 
+    private val sessionResolvedTrackDurations = mutableSetOf<String>()
+
     /**
      * Updates track duration from the authoritative audio player and saves to storage.
+     * Rules:
+     * - Threshold: 1s (|old - new| >= 1000L)
+     * - Ignore 0 and unknown (<= 0L or invalid)
+     * - At most one save per track per session
      */
     fun updateTrackDuration(trackId: String, durationMs: Long) {
-        if (durationMs <= 0L) return
+        if (durationMs <= 0L || durationMs >= Long.MAX_VALUE - 1000L) return
+        if (sessionResolvedTrackDurations.contains(trackId)) return
         val idx = tracks.indexOfFirst { it.id == trackId }
-        if (idx >= 0 && tracks[idx].durationMs != durationMs) {
-            tracks[idx] = tracks[idx].copy(durationMs = durationMs)
-            save()
+        if (idx >= 0) {
+            val oldDuration = tracks[idx].durationMs
+            if (kotlin.math.abs(oldDuration - durationMs) >= 1000L) {
+                tracks[idx] = tracks[idx].copy(durationMs = durationMs)
+                sessionResolvedTrackDurations.add(trackId)
+                save()
+            }
         }
     }
 

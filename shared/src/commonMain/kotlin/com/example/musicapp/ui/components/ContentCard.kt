@@ -162,26 +162,3 @@ fun ContentCard(
         }
     }
 }
-
-@Composable
-fun SpotifyContentCard(
-    title: String,
-    subtitle: String,
-    modifier: Modifier = Modifier,
-    cardWidth: Dp = 175.dp,
-    isArtist: Boolean = false,
-    isPlaying: Boolean = false,
-    badgeText: String? = null,
-    onClick: () -> Unit,
-    onPlayClick: () -> Unit,
-) = ContentCard(
-    title = title,
-    subtitle = subtitle,
-    modifier = modifier,
-    cardWidth = cardWidth,
-    isArtist = isArtist,
-    isPlaying = isPlaying,
-    badgeText = badgeText,
-    onClick = onClick,
-    onPlayClick = onPlayClick
-)

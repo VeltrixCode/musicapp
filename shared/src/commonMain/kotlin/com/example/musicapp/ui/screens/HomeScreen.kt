@@ -77,7 +77,7 @@ import com.example.musicapp.player.AudioPlayer
 import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.fallbackGradientFor
 import com.example.musicapp.ui.components.FavoritesCoverBox
-import com.example.musicapp.ui.components.SpotifyContentCard
+import com.example.musicapp.ui.components.ContentCard
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -202,7 +202,7 @@ fun HomeScreen(
         // Shelf 1: "Недавно слушали"
         val recentlyPlayed = library.recentlyPlayedIds.mapNotNull { id -> library.tracks.find { it.id == id } }
         if (recentlyPlayed.isNotEmpty()) {
-            SpotifyShelf(
+            ContentShelf(
                 title = "Недавно слушали",
                 tracks = recentlyPlayed,
                 player = player,
@@ -213,7 +213,7 @@ fun HomeScreen(
 
         // Shelf 2: "Ваши миксы" (shown only when library has real tracks)
         if (mixOfDay.isNotEmpty() || recentlyAdded.isNotEmpty() || frequentlyPlayed.isNotEmpty()) {
-            SpotifyMixesShelf(
+            MixesShelf(
                 mixOfDay = mixOfDay,
                 recentTracks = recentlyAdded,
                 frequentTracks = frequentlyPlayed,
@@ -225,7 +225,7 @@ fun HomeScreen(
 
         // Shelf 3: "Новое в облаке"
         if (cloudTracks.isNotEmpty()) {
-            SpotifyShelf(
+            ContentShelf(
                 title = "Синхронизировано из облака",
                 tracks = cloudTracks,
                 player = player,
@@ -240,7 +240,7 @@ fun HomeScreen(
             Spacer(Modifier.height(28.dp))
         } else if (jamendoPopular.isNotEmpty()) {
             val converted = jamendoPopular.map { it.toTrack() }
-            SpotifyShelf(
+            ContentShelf(
                 title = "Популярное в Jamendo (Лицензия CC)",
                 tracks = converted,
                 player = player,
@@ -255,7 +255,7 @@ fun HomeScreen(
             ShelfSkeleton(title = "Открытая музыка Audius")
         } else if (audiusTrending.isNotEmpty()) {
             val converted = audiusTrending.map { it.toTrack() }
-            SpotifyShelf(
+            ContentShelf(
                 title = "Открытая музыка Audius",
                 tracks = converted,
                 player = player,
@@ -424,7 +424,7 @@ private fun QuickGridCard(
 }
 
 @Composable
-fun SpotifyShelf(
+fun ContentShelf(
     title: String,
     tracks: List<Track>,
     player: AudioPlayer,
@@ -482,7 +482,7 @@ fun SpotifyShelf(
         ) {
             items(tracks, key = { it.id }) { track ->
                 val isPlayingThis = player.current?.id == track.id && player.isPlaying
-                SpotifyContentCard(
+                ContentCard(
                     title = track.title,
                     subtitle = track.artist,
                     badgeText = badge ?: if (track.isCloud) track.sourceProvider.name else null,
@@ -498,7 +498,7 @@ fun SpotifyShelf(
 }
 
 @Composable
-private fun SpotifyMixesShelf(
+private fun MixesShelf(
     mixOfDay: List<Track>,
     recentTracks: List<Track>,
     frequentTracks: List<Track>,
@@ -518,7 +518,7 @@ private fun SpotifyMixesShelf(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SpotifyContentCard(
+            ContentCard(
                 title = "Микс дня",
                 subtitle = "Обновляется каждый день на основе ваших предпочтений",
                 cardWidth = 190.dp,
@@ -527,7 +527,7 @@ private fun SpotifyMixesShelf(
                     if (mixOfDay.isNotEmpty()) player.play(mixOfDay.first(), mixOfDay)
                 }
             )
-            SpotifyContentCard(
+            ContentCard(
                 title = "Недавно добавленное",
                 subtitle = "Свежие треки, добавленные в вашу библиотеку",
                 cardWidth = 190.dp,
@@ -536,7 +536,7 @@ private fun SpotifyMixesShelf(
                     if (recentTracks.isNotEmpty()) player.play(recentTracks.first(), recentTracks)
                 }
             )
-            SpotifyContentCard(
+            ContentCard(
                 title = "Часто слушаемое",
                 subtitle = "Треки на репите в вашем плеере",
                 cardWidth = 190.dp,
