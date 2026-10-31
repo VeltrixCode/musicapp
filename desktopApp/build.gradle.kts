@@ -36,6 +36,8 @@ compose.desktop {
                 "java.instrument",
                 "java.naming",
                 "java.net.http",
+                "java.sql",
+                "java.security.jgss",
                 "jdk.unsupported",
                 "jdk.crypto.ec",
                 "jdk.jfr"

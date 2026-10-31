@@ -164,17 +164,27 @@ private class JavaFxPlayerEngine : PlayerEngine {
         }
     }
 
-    private fun safeDisposePlayer() {
-        player?.let { p ->
-            try { p.stop() } catch (_: Throwable) {}
-            p.audioSpectrumListener = null
-            p.onReady = null
-            p.onEndOfMedia = null
-            p.onError = null
-            p.onHalted = null
-            try { p.dispose() } catch (_: Throwable) {}
+    private fun runOnFxThread(action: () -> Unit) {
+        if (Platform.isFxApplicationThread()) {
+            action()
+        } else {
+            Platform.runLater(action)
         }
-        player = null
+    }
+
+    private fun safeDisposePlayer() {
+        runOnFxThread {
+            player?.let { p ->
+                try { p.stop() } catch (_: Throwable) {}
+                p.audioSpectrumListener = null
+                p.onReady = null
+                p.onEndOfMedia = null
+                p.onError = null
+                p.onHalted = null
+                try { p.dispose() } catch (_: Throwable) {}
+            }
+            player = null
+        }
     }
 
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit) {
@@ -298,7 +308,7 @@ private class JavaFxPlayerEngine : PlayerEngine {
     override fun durationMs(): Long =
         player?.media?.duration?.toMillis()?.takeIf { !it.isNaN() && it > 0 }?.toLong() ?: 0L
 
-    override fun release() = Platform.runLater {
+    override fun release() = runOnFxThread {
         safeDisposePlayer()
         pendingSeekMs = null
     }

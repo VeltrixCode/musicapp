@@ -20,6 +20,10 @@ object CrashReporter {
             val key = match.value.substringBefore('=')
             "$key=***"
         }
+        result = result.replace(Regex("""(?i)\b(client_secret|clientsecret|secret|api_secret)=[^&\s]+""")) { match ->
+            val key = match.value.substringBefore('=')
+            "$key=***"
+        }
         result = result.replace(Regex("""(?i)\b(salt)=[^&\s]+""")) { match ->
             val key = match.value.substringBefore('=')
             "$key=***"
@@ -40,6 +44,10 @@ object CrashReporter {
         }
         result = result.replace(Regex("""(?i)\b(Basic\s+)[A-Za-z0-9+/=]+""")) { match ->
             "${match.groupValues[1]}***"
+        }
+        // Mask passwords in URLs (e.g., https://user:password@hostname:port/path)
+        result = result.replace(Regex("""(?i)(https?://[^:\s/@]+:)([^@\s]+)(@)""")) { match ->
+            "${match.groupValues[1]}***${match.groupValues[3]}"
         }
         return result
     }

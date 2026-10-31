@@ -27,6 +27,8 @@ import java.net.URI
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+const val PROXY_SESSION_GRACE_PERIOD_MS = 5_000L // 5 seconds grace window for initial registration
+
 data class ProxySession(
     val token: String,
     val trackId: String,
@@ -46,11 +48,11 @@ data class ProxySession(
         if (now - lastAccessMs > ttlMs) return true
 
         // Grace period: if player has not yet initialized active playback queue, allow grace period
-        // for newly registered sessions so that initial requests succeed before player state updates
+        // for newly registered sessions (limited to 5 seconds) so that initial requests succeed before player state updates
         val hasActivePlaybackState = AudioOfflineCache.currentlyPlayingTrackId != null ||
                 AudioOfflineCache.currentlyQueuedTrackIds.isNotEmpty()
         if (!hasActivePlaybackState) {
-            val isNew = now - createdAtMs < 120_000L
+            val isNew = now - createdAtMs < PROXY_SESSION_GRACE_PERIOD_MS
             if (isNew) return false
         }
 

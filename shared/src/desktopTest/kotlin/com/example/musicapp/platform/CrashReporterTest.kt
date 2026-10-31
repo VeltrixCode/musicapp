@@ -23,6 +23,24 @@ class CrashReporterTest {
     }
 
     @Test
+    fun testSanitizeAccessTokenAndClientSecret() {
+        val input = "OAuth error: access_token=ya29.a0AfH6SM...&client_secret=GOCSPX-superSecretKey123"
+        val sanitized = CrashReporter.sanitize(input)
+        assertFalse(sanitized.contains("ya29.a0AfH6SM"), "access_token must be masked")
+        assertFalse(sanitized.contains("GOCSPX-superSecretKey123"), "client_secret must be masked")
+        assertTrue(sanitized.contains("access_token=***"))
+        assertTrue(sanitized.contains("client_secret=***"))
+    }
+
+    @Test
+    fun testSanitizePasswordsInUrl() {
+        val input = "Failed connecting to https://subsonicUser:superSecretPass@music.example.org:4533/rest/stream"
+        val sanitized = CrashReporter.sanitize(input)
+        assertFalse(sanitized.contains("superSecretPass"), "Password in URL authority must be masked")
+        assertTrue(sanitized.contains("https://subsonicUser:***@music.example.org:4533/rest/stream"))
+    }
+
+    @Test
     fun testSanitizeAuthHeaders() {
         val input = "Failed request: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.xyz.123"
         val sanitized = CrashReporter.sanitize(input)
