@@ -52,14 +52,20 @@ object ArtworkCache {
                 }
             }
             if (count > 0) {
+                val rawR = (rSum.toFloat() / count / 255f).coerceIn(0f, 1f)
+                val rawG = (gSum.toFloat() / count / 255f).coerceIn(0f, 1f)
+                val rawB = (bSum.toFloat() / count / 255f).coerceIn(0f, 1f)
+                val lum = 0.299f * rawR + 0.587f * rawG + 0.114f * rawB
+                // Clamp max luminance so the header gradient remains moody and readable
+                val factor = if (lum > 0.62f) 0.62f / lum else 1.0f
                 Color(
-                    red = (rSum / count / 255f).coerceIn(0f, 1f),
-                    green = (gSum / count / 255f).coerceIn(0f, 1f),
-                    blue = (bSum / count / 255f).coerceIn(0f, 1f),
+                    red = (rawR * factor).coerceIn(0f, 1f),
+                    green = (rawG * factor).coerceIn(0f, 1f),
+                    blue = (rawB * factor).coerceIn(0f, 1f),
                     alpha = 1.0f
                 )
             } else null
-        }.getOrNull() ?: Color(0xFF1DB954)
+        }.getOrNull() ?: Color(0xFF1E3264)
 
         dominantColorMap[path] = color
         return color

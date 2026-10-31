@@ -118,7 +118,8 @@ interface AudioPlayer {
 }
 
 class PlayerController(
-    private val settingsRepository: SettingsRepository = SettingsRepository(),
+    val settingsRepository: SettingsRepository = SettingsRepository(),
+    var onTrackDurationResolved: ((trackId: String, durationMs: Long) -> Unit)? = null,
 ) : AudioPlayer {
     private val engine = createPlayerEngine()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -547,9 +548,14 @@ class PlayerController(
         scope.cancel()
         sleepTimerJob?.cancel()
         engine.release()
+        com.example.musicapp.platform.onPlaybackReleased()
     }
 
     private fun start(track: Track) {
+        val previousTrackId = current?.id
+        if (previousTrackId != null && previousTrackId != track.id) {
+            com.example.musicapp.platform.onPlaybackTrackChanged(previousTrackId, track.id)
+        }
         current = track
         positionMs = 0
         durationMs = track.durationMs
@@ -607,6 +613,7 @@ class PlayerController(
                                 if (current?.id == track.id) {
                                     current = track.copy(durationMs = authoritativeDur)
                                 }
+                                onTrackDurationResolved?.invoke(track.id, authoritativeDur)
                             }
                             syncState()
                         }

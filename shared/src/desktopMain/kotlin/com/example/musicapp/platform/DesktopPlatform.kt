@@ -125,6 +125,16 @@ actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.exampl
     }
 }
 
+actual fun onPlaybackTrackChanged(previousTrackId: String?, newTrackId: String?) {
+    if (previousTrackId != null && previousTrackId != newTrackId) {
+        com.example.musicapp.proxy.LocalStreamingProxy.invalidateSessionsForTrack(previousTrackId)
+    }
+}
+
+actual fun onPlaybackReleased() {
+    com.example.musicapp.proxy.LocalStreamingProxy.invalidateAllSessions()
+}
+
 /** Handles external drag-and-drop of audio files into the desktop app. */
 fun importLocalAudioFile(sourceFile: File): Track {
     val uploads = File(System.getProperty("user.home"), "JVXMusic/uploads").apply { mkdirs() }

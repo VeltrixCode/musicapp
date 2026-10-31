@@ -17,7 +17,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class ProviderRegistry(
-    val gdrive: GoogleDriveProvider = GoogleDriveProvider(),
+    val gdrive: GoogleDriveProvider = GoogleDriveProvider(
+        onTokenRefreshNeeded = {
+            com.example.musicapp.oauth.GoogleOAuth.refreshAccessToken().getOrNull()
+        }
+    ),
     val yandex: YandexDiskProvider = YandexDiskProvider(),
     val jamendo: JamendoProvider = JamendoProvider(),
     val audius: AudiusProvider = AudiusProvider(),

@@ -18,8 +18,12 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/**
+ * Unique JVXMusic signature gradient for "Любимые треки" (Favorites):
+ * Distinct emerald-teal tones replacing the third-party purple look.
+ */
 val FavoritesGradient = Brush.linearGradient(
-    colors = listOf(Color(0xFF450AF5), Color(0xFF8E8EE5)),
+    colors = listOf(Color(0xFF0D3328), Color(0xFF0F5A3E), Color(0xFF1DB954)),
     start = Offset(0f, Float.POSITIVE_INFINITY),
     end = Offset(Float.POSITIVE_INFINITY, 0f)
 )

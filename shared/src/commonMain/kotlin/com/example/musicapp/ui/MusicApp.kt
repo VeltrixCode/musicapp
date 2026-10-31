@@ -5,8 +5,13 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.derivedStateOf
+import com.example.musicapp.settings.AppSettings
+import com.example.musicapp.settings.SettingsRepository
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
@@ -274,6 +279,12 @@ fun MusicApp(
         }
     }
 
+    LaunchedEffect(player, library) {
+        (player as? PlayerController)?.onTrackDurationResolved = { trackId, resolvedDur ->
+            library.updateTrackDuration(trackId, resolvedDur)
+        }
+    }
+
     AppTheme {
         val spacing = LocalSpacing.current
 
@@ -428,11 +439,11 @@ fun MusicApp(
                                     AnimatedContent(
                                         targetState = currentScreen,
                                         transitionSpec = {
-                                            (fadeIn(animationSpec = tween(220, delayMillis = 30)) +
-                                                    slideInHorizontally(animationSpec = tween(220)) { it / 8 })
+                                            (fadeIn(animationSpec = tween(200, easing = LinearEasing)) +
+                                                    slideInHorizontally(animationSpec = tween(200, easing = FastOutSlowInEasing)) { it / 10 })
                                                 .togetherWith(
-                                                    fadeOut(animationSpec = tween(160)) +
-                                                            slideOutHorizontally(animationSpec = tween(160)) { -it / 8 }
+                                                    fadeOut(animationSpec = tween(150, easing = LinearEasing)) +
+                                                            slideOutHorizontally(animationSpec = tween(150, easing = FastOutSlowInEasing)) { -it / 10 }
                                                 )
                                         }
                                     ) { screen ->
@@ -657,8 +668,8 @@ fun MusicApp(
     if (showCreatePlaylistDialog) {
         CreatePlaylistDialog(
             onDismiss = { showCreatePlaylistDialog = false },
-            onCreate = { name ->
-                library.createPlaylist(name)
+            onCreate = { name, description, coverUrl ->
+                library.createPlaylist(name, description, coverUrl)
                 showCreatePlaylistDialog = false
                 coroutineScope.launch {
                     snackbarHostState.showSnackbar("Плейлист «$name» создан")
@@ -977,24 +988,94 @@ private fun SpotifySidebar(
             Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
             Spacer(Modifier.height(spacing.sm))
 
-            // Playlists Section Header
+            var selectedFilter by remember { mutableStateOf("Плейлисты") }
+            var sortOrder by remember { mutableStateOf("Пользовательский") }
+            var isGrid by remember { mutableStateOf(false) }
+
+            // Library Filter Chips & Controls
             if (!isCompact) {
+                // Filter chips: Плейлисты, Альбомы, Исполнители, Скачанные
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.xs),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf("Плейлисты", "Альбомы", "Исполнители", "Скачанные").forEach { f ->
+                        val isSel = selectedFilter == f
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSel) AppColors.Accent else AppColors.SurfaceElevated)
+                                .clickable { selectedFilter = if (isSel && f != "Плейлисты") "Плейлисты" else f }
+                                .padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                f,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSel) Color.Black else AppColors.TextPrimary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(spacing.xs))
+
+                // Sort Dropdown & List/Grid Toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.xxs),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("ПЛЕЙЛИСТЫ", style = MaterialTheme.typography.labelSmall)
-                    IconButton(
-                        onClick = onCreatePlaylist,
-                        modifier = Modifier.size(28.dp),
-                        colors = IconButtonDefaults.iconButtonColors(contentColor = AppColors.TextSecondary)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = "Создать плейлист",
-                            modifier = Modifier.size(18.dp)
-                        )
+                    var sortMenuOpen by remember { mutableStateOf(false) }
+                    Box {
+                        TextButton(
+                            onClick = { sortMenuOpen = true },
+                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Text(sortOrder, fontSize = 11.sp, color = AppColors.TextSecondary)
+                            Spacer(Modifier.width(2.dp))
+                            Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(12.dp))
+                        }
+                        DropdownMenu(
+                            expanded = sortMenuOpen,
+                            onDismissRequest = { sortMenuOpen = false },
+                            modifier = Modifier.background(AppColors.SurfaceElevated)
+                        ) {
+                            listOf("Пользовательский", "По алфавиту", "Недавние").forEach { order ->
+                                DropdownMenuItem(
+                                    text = { Text(order, fontSize = 12.sp) },
+                                    onClick = {
+                                        sortOrder = order
+                                        sortMenuOpen = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = { isGrid = !isGrid },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isGrid) Icons.Rounded.ViewList else Icons.Rounded.GridView,
+                                contentDescription = "Вид",
+                                tint = AppColors.TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onCreatePlaylist,
+                            modifier = Modifier.size(26.dp),
+                            colors = IconButtonDefaults.iconButtonColors(contentColor = AppColors.TextSecondary)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Создать плейлист",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             } else {
@@ -1014,72 +1095,169 @@ private fun SpotifySidebar(
                 }
             }
 
-            Spacer(Modifier.height(spacing.xs))
+            Spacer(Modifier.height(spacing.xxs))
 
-            // Playlists List
+            val displayedPlaylists = remember(library.playlists.size, sortOrder, library.playlists.map { it.name }) {
+                when (sortOrder) {
+                    "По алфавиту" -> library.playlists.sortedBy { it.name.lowercase() }
+                    "Недавние" -> library.playlists.reversed()
+                    else -> library.playlists
+                }
+            }
+            val distinctAlbums = remember(library.tracks.size) {
+                library.tracks.map { it.album }.filter { it.isNotBlank() && it != "Неизвестный альбом" }.distinct().sorted()
+            }
+            val distinctArtists = remember(library.tracks.size) {
+                library.tracks.map { it.artist }.filter { it.isNotBlank() && it != "Неизвестный исполнитель" }.distinct().sorted()
+            }
+
+            // Playlists / Categories List
             LazyColumn(Modifier.weight(1f)) {
-                itemsIndexed(library.playlists, key = { _, p -> p.id }) { _, p ->
-                    val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
-                    val isFav = p.id == FAVORITES_PLAYLIST_ID
-                    val itemInteraction = remember { MutableInteractionSource() }
-                    val isItemHovered by itemInteraction.collectIsHoveredAsState()
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .hoverable(itemInteraction)
-                            .background(
-                                when {
-                                    isSelected -> AppColors.SurfaceElevated
-                                    isItemHovered -> AppColors.CardHover
-                                    else -> Color.Transparent
-                                }
-                            )
-                            .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
-                            .padding(horizontal = if (isCompact) spacing.xxs else spacing.xs, vertical = spacing.xs),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
-                    ) {
-                        if (isFav) {
-                            FavoritesCoverBox(
-                                modifier = Modifier.size(32.dp),
-                                iconSize = 16.dp,
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                        } else {
-                            Box(
+                when (selectedFilter) {
+                    "Альбомы" -> {
+                        itemsIndexed(distinctAlbums, key = { _, alb -> alb }) { _, alb ->
+                            val itemInteraction = remember { MutableInteractionSource() }
+                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                            Row(
                                 modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(fallbackGradientFor(p.name)),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .hoverable(itemInteraction)
+                                    .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                    .clickable { onNavigate(AppScreen.SmartMixView(alb)) }
+                                    .padding(horizontal = spacing.xs, vertical = spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.QueueMusic,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(spacing.xs))
+                                Text(alb, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
-                        if (!isCompact) {
-                            Spacer(Modifier.width(spacing.xs))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    p.name,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        color = if (isSelected) AppColors.Accent else if (isItemHovered) AppColors.TextPrimary else AppColors.TextSecondary,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    pluralRu(p.trackIds.size, "трек", "трека", "треков"),
-                                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
-                                    fontSize = 11.sp
-                                )
+                    }
+                    "Исполнители" -> {
+                        itemsIndexed(distinctArtists, key = { _, art -> art }) { _, art ->
+                            val itemInteraction = remember { MutableInteractionSource() }
+                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .hoverable(itemInteraction)
+                                    .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                    .clickable { onNavigate(AppScreen.SmartMixView(art)) }
+                                    .padding(horizontal = spacing.xs, vertical = spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(spacing.xs))
+                                Text(art, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    "Скачанные" -> {
+                        val downloaded = library.getOfflineDownloadedTracks()
+                        itemsIndexed(downloaded, key = { _, tr -> tr.id }) { _, tr ->
+                            val itemInteraction = remember { MutableInteractionSource() }
+                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .hoverable(itemInteraction)
+                                    .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                    .clickable { onNavigate(AppScreen.Library) }
+                                    .padding(horizontal = spacing.xs, vertical = spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(spacing.xs))
+                                Text(tr.title, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    else -> {
+                        itemsIndexed(displayedPlaylists, key = { _, p -> p.id }) { _, p ->
+                            val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
+                            val isFav = p.id == FAVORITES_PLAYLIST_ID
+                            val itemInteraction = remember { MutableInteractionSource() }
+                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .hoverable(itemInteraction)
+                                    .background(
+                                        when {
+                                            isSelected -> AppColors.SurfaceElevated
+                                            isItemHovered -> AppColors.CardHover
+                                            else -> Color.Transparent
+                                        }
+                                    )
+                                    .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
+                                    .padding(horizontal = if (isCompact) spacing.xxs else spacing.xs, vertical = spacing.xs),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
+                            ) {
+                                if (isFav) {
+                                    FavoritesCoverBox(
+                                        modifier = Modifier.size(32.dp),
+                                        iconSize = 16.dp,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(fallbackGradientFor(p.name)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.QueueMusic,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                if (!isCompact) {
+                                    Spacer(Modifier.width(spacing.xs))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            p.name,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                color = if (isSelected) AppColors.Accent else if (isItemHovered) AppColors.TextPrimary else AppColors.TextSecondary,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                            ),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            pluralRu(p.trackIds.size, "трек", "трека", "треков"),
+                                            style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
+                                            fontSize = 11.sp
+                                        )
+                                    }
+
+                                    // Manual playlist reordering (up/down arrows when custom sort)
+                                    if (isItemHovered && sortOrder == "Пользовательский" && !p.isSystem) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = { library.movePlaylist(p.id, moveUp = true) },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(Icons.Rounded.ArrowUpward, contentDescription = "Выше", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                            }
+                                            IconButton(
+                                                onClick = { library.movePlaylist(p.id, moveUp = false) },
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(Icons.Rounded.ArrowDownward, contentDescription = "Ниже", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1183,7 +1361,7 @@ private fun HeroBanner(
 
     val dominantColor = remember(coverSource, coverBitmap, isFavorites) {
         if (isFavorites) {
-            Color(0xFF450AF5)
+            Color(0xFF0F5A3E)
         } else if (coverSource != null && coverBitmap != null) {
             ArtworkCache.getDominantColor(coverSource) ?: ArtworkCache.computeAndStoreDominantColor(coverSource, coverBitmap!!)
         } else {
@@ -1291,6 +1469,65 @@ private fun HeroBanner(
 }
 
 // ==========================================
+// Sticky Compact Header with Dominant Gradient & Play Button
+// ==========================================
+@Composable
+private fun StickyCompactHeader(
+    title: String,
+    dominantColor: Color,
+    canPlay: Boolean,
+    isPlaying: Boolean,
+    onPlayAll: () -> Unit,
+    visible: Boolean,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { -it },
+        exit = fadeOut(tween(140)) + slideOutVertically(tween(140)) { -it },
+    ) {
+        Surface(
+            color = dominantColor.copy(alpha = 0.95f),
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth().height(52.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(if (canPlay) AppColors.Accent else AppColors.SurfaceElevated)
+                        .clickable(enabled = canPlay) { onPlayAll() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (isPlaying) "Пауза" else "Слушать",
+                        tint = Color.Black,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(Modifier.width(12.dp))
+
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
 // Table Header with Sorting
 // ==========================================
 @Composable
@@ -1299,6 +1536,7 @@ private fun TableHeader(
     sortDirection: SortDirection,
     onSort: (SortColumn) -> Unit,
     isCompact: Boolean,
+    showExtendedColumns: Boolean = false,
 ) {
     val spacing = LocalSpacing.current
 
@@ -1331,9 +1569,9 @@ private fun TableHeader(
             }
         }
 
-        // Title: weight(1f)
+        // Title: weight
         Box(
-            modifier = Modifier.weight(1f).clickable { onSort(SortColumn.Title) },
+            modifier = Modifier.weight(if (showExtendedColumns) 1.2f else 1f).clickable { onSort(SortColumn.Title) },
             contentAlignment = Alignment.CenterStart
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1355,10 +1593,59 @@ private fun TableHeader(
             }
         }
 
-        // Duration: 80dp
+        // Extended Columns when screen > 1100dp: Album & Date Added
+        if (showExtendedColumns) {
+            Box(
+                modifier = Modifier.weight(0.8f).clickable { onSort(SortColumn.Album) },
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "АЛЬБОМ",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = if (sortColumn == SortColumn.Album) AppColors.Accent else AppColors.TextMuted
+                        )
+                    )
+                    if (sortColumn == SortColumn.Album) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (sortDirection == SortDirection.Ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                            contentDescription = null,
+                            tint = AppColors.Accent,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier.width(120.dp).clickable { onSort(SortColumn.AddedAt) },
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "ДАТА ДОБАВЛЕНИЯ",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = if (sortColumn == SortColumn.AddedAt) AppColors.Accent else AppColors.TextMuted
+                        )
+                    )
+                    if (sortColumn == SortColumn.AddedAt) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (sortDirection == SortDirection.Ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                            contentDescription = null,
+                            tint = AppColors.Accent,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Duration: 92dp
         if (!isCompact) {
             Box(
-                modifier = Modifier.width(80.dp).clickable { onSort(SortColumn.Duration) },
+                modifier = Modifier.width(92.dp).clickable { onSort(SortColumn.Duration) },
                 contentAlignment = Alignment.CenterEnd
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1381,8 +1668,8 @@ private fun TableHeader(
             }
         }
 
-        // Action spacer: 96dp matching row actions width (no collision with duration)
-        Spacer(Modifier.width(96.dp))
+        // Action spacer for more-options button
+        Spacer(Modifier.width(40.dp))
     }
 
     Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
@@ -1401,6 +1688,7 @@ private fun TrackRowItem(
     isCurrent: Boolean,
     searchQuery: String,
     isCompact: Boolean,
+    showExtendedColumns: Boolean = false,
     playlists: List<Playlist>,
     durationText: String = "",
     onPlay: () -> Unit,
@@ -1503,8 +1791,8 @@ private fun TrackRowItem(
 
             Spacer(Modifier.width(spacing.sm))
 
-            // Title and Artist: weight(1f)
-            Column(Modifier.weight(1f)) {
+            // Title and Artist: weight
+            Column(Modifier.weight(if (showExtendedColumns) 1.2f else 1f)) {
                 Text(
                     text = highlightQuery(track.title, searchQuery, isCurrent),
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -1546,54 +1834,78 @@ private fun TrackRowItem(
                 }
             }
 
-            // Duration: 80dp (Unified source of duration)
-            if (!isCompact) {
+            // Extended Columns when screen > 1100dp: Album & Date Added
+            if (showExtendedColumns) {
                 Text(
-                    text = if (durationText.isNotBlank()) durationText else (if (track.durationMs > 0) formatTime(track.durationMs) else "--:--"),
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = AppColors.TextSecondary,
-                        textAlign = TextAlign.End
-                    ),
-                    modifier = Modifier.width(80.dp),
-                    maxLines = 1
+                    text = if (track.album.isNotBlank() && track.album != "Неизвестный альбом") track.album else "—",
+                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(0.8f).padding(end = 8.dp)
+                )
+                Text(
+                    text = com.example.musicapp.util.formatAddedDate(track.addedAt),
+                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(120.dp)
                 )
             }
 
-            // Actions: 96dp (Always rendered, clear buttons on hover and on compact screens)
-            Row(
-                modifier = Modifier.width(96.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
-                val showActions = isRowHovered || isCompact
-
-                if (showActions) {
-                    // Quick Favorite Heart
-                    IconButton(
-                        onClick = onToggleFavorite,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (track.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                            contentDescription = "В избранное",
-                            tint = if (track.isFavorite) AppColors.Accent else AppColors.TextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    // Context Menu / More Options Button
-                    Box {
+            // Duration: 92dp (with Favorite Heart directly adjacent to duration on hover)
+            if (!isCompact) {
+                Row(
+                    modifier = Modifier.width(92.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    if (isRowHovered || track.isFavorite) {
                         IconButton(
-                            onClick = { contextMenuOpen = true },
-                            modifier = Modifier.size(32.dp)
+                            onClick = onToggleFavorite,
+                            modifier = Modifier.size(28.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.MoreVert,
-                                contentDescription = "Меню трека",
-                                tint = AppColors.TextSecondary,
-                                modifier = Modifier.size(18.dp)
+                                imageVector = if (track.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = "В избранное",
+                                tint = if (track.isFavorite) AppColors.Accent else AppColors.TextSecondary,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
+                    } else {
+                        Spacer(Modifier.width(28.dp))
+                    }
+
+                    Text(
+                        text = if (durationText.isNotBlank()) durationText else (if (track.durationMs > 0) formatTime(track.durationMs) else "--:--"),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = AppColors.TextSecondary,
+                            textAlign = TextAlign.End
+                        ),
+                        modifier = Modifier.width(60.dp),
+                        maxLines = 1
+                    )
+                }
+            }
+
+            // Actions: 40dp (More Options Button)
+            Box(
+                modifier = Modifier.width(40.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val showActions = isRowHovered || isCompact || contextMenuOpen
+
+                if (showActions) {
+                    IconButton(
+                        onClick = { contextMenuOpen = true },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "Меню трека",
+                            tint = AppColors.TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
 
                         DropdownMenu(
                             expanded = contextMenuOpen,
@@ -1654,49 +1966,30 @@ private fun TrackRowItem(
                         }
 
                         // Add to Playlist Dropdown
-                        DropdownMenu(
-                            expanded = menuOpen,
-                            onDismissRequest = { menuOpen = false },
-                            modifier = Modifier.background(AppColors.SurfaceElevated)
-                        ) {
-                            if (playlists.isEmpty()) {
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        modifier = Modifier.background(AppColors.SurfaceElevated)
+                    ) {
+                        if (playlists.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("Нет плейлистов", color = AppColors.TextMuted) },
+                                onClick = { menuOpen = false }
+                            )
+                        } else {
+                            playlists.forEach { p ->
                                 DropdownMenuItem(
-                                    text = { Text("Нет плейлистов", color = AppColors.TextMuted) },
-                                    onClick = { menuOpen = false }
+                                    text = { Text(p.name, color = AppColors.TextPrimary) },
+                                    onClick = {
+                                        onAddToPlaylist(p.id)
+                                        menuOpen = false
+                                    }
                                 )
-                            } else {
-                                playlists.forEach { p ->
-                                    DropdownMenuItem(
-                                        text = { Text(p.name, color = AppColors.TextPrimary) },
-                                        onClick = {
-                                            onAddToPlaylist(p.id)
-                                            menuOpen = false
-                                        }
-                                    )
-                                }
                             }
                         }
                     }
-
-                    // Delete Track Button (Hover turns red)
-                    if (onDelete != null) {
-                        val deleteInteraction = remember { MutableInteractionSource() }
-                        val isDeleteHovered by deleteInteraction.collectIsHoveredAsState()
-
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(32.dp).hoverable(deleteInteraction)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Delete,
-                                contentDescription = "Удалить трек",
-                                tint = if (isDeleteHovered) AppColors.ErrorHover else AppColors.TextSecondary,
-                                modifier = Modifier.size(17.dp)
-                            )
-                        }
-                    }
                 } else {
-                    Spacer(Modifier.size(32.dp))
+                    Spacer(Modifier.size(28.dp))
                 }
             }
         }
@@ -1706,6 +1999,7 @@ private fun TrackRowItem(
 // ==========================================
 // Library View
 // ==========================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun LibraryView(
     library: Library,
@@ -1717,11 +2011,33 @@ private fun LibraryView(
     onRename: (Track) -> Unit,
 ) {
     val spacing = LocalSpacing.current
-    var sortColumn by remember { mutableStateOf(SortColumn.Number) }
-    var sortDirection by remember { mutableStateOf(SortDirection.Ascending) }
+    val savedSettings = remember { (player as? PlayerController)?.settingsRepository?.load() ?: AppSettings() }
+    var sortColumn by remember {
+        mutableStateOf(
+            SortColumn.entries.find { it.name.equals(savedSettings.librarySortColumn, ignoreCase = true) } ?: SortColumn.Number
+        )
+    }
+    var sortDirection by remember {
+        mutableStateOf(
+            SortDirection.entries.find { it.name.equals(savedSettings.librarySortDirection, ignoreCase = true) } ?: SortDirection.Ascending
+        )
+    }
     var pendingDelete by remember { mutableStateOf<Track?>(null) }
     var selectedFilter by remember { mutableStateOf("Все") }
     var isGridView by remember { mutableStateOf(false) }
+
+    val onSortChange: (SortColumn) -> Unit = { col ->
+        val newDir = if (sortColumn == col) {
+            if (sortDirection == SortDirection.Ascending) SortDirection.Descending else SortDirection.Ascending
+        } else {
+            SortDirection.Ascending
+        }
+        sortColumn = col
+        sortDirection = newDir
+        (player as? PlayerController)?.settingsRepository?.let { repo ->
+            repo.save(repo.load().copy(librarySortColumn = col.name, librarySortDirection = newDir.name))
+        }
+    }
 
     val baseList = when (selectedFilter) {
         "Скачанные" -> library.getOfflineDownloadedTracks()
@@ -1750,109 +2066,137 @@ private fun LibraryView(
         else filtered.sortedWith(comparator.reversed())
     }
 
-    Column(Modifier.fillMaxSize()) {
-        val trackCount = library.tracks.size
-        // Bug 2 fix: pluralRu handles the number directly -> "1 трек", "2 трека", "5 треков"
-        HeroBanner(
-            title = "Моя медиатека",
-            subtitle = pluralRu(trackCount, "трек", "трека", "треков"),
-            badge = "КОЛЛЕКЦИЯ",
-            coverSource = sorted.firstOrNull { it.source != null }?.source,
-            canPlay = sorted.any { it.source != null },
-            isPlaying = player.isPlaying && sorted.any { it.id == player.current?.id },
-            onPlayAll = {
-                sorted.firstOrNull { it.source != null }?.let { player.play(it, sorted) }
-            }
-        )
+    val listState = rememberLazyListState()
+    val showStickyHeader by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 200 }
+    }
 
-        Spacer(Modifier.height(spacing.sm))
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val showExtendedColumns = maxWidth > 1100.dp
 
-        // Filter chips and List/Grid toggle
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.xs),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Все", "Скачанные", "Облачные").forEach { filter ->
-                    val isSel = selectedFilter == filter
-                    FilterChip(
-                        selected = isSel,
-                        onClick = { selectedFilter = filter },
-                        label = { Text(filter, fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AppColors.Accent,
-                            selectedLabelColor = Color.Black,
-                            containerColor = AppColors.SurfaceElevated,
-                            labelColor = AppColors.TextPrimary
-                        )
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                item {
+                    val trackCount = library.tracks.size
+                    HeroBanner(
+                        title = "Моя медиатека",
+                        subtitle = pluralRu(trackCount, "трек", "трека", "треков"),
+                        badge = "КОЛЛЕКЦИЯ",
+                        coverSource = sorted.firstOrNull { it.source != null }?.source,
+                        canPlay = sorted.any { it.source != null },
+                        isPlaying = player.isPlaying && sorted.any { it.id == player.current?.id },
+                        onPlayAll = {
+                            sorted.firstOrNull { it.source != null }?.let { player.play(it, sorted) }
+                        }
                     )
                 }
-            }
 
-            IconButton(onClick = { isGridView = !isGridView }) {
-                Icon(
-                    imageVector = if (isGridView) Icons.Rounded.ViewList else Icons.Rounded.GridView,
-                    contentDescription = "Вид",
-                    tint = AppColors.TextSecondary
-                )
-            }
-        }
-
-        Spacer(Modifier.height(spacing.xs))
-
-        TableHeader(
-            sortColumn = sortColumn,
-            sortDirection = sortDirection,
-            onSort = { col ->
-                if (sortColumn == col) {
-                    sortDirection = if (sortDirection == SortDirection.Ascending) SortDirection.Descending else SortDirection.Ascending
-                } else {
-                    sortColumn = col
-                    sortDirection = SortDirection.Ascending
-                }
-            },
-            isCompact = isCompact
-        )
-
-        if (sorted.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Rounded.Search,
-                        contentDescription = null,
-                        tint = AppColors.TextMuted,
-                        modifier = Modifier.size(48.dp)
-                    )
+                item {
                     Spacer(Modifier.height(spacing.sm))
-                    Text(
-                        if (searchQuery.isBlank()) "В медиатеке пока нет треков" else "По запросу «$searchQuery» ничего не найдено",
-                        style = MaterialTheme.typography.bodyLarge.copy(color = AppColors.TextSecondary)
-                    )
+                    // Filter chips and List/Grid toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.xs),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("Все", "Скачанные", "Облачные").forEach { filter ->
+                                val isSel = selectedFilter == filter
+                                FilterChip(
+                                    selected = isSel,
+                                    onClick = { selectedFilter = filter },
+                                    label = { Text(filter, fontSize = 12.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AppColors.Accent,
+                                        selectedLabelColor = Color.Black,
+                                        containerColor = AppColors.SurfaceElevated,
+                                        labelColor = AppColors.TextPrimary
+                                    )
+                                )
+                            }
+                        }
+
+                        IconButton(onClick = { isGridView = !isGridView }) {
+                            Icon(
+                                imageVector = if (isGridView) Icons.Rounded.ViewList else Icons.Rounded.GridView,
+                                contentDescription = "Вид",
+                                tint = AppColors.TextSecondary
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(spacing.xs))
+                }
+
+                stickyHeader {
+                    Box(modifier = Modifier.fillMaxWidth().background(AppColors.Background)) {
+                        TableHeader(
+                            sortColumn = sortColumn,
+                            sortDirection = sortDirection,
+                            onSort = onSortChange,
+                            isCompact = isCompact,
+                            showExtendedColumns = showExtendedColumns
+                        )
+                    }
+                }
+
+                if (sorted.isEmpty()) {
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().height(260.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = null,
+                                    tint = AppColors.TextMuted,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(Modifier.height(spacing.sm))
+                                Text(
+                                    if (searchQuery.isBlank()) "В медиатеке пока нет треков" else "По запросу «$searchQuery» ничего не найдено",
+                                    style = MaterialTheme.typography.bodyLarge.copy(color = AppColors.TextSecondary)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    itemsIndexed(sorted, key = { _, track -> track.id }) { index, track ->
+                        TrackRowItem(
+                            index = index + 1,
+                            track = track,
+                            isPlaying = player.current?.id == track.id && player.isPlaying,
+                            isCurrent = player.current?.id == track.id,
+                            searchQuery = searchQuery,
+                            isCompact = isCompact,
+                            showExtendedColumns = showExtendedColumns,
+                            playlists = library.playlists,
+                            durationText = formatTrackDuration(track, player),
+                            onPlay = { player.play(track, sorted) },
+                            onPlayNext = { player.playNext(track) },
+                            onAddToQueue = { player.addToQueue(track) },
+                            onAddToPlaylist = { pId -> onAddToPlaylist(pId, track) },
+                            onToggleFavorite = { library.toggleFavorite(track) },
+                            onRename = { onRename(track) },
+                            onDelete = { pendingDelete = track }
+                        )
+                    }
                 }
             }
-        } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                itemsIndexed(sorted, key = { _, track -> track.id }) { index, track ->
-                    TrackRowItem(
-                        index = index + 1,
-                        track = track,
-                        isPlaying = player.current?.id == track.id && player.isPlaying,
-                        isCurrent = player.current?.id == track.id,
-                        searchQuery = searchQuery,
-                        isCompact = isCompact,
-                        playlists = library.playlists,
-                        durationText = formatTrackDuration(track, player),
-                        onPlay = { player.play(track, sorted) },
-                        onPlayNext = { player.playNext(track) },
-                        onAddToQueue = { player.addToQueue(track) },
-                        onAddToPlaylist = { pId -> onAddToPlaylist(pId, track) },
-                        onToggleFavorite = { library.toggleFavorite(track) },
-                        onRename = { onRename(track) },
-                        onDelete = { pendingDelete = track }
-                    )
-                }
-            }
+
+            StickyCompactHeader(
+                title = "Моя медиатека",
+                dominantColor = Color(0xFF1E3264),
+                canPlay = sorted.any { it.source != null },
+                isPlaying = player.isPlaying && sorted.any { it.id == player.current?.id },
+                onPlayAll = {
+                    sorted.firstOrNull { it.source != null }?.let { player.play(it, sorted) }
+                },
+                visible = showStickyHeader
+            )
         }
     }
 
@@ -1871,6 +2215,7 @@ private fun LibraryView(
 // ==========================================
 // Playlist Detail View
 // ==========================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlaylistDetailView(
     library: Library,
@@ -1900,74 +2245,118 @@ private fun PlaylistDetailView(
     val tracks = library.tracksIn(playlist)
     var pendingDeletePlaylist by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize()) {
-        if (!playlist.isSystem) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { pendingDeletePlaylist = true }) {
-                    Icon(
-                        imageVector = Icons.Rounded.Delete,
-                        contentDescription = null,
-                        tint = AppColors.Error,
-                        modifier = Modifier.size(16.dp)
+    val isFav = playlist.id == FAVORITES_PLAYLIST_ID
+    val dominantColor = remember(tracks, isFav) {
+        if (isFav) Color(0xFF0F5A3E)
+        else tracks.firstOrNull { it.source != null }?.source?.let { ArtworkCache.getDominantColor(it) } ?: Color(0xFF1E3264)
+    }
+
+    val listState = rememberLazyListState()
+    val showStickyHeader by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 200 }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val showExtendedColumns = maxWidth > 1100.dp
+
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (!playlist.isSystem) {
+                    item {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { pendingDeletePlaylist = true }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Delete,
+                                    contentDescription = null,
+                                    tint = AppColors.Error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(spacing.xxs))
+                                Text("Удалить плейлист", color = AppColors.Error, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    val trackCount = tracks.size
+                    HeroBanner(
+                        title = playlist.name,
+                        subtitle = if (playlist.description.isNotBlank()) "${playlist.description} • ${pluralRu(trackCount, "трек", "трека", "треков")}" else pluralRu(trackCount, "трек", "трека", "треков"),
+                        badge = if (playlist.isSystem) "АВТОПЛЕЙЛИСТ" else "ПЛЕЙЛИСТ",
+                        coverSource = tracks.firstOrNull { it.source != null }?.source,
+                        canPlay = tracks.any { it.source != null },
+                        isPlaying = player.isPlaying && tracks.any { it.id == player.current?.id },
+                        isFavorites = isFav,
+                        onPlayAll = {
+                            tracks.firstOrNull { it.source != null }?.let { player.play(it, tracks) }
+                        }
                     )
-                    Spacer(Modifier.width(spacing.xxs))
-                    Text("Удалить плейлист", color = AppColors.Error, fontSize = 13.sp)
+                    Spacer(Modifier.height(spacing.sm))
+                }
+
+                stickyHeader {
+                    Box(modifier = Modifier.fillMaxWidth().background(AppColors.Background)) {
+                        TableHeader(
+                            sortColumn = SortColumn.Number,
+                            sortDirection = SortDirection.Ascending,
+                            onSort = {},
+                            isCompact = isCompact,
+                            showExtendedColumns = showExtendedColumns
+                        )
+                    }
+                }
+
+                if (tracks.isEmpty()) {
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().height(260.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "В этом плейлисте пока нет треков. Добавьте их из Медиатеки!",
+                                color = AppColors.TextMuted,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                } else {
+                    itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
+                        TrackRowItem(
+                            index = index + 1,
+                            track = track,
+                            isPlaying = player.current?.id == track.id && player.isPlaying,
+                            isCurrent = player.current?.id == track.id,
+                            searchQuery = "",
+                            isCompact = isCompact,
+                            showExtendedColumns = showExtendedColumns,
+                            playlists = library.playlists,
+                            durationText = formatTrackDuration(track, player),
+                            onPlay = { player.play(track, tracks) },
+                            onPlayNext = { player.playNext(track) },
+                            onAddToQueue = { player.addToQueue(track) },
+                            onAddToPlaylist = { pId -> onAddToPlaylist(pId, track) },
+                            onToggleFavorite = { library.toggleFavorite(track) },
+                            onRename = { onRename(track) },
+                            onRemoveFromPlaylist = { onRemoveFromPlaylist(playlist.id, track) }
+                        )
+                    }
                 }
             }
-        }
 
-        val trackCount = tracks.size
-        HeroBanner(
-            title = playlist.name,
-            subtitle = pluralRu(trackCount, "трек", "трека", "треков"),
-            badge = if (playlist.isSystem) "АВТОПЛЕЙЛИСТ" else "ПЛЕЙЛИСТ",
-            coverSource = tracks.firstOrNull { it.source != null }?.source,
-            canPlay = tracks.any { it.source != null },
-            isPlaying = player.isPlaying && tracks.any { it.id == player.current?.id },
-            isFavorites = playlist.id == FAVORITES_PLAYLIST_ID,
-            onPlayAll = {
-                tracks.firstOrNull { it.source != null }?.let { player.play(it, tracks) }
-            }
-        )
-
-        Spacer(Modifier.height(spacing.md))
-        TableHeader(
-            sortColumn = SortColumn.Number,
-            sortDirection = SortDirection.Ascending,
-            onSort = {},
-            isCompact = isCompact
-        )
-
-        if (tracks.isEmpty()) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text(
-                    "В этом плейлисте пока нет треков. Добавьте их из Медиатеки!",
-                    color = AppColors.TextMuted,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                itemsIndexed(tracks, key = { _, track -> track.id }) { index, track ->
-                    TrackRowItem(
-                        index = index + 1,
-                        track = track,
-                        isPlaying = player.current?.id == track.id && player.isPlaying,
-                        isCurrent = player.current?.id == track.id,
-                        searchQuery = "",
-                        isCompact = isCompact,
-                        playlists = library.playlists,
-                        durationText = formatTrackDuration(track, player),
-                        onPlay = { player.play(track, tracks) },
-                        onPlayNext = { player.playNext(track) },
-                        onAddToQueue = { player.addToQueue(track) },
-                        onAddToPlaylist = { pId -> onAddToPlaylist(pId, track) },
-                        onToggleFavorite = { library.toggleFavorite(track) },
-                        onRename = { onRename(track) },
-                        onRemoveFromPlaylist = { onRemoveFromPlaylist(playlist.id, track) }
-                    )
-                }
-            }
+            StickyCompactHeader(
+                title = playlist.name,
+                dominantColor = dominantColor,
+                canPlay = tracks.any { it.source != null },
+                isPlaying = player.isPlaying && tracks.any { it.id == player.current?.id },
+                onPlayAll = {
+                    tracks.firstOrNull { it.source != null }?.let { player.play(it, tracks) }
+                },
+                visible = showStickyHeader
+            )
         }
     }
 
@@ -1998,6 +2387,7 @@ private fun PlaylistDetailView(
 // ==========================================
 // Smart Mix Detail View
 // ==========================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SmartMixDetailView(
     title: String,
@@ -2013,57 +2403,94 @@ private fun SmartMixDetailView(
             "Недавно добавленное", "Свежее в медиатеке" -> library.getRecentlyAdded(50)
             "Часто слушаемое" -> library.getFrequentlyPlayed(50)
             "Новое в облаке" -> library.getCloudTracks()
-            else -> library.tracks.toList()
+            else -> library.tracks.filter { it.album.equals(title, ignoreCase = true) || it.artist.equals(title, ignoreCase = true) }.ifEmpty { library.tracks.toList() }
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) {
-                Text("← Назад к главной", color = AppColors.TextSecondary, fontSize = 13.sp)
-            }
-        }
+    val dominantColor = remember(tracks) {
+        tracks.firstOrNull { it.source != null }?.source?.let { ArtworkCache.getDominantColor(it) } ?: Color(0xFF1E3264)
+    }
 
-        val trackCount = tracks.size
-        HeroBanner(
-            title = title,
-            subtitle = pluralRu(trackCount, "трек", "трека", "треков"),
-            badge = "УМНЫЙ МИКС",
-            coverSource = tracks.firstOrNull { it.source != null }?.source,
-            canPlay = tracks.isNotEmpty(),
-            isPlaying = player.isPlaying && tracks.any { it.id == player.current?.id },
-            onPlayAll = {
-                if (tracks.isNotEmpty()) player.play(tracks.first(), tracks)
-            }
-        )
+    val listState = rememberLazyListState()
+    val showStickyHeader by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 200 }
+    }
 
-        Spacer(Modifier.height(spacing.md))
-        TableHeader(
-            sortColumn = SortColumn.Number,
-            sortDirection = SortDirection.Ascending,
-            onSort = {},
-            isCompact = isCompact
-        )
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            itemsIndexed(tracks, key = { _, t -> t.id }) { idx, track ->
-                TrackRowItem(
-                    index = idx + 1,
-                    track = track,
-                    isPlaying = player.current?.id == track.id && player.isPlaying,
-                    isCurrent = player.current?.id == track.id,
-                    searchQuery = "",
-                    isCompact = isCompact,
-                    playlists = library.playlists,
-                    durationText = formatTrackDuration(track, player),
-                    onPlay = { player.play(track, tracks) },
-                    onPlayNext = { player.playNext(track) },
-                    onAddToQueue = { player.addToQueue(track) },
-                    onAddToPlaylist = { pId -> library.addToPlaylist(pId, track.id) },
-                    onToggleFavorite = { library.toggleFavorite(track) },
-                    onRename = {},
-                    onDelete = null
-                )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val showExtendedColumns = maxWidth > 1100.dp
+
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onBack) {
+                            Text("← Назад к главной", color = AppColors.TextSecondary, fontSize = 13.sp)
+                        }
+                    }
+
+                    val trackCount = tracks.size
+                    HeroBanner(
+                        title = title,
+                        subtitle = pluralRu(trackCount, "трек", "трека", "треков"),
+                        badge = "УМНЫЙ МИКС",
+                        coverSource = tracks.firstOrNull { it.source != null }?.source,
+                        canPlay = tracks.isNotEmpty(),
+                        isPlaying = player.isPlaying && tracks.any { it.id == player.current?.id },
+                        onPlayAll = {
+                            if (tracks.isNotEmpty()) player.play(tracks.first(), tracks)
+                        }
+                    )
+
+                    Spacer(Modifier.height(spacing.md))
+                }
+
+                stickyHeader {
+                    Box(modifier = Modifier.fillMaxWidth().background(AppColors.Background)) {
+                        TableHeader(
+                            sortColumn = SortColumn.Number,
+                            sortDirection = SortDirection.Ascending,
+                            onSort = {},
+                            isCompact = isCompact,
+                            showExtendedColumns = showExtendedColumns
+                        )
+                    }
+                }
+
+                itemsIndexed(tracks, key = { _, t -> t.id }) { idx, track ->
+                    TrackRowItem(
+                        index = idx + 1,
+                        track = track,
+                        isPlaying = player.current?.id == track.id && player.isPlaying,
+                        isCurrent = player.current?.id == track.id,
+                        searchQuery = "",
+                        isCompact = isCompact,
+                        showExtendedColumns = showExtendedColumns,
+                        playlists = library.playlists,
+                        durationText = formatTrackDuration(track, player),
+                        onPlay = { player.play(track, tracks) },
+                        onPlayNext = { player.playNext(track) },
+                        onAddToQueue = { player.addToQueue(track) },
+                        onAddToPlaylist = { pId -> library.addToPlaylist(pId, track.id) },
+                        onToggleFavorite = { library.toggleFavorite(track) },
+                        onRename = {},
+                        onDelete = null
+                    )
+                }
             }
+
+            StickyCompactHeader(
+                title = title,
+                dominantColor = dominantColor,
+                canPlay = tracks.isNotEmpty(),
+                isPlaying = player.isPlaying && tracks.any { it.id == player.current?.id },
+                onPlayAll = {
+                    if (tracks.isNotEmpty()) player.play(tracks.first(), tracks)
+                },
+                visible = showStickyHeader
+            )
         }
     }
 }
@@ -3352,26 +3779,48 @@ private fun RenameTrackDialog(
 @Composable
 private fun CreatePlaylistDialog(
     onDismiss: () -> Unit,
-    onCreate: (String) -> Unit,
+    onCreate: (name: String, description: String, coverUrl: String?) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var coverUrl by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(16.dp),
         title = { Text("Новый плейлист", color = AppColors.TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Название плейлиста") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Название плейлиста") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Описание (необязательно)") },
+                    maxLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = coverUrl,
+                    onValueChange = { coverUrl = it },
+                    label = { Text("Ссылка или путь к обложке (необязательно)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         },
         confirmButton = {
             Button(
-                onClick = { if (name.isNotBlank()) onCreate(name.trim()) },
+                onClick = {
+                    if (name.isNotBlank()) {
+                        onCreate(name.trim(), description.trim(), coverUrl.trim().takeIf { it.isNotBlank() })
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
             ) {
                 Text("Создать", color = Color.Black, fontWeight = FontWeight.Bold)

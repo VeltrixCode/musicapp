@@ -1,30 +1,36 @@
 package com.example.musicapp.platform
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
 import android.media.MediaMetadataRetriever
-import android.media.MediaPlayer
-import android.media.PlaybackParams
 import android.media.audiofx.Equalizer
 import android.net.Uri
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.media3.common.AudioAttributes as Media3AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.example.musicapp.cache.ArtworkCache
+import com.example.musicapp.config.AppConfig
 import com.example.musicapp.library.newId
+import com.example.musicapp.model.StreamSource
 import com.example.musicapp.model.Track
+import com.example.musicapp.oauth.GoogleOAuthAndroid
+import com.example.musicapp.security.SecureStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 
 /** Set by the app at startup: the context and the picker launcher registered in MainActivity. */
 object AndroidBridge {
@@ -103,8 +109,44 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
     launchAudioImport { track -> onImported(listOf(track)) }
 }
 
-actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String {
-    return streamSource.url
+object AndroidStreamRegistry {
+    private val streams = ConcurrentHashMap<String, StreamSource>()
+    private val trackStreams = ConcurrentHashMap<String, CopyOnWriteArraySet<String>>()
+
+    fun register(trackId: String, streamSource: StreamSource): String {
+        val url = streamSource.url
+        streams[url] = streamSource
+        trackStreams.computeIfAbsent(trackId) { CopyOnWriteArraySet() }.add(url)
+        return url
+    }
+
+    fun getStreamSource(url: String): StreamSource? = streams[url]
+
+    fun invalidateTrack(trackId: String) {
+        val urls = trackStreams.remove(trackId) ?: return
+        for (u in urls) {
+            streams.remove(u)
+        }
+    }
+
+    fun clear() {
+        streams.clear()
+        trackStreams.clear()
+    }
+}
+
+actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: StreamSource): String {
+    return AndroidStreamRegistry.register(trackId, streamSource)
+}
+
+actual fun onPlaybackTrackChanged(previousTrackId: String?, newTrackId: String?) {
+    if (previousTrackId != null && previousTrackId != newTrackId) {
+        AndroidStreamRegistry.invalidateTrack(previousTrackId)
+    }
+}
+
+actual fun onPlaybackReleased() {
+    AndroidStreamRegistry.clear()
 }
 
 private fun importFromUri(uri: Uri, onImported: (Track) -> Unit) {
@@ -121,171 +163,164 @@ private fun importFromUri(uri: Uri, onImported: (Track) -> Unit) {
     onImported(importedTrack(dest.absolutePath, name))
 }
 
-private class AndroidPlayerEngine : PlayerEngine {
-    private var player: MediaPlayer? = null
-    private var equalizer: Equalizer? = null
-    private val audioManager = AndroidBridge.appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-    private var audioFocusRequest: AudioFocusRequest? = null
+private val streamingOkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val urlString = original.url.toString()
+            val streamSource = AndroidStreamRegistry.getStreamSource(urlString)
 
+            val reqBuilder = original.newBuilder()
+
+            // 1. Inject Authorization header if stream source has headers
+            if (streamSource != null) {
+                streamSource.headers.forEach { (k, v) ->
+                    if (original.header(k) == null) {
+                        reqBuilder.header(k, v)
+                    }
+                }
+            } else if (urlString.contains("googleapis.com/drive")) {
+                val gtoken = SecureStorage.getSecret(AppConfig.TOKEN_GDRIVE_ACCESS)
+                if (!gtoken.isNullOrBlank() && original.header("Authorization") == null) {
+                    reqBuilder.header("Authorization", "Bearer $gtoken")
+                }
+            } else if (urlString.contains("yandex.net")) {
+                val ytoken = SecureStorage.getSecret(AppConfig.TOKEN_YANDEX_ACCESS)
+                if (!ytoken.isNullOrBlank() && original.header("Authorization") == null) {
+                    reqBuilder.header("Authorization", "OAuth $ytoken")
+                }
+            }
+
+            var response = chain.proceed(reqBuilder.build())
+
+            // 2. Upstream 401/403/410 token refresh & retry (Yandex Disk & Google Drive)
+            if (response.code in listOf(401, 403, 410)) {
+                if (urlString.contains("googleapis.com") && response.code == 401) {
+                    val refreshedToken = kotlinx.coroutines.runBlocking {
+                        GoogleOAuthAndroid.refreshAccessToken().getOrNull()
+                    }
+                    if (!refreshedToken.isNullOrBlank()) {
+                        response.close()
+                        val retryReq = original.newBuilder()
+                            .header("Authorization", "Bearer $refreshedToken")
+                            .build()
+                        response = chain.proceed(retryReq)
+                    }
+                } else if (urlString.contains("yandex.net") || urlString.contains("disk.yandex")) {
+                    val ytoken = SecureStorage.getSecret(AppConfig.TOKEN_YANDEX_ACCESS)
+                    if (!ytoken.isNullOrBlank()) {
+                        response.close()
+                        val retryReq = original.newBuilder()
+                            .header("Authorization", "OAuth $ytoken")
+                            .build()
+                        response = chain.proceed(retryReq)
+                    }
+                }
+            }
+
+            response
+        }
+        .build()
+}
+
+/**
+ * Media3 ExoPlayer engine with OkHttpDataSource, Authorization injection,
+ * and seamless retry on 401/403/410.
+ */
+private class AndroidPlayerEngine : PlayerEngine {
+    private var exoPlayer: ExoPlayer? = null
+    private var equalizer: Equalizer? = null
     private var pendingSeekMs: Long? = null
     private var currentSpeed = 1.0f
     private var currentVolume = 0.8f
+    private var onReadyCallback: ((Long) -> Unit)? = null
+    private var onFinishedCallback: (() -> Unit)? = null
 
-    private val noisyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                pause()
-                AndroidBridge.onHeadphonesUnplugged?.invoke()
+    private fun initPlayer(): ExoPlayer {
+        val ctx = AndroidBridge.appContext
+        val dataSourceFactory = OkHttpDataSource.Factory(streamingOkHttpClient)
+        val mediaSourceFactory = DefaultMediaSourceFactory(ctx)
+            .setDataSourceFactory(dataSourceFactory)
+
+        val media3AudioAttributes = Media3AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setUsage(C.USAGE_MEDIA)
+            .build()
+
+        return ExoPlayer.Builder(ctx)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .setAudioAttributes(media3AudioAttributes, /* handleAudioFocus = */ true)
+            .build().apply {
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        when (playbackState) {
+                            Player.STATE_READY -> {
+                                val d = duration.coerceAtLeast(0L)
+                                pendingSeekMs?.let { ms ->
+                                    seekTo(ms)
+                                    pendingSeekMs = null
+                                }
+                                setupEqualizer(audioSessionId)
+                                onReadyCallback?.invoke(d)
+                            }
+                            Player.STATE_ENDED -> {
+                                onFinishedCallback?.invoke()
+                            }
+                            Player.STATE_IDLE, Player.STATE_BUFFERING -> {}
+                        }
+                    }
+                })
             }
-        }
-    }
-    private var isNoisyRegistered = false
-
-    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
-        when (focusChange) {
-            AudioManager.AUDIOFOCUS_LOSS -> pause()
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> pause()
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> runCatching { player?.setVolume(0.2f, 0.2f) }
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                runCatching { player?.setVolume(currentVolume, currentVolume) }
-                play()
-            }
-        }
-    }
-
-    private fun registerNoisyReceiver() {
-        if (!isNoisyRegistered) {
-            try {
-                AndroidBridge.appContext.registerReceiver(
-                    noisyReceiver,
-                    IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
-                )
-                isNoisyRegistered = true
-            } catch (e: Exception) {
-                // Ignore
-            }
-        }
-    }
-
-    private fun unregisterNoisyReceiver() {
-        if (isNoisyRegistered) {
-            try {
-                AndroidBridge.appContext.unregisterReceiver(noisyReceiver)
-                isNoisyRegistered = false
-            } catch (e: Exception) {
-                // Ignore
-            }
-        }
-    }
-
-    private fun requestAudioFocus(): Boolean {
-        registerNoisyReceiver()
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val playbackAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(playbackAttributes)
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener(focusChangeListener)
-                .build()
-            audioFocusRequest = request
-            audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(
-                focusChangeListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN
-            ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        }
-    }
-
-    private fun abandonAudioFocus() {
-        unregisterNoisyReceiver()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(focusChangeListener)
-        }
     }
 
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit) {
         release()
+        onReadyCallback = onReady
+        onFinishedCallback = onFinished
         try {
-            val p = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .build()
-                )
-                setDataSource(path)
-                setOnPreparedListener { mp ->
-                    val d = mp.duration.toLong().coerceAtLeast(0L)
-                    pendingSeekMs?.let { ms ->
-                        mp.seekTo(ms.toInt())
-                        pendingSeekMs = null
-                    }
-                    applySpeed()
-                    setupEqualizer(mp.audioSessionId)
-                    onReady(d)
-                }
-                setOnCompletionListener { onFinished() }
-                setOnSeekCompleteListener {
-                    // Seek is officially finished on hardware
-                    pendingSeekMs = null
-                }
-                prepareAsync()
+            val p = initPlayer()
+            exoPlayer = p
+            p.volume = currentVolume
+            p.playbackParameters = PlaybackParameters(currentSpeed)
+
+            val uri = if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("content://")) {
+                Uri.parse(path)
+            } else {
+                Uri.fromFile(File(path))
             }
-            player = p
+
+            val mediaItem = MediaItem.fromUri(uri)
+            p.setMediaItem(mediaItem)
+            p.prepare()
         } catch (e: Exception) {
-            System.err.println("Android MediaPlayer load error: " + e.message)
+            System.err.println("Android ExoPlayer load error: " + e.message)
         }
     }
 
     private fun setupEqualizer(audioSessionId: Int) {
         try {
-            equalizer?.release()
-            equalizer = Equalizer(0, audioSessionId).apply {
-                enabled = true
+            if (audioSessionId != C.AUDIO_SESSION_ID_UNSET) {
+                equalizer?.release()
+                equalizer = Equalizer(0, audioSessionId).apply {
+                    enabled = true
+                }
             }
-        } catch (e: Exception) {
-            // Ignore if equalizer permission or device limitation
-        }
-    }
-
-    private fun applySpeed() {
-        runCatching {
-            val p = player ?: return
-            val params = p.playbackParams
-            p.playbackParams = params.setSpeed(currentSpeed)
-        }
+        } catch (_: Exception) {}
     }
 
     override fun play() {
-        if (requestAudioFocus()) {
-            runCatching { player?.start() }
-        }
+        exoPlayer?.play()
     }
 
     override fun pause() {
-        runCatching { player?.pause() }
-        abandonAudioFocus()
+        exoPlayer?.pause()
     }
 
     override fun seekTo(ms: Long) {
-        val p = player
+        val p = exoPlayer
         if (p != null) {
-            runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    p.seekTo(ms, MediaPlayer.SEEK_CLOSEST)
-                } else {
-                    p.seekTo(ms.toInt())
-                }
-            }
+            p.seekTo(ms)
+            pendingSeekMs = null
         } else {
             pendingSeekMs = ms
         }
@@ -293,12 +328,12 @@ private class AndroidPlayerEngine : PlayerEngine {
 
     override fun setVolume(volume: Float) {
         currentVolume = volume.coerceIn(0f, 1f)
-        runCatching { player?.setVolume(currentVolume, currentVolume) }
+        exoPlayer?.volume = currentVolume
     }
 
     override fun setPlaybackSpeed(speed: Float) {
         currentSpeed = speed.coerceIn(0.25f, 3.0f)
-        applySpeed()
+        exoPlayer?.playbackParameters = PlaybackParameters(currentSpeed)
     }
 
     override fun setEqualizerBand(bandIndex: Int, gainDb: Float) {
@@ -311,32 +346,29 @@ private class AndroidPlayerEngine : PlayerEngine {
                 val level = (gainDb * 100).toInt().coerceIn(minLevel.toInt(), maxLevel.toInt()).toShort()
                 eq.setBandLevel(bandIndex.toShort(), level)
             }
-        } catch (e: Exception) {
-            // Ignore
-        }
+        } catch (_: Exception) {}
     }
 
-    override fun setSpectrumListener(listener: ((FloatArray) -> Unit)?) {
-        // Optional Visualizer or simulated spectrum
-    }
+    override fun setSpectrumListener(listener: ((FloatArray) -> Unit)?) {}
 
     override fun positionMs(): Long =
-        runCatching { player?.currentPosition?.toLong() ?: 0L }.getOrDefault(0L)
+        runCatching { exoPlayer?.currentPosition ?: 0L }.getOrDefault(0L)
 
     override fun durationMs(): Long =
-        runCatching { (player?.duration?.toLong() ?: 0L).coerceAtLeast(0L) }.getOrDefault(0L)
+        runCatching { (exoPlayer?.duration ?: 0L).coerceAtLeast(0L) }.getOrDefault(0L)
 
     override fun release() {
-        abandonAudioFocus()
         runCatching {
             equalizer?.release()
             equalizer = null
-            player?.release()
-            player = null
+            exoPlayer?.stop()
+            exoPlayer?.release()
+            exoPlayer = null
         }
         pendingSeekMs = null
+        onReadyCallback = null
+        onFinishedCallback = null
     }
 }
 
 actual fun getEnv(name: String): String? = System.getenv(name)
-

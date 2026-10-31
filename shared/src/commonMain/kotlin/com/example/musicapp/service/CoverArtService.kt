@@ -10,15 +10,24 @@ import com.example.musicapp.platform.AppStorage
 import com.example.musicapp.platform.decodeImageBytes
 import com.example.musicapp.platform.loadArtwork
 import com.example.musicapp.provider.appHttpClient
-import com.example.musicapp.provider.appJson
+import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsBytes
+import io.ktor.http.HttpHeaders
 import io.ktor.http.encodeURLQueryComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Serializable
 private data class ITunesSearchResponse(
@@ -32,15 +41,48 @@ private data class ITunesSearchResult(
 )
 
 /**
- * Multi-tier cover art resolver matching Spotify visual standards:
- * 1. Embedded ID3 / container artwork
- * 2. Online high-res lookup (iTunes Search API) with local disk & memory cache
- * 3. Graceful fallback to deterministic gradient by title hash
+ * Multi-tier cover art resolver:
+ * 1. Embedded ID3 / container artwork (local)
+ * 2. Online high-res lookup (iTunes Search API with rate limiting)
+ * 3. Fallback lookup (Cover Art Archive / MusicBrainz)
+ * 4. Negative caching: failed lookups are not re-queried for 7 days
+ * 5. Privacy: strictly avoids sending local file paths or raw file names upstream
+ * 6. Global offline mode support
  */
 object CoverArtService {
-    var loadOnlineCovers by mutableStateOf(true)
+    const val USER_AGENT = "JVXMusic/1.0 (https://github.com/VeltrixCode/MusicApp)"
+    const val NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000L // 7 days
 
-    suspend fun loadArtworkForTrack(track: Track): ImageBitmap? = withContext(Dispatchers.IO) {
+    var loadOnlineCovers by mutableStateOf(true)
+    var offlineMode by mutableStateOf(false)
+
+    // Rate limiter mutex: ensures at least 350ms between external iTunes API calls
+    private val rateLimiterMutex = Mutex()
+    private var lastRequestTimeMs = 0L
+
+    // Negative cache: normalizedKey -> timestamp of failed query
+    internal val negativeCache = mutableMapOf<String, Long>()
+
+    /**
+     * Checks whether an artist or title string looks like a local file path or extension.
+     */
+    fun containsLocalFilePathOrExtension(text: String): Boolean {
+        val lower = text.lowercase()
+        return lower.contains('/') ||
+                lower.contains('\\') ||
+                lower.contains(":\\") ||
+                lower.endsWith(".mp3") ||
+                lower.endsWith(".flac") ||
+                lower.endsWith(".wav") ||
+                lower.endsWith(".ogg") ||
+                lower.endsWith(".m4a") ||
+                lower.endsWith(".aac")
+    }
+
+    suspend fun loadArtworkForTrack(
+        track: Track,
+        client: HttpClient = appHttpClient
+    ): ImageBitmap? = withContext(Dispatchers.IO) {
         // 1. Try local embedded file tags
         val src = track.source
         if (src != null) {
@@ -48,21 +90,37 @@ object CoverArtService {
             if (localBmp != null) return@withContext localBmp
         }
 
-        // 2. If no embedded tag or cloud track, perform online lookup if enabled
-        if (!loadOnlineCovers) return@withContext null
-        if (track.title.isBlank() || track.artist.isBlank() || track.artist == "Неизвестный исполнитель") {
+        // 2. Online check: verify global settings
+        if (offlineMode || !loadOnlineCovers) return@withContext null
+
+        val artist = track.artist.trim()
+        val title = track.title.trim()
+
+        // Privacy check: do NOT leak file paths or raw file names to external web services
+        if (artist.isBlank() || title.isBlank() || artist.equals("Неизвестный исполнитель", ignoreCase = true)) {
+            return@withContext null
+        }
+        if (containsLocalFilePathOrExtension(artist) || containsLocalFilePathOrExtension(title)) {
             return@withContext null
         }
 
-        getOrFetchOnlineCover(track.artist, track.title)
+        getOrFetchOnlineCover(artist, title, client)
     }
 
-    suspend fun getOrFetchOnlineCover(artist: String, title: String): ImageBitmap? = withContext(Dispatchers.IO) {
+    suspend fun getOrFetchOnlineCover(
+        artist: String,
+        title: String,
+        client: HttpClient = appHttpClient
+    ): ImageBitmap? = withContext(Dispatchers.IO) {
+        if (offlineMode || !loadOnlineCovers) return@withContext null
+
         val normalizedKey = "online_${artist.trim().lowercase()}_${title.trim().lowercase()}"
+
+        // Memory cache check
         val memCached = ArtworkCache.get(normalizedKey)
         if (memCached != null) return@withContext memCached
 
-        // Check disk cache
+        // Persistent disk cache check
         val diskKey = "cover_" + normalizedKey.hashCode().toString(16) + ".jpg"
         val cachedBytes = AppStorage.readBytes(diskKey)
         if (cachedBytes != null && cachedBytes.isNotEmpty()) {
@@ -74,17 +132,66 @@ object CoverArtService {
             }
         }
 
-        // Online lookup via iTunes Search API
-        runCatching {
+        // Negative cache check (do not search again for 7 days)
+        val lastFailedTime = negativeCache[normalizedKey]
+        if (lastFailedTime != null) {
+            val elapsed = System.currentTimeMillis() - lastFailedTime
+            if (elapsed < NEGATIVE_CACHE_TTL_MS) {
+                return@withContext null
+            } else {
+                negativeCache.remove(normalizedKey)
+            }
+        }
+
+        // 1. Attempt lookup via iTunes Search API with rate limiting
+        val itunesBitmap = fetchFromITunes(artist, title, diskKey, normalizedKey, client)
+        if (itunesBitmap != null) {
+            return@withContext itunesBitmap
+        }
+
+        // 2. Fallback lookup via Cover Art Archive / MusicBrainz
+        val archiveBitmap = fetchFromCoverArtArchive(artist, title, diskKey, normalizedKey, client)
+        if (archiveBitmap != null) {
+            return@withContext archiveBitmap
+        }
+
+        // Record negative cache entry for 7 days
+        negativeCache[normalizedKey] = System.currentTimeMillis()
+        null
+    }
+
+    private suspend fun fetchFromITunes(
+        artist: String,
+        title: String,
+        diskKey: String,
+        normalizedKey: String,
+        client: HttpClient
+    ): ImageBitmap? {
+        return runCatching {
+            // Apply rate limit queue: 350ms between requests
+            rateLimiterMutex.withLock {
+                val now = System.currentTimeMillis()
+                val delta = now - lastRequestTimeMs
+                if (delta < 350L) {
+                    delay(350L - delta)
+                }
+                lastRequestTimeMs = System.currentTimeMillis()
+            }
+
             val term = "$artist $title".encodeURLQueryComponent()
             val url = "https://itunes.apple.com/search?term=$term&entity=song&limit=1"
-            val resp = appHttpClient.get(url).body<ITunesSearchResponse>()
+            val resp = client.get(url) {
+                header(HttpHeaders.UserAgent, USER_AGENT)
+            }.body<ITunesSearchResponse>()
+
             val item = resp.results.firstOrNull() ?: return@runCatching null
             val rawArtUrl = item.artworkUrl100 ?: return@runCatching null
 
             // Upgrade 100x100 to 600x600 high quality
             val highResUrl = rawArtUrl.replace("100x100bb", "600x600bb")
-            val imageBytes = appHttpClient.get(highResUrl).bodyAsBytes()
+            val imageBytes = client.get(highResUrl) {
+                header(HttpHeaders.UserAgent, USER_AGENT)
+            }.bodyAsBytes()
 
             if (imageBytes.isNotEmpty()) {
                 AppStorage.writeBytes(diskKey, imageBytes)
@@ -96,5 +203,48 @@ object CoverArtService {
                 } else null
             } else null
         }.getOrNull()
+    }
+
+    private suspend fun fetchFromCoverArtArchive(
+        artist: String,
+        title: String,
+        diskKey: String,
+        normalizedKey: String,
+        client: HttpClient
+    ): ImageBitmap? {
+        return runCatching {
+            val q = "artist:\"$artist\" AND recording:\"$title\"".encodeURLQueryComponent()
+            val mbUrl = "https://musicbrainz.org/ws/2/recording?query=$q&fmt=json&limit=1"
+            val mbText = client.get(mbUrl) {
+                header(HttpHeaders.UserAgent, USER_AGENT)
+            }.body<String>()
+
+            val json = Json { ignoreUnknownKeys = true }
+            val root = json.parseToJsonElement(mbText).jsonObject
+            val recordings = root["recordings"]?.jsonArray
+            val firstRec = recordings?.firstOrNull()?.jsonObject ?: return@runCatching null
+            val releases = firstRec["releases"]?.jsonArray
+            val firstRelease = releases?.firstOrNull()?.jsonObject ?: return@runCatching null
+            val releaseId = firstRelease["id"]?.jsonPrimitive?.content ?: return@runCatching null
+
+            val coverUrl = "https://coverartarchive.org/release/$releaseId/front-250"
+            val imageBytes = client.get(coverUrl) {
+                header(HttpHeaders.UserAgent, USER_AGENT)
+            }.bodyAsBytes()
+
+            if (imageBytes.isNotEmpty()) {
+                AppStorage.writeBytes(diskKey, imageBytes)
+                val bmp = decodeImageBytes(imageBytes)
+                if (bmp != null) {
+                    ArtworkCache.put(normalizedKey, bmp)
+                    ArtworkCache.computeAndStoreDominantColor(normalizedKey, bmp)
+                    bmp
+                } else null
+            } else null
+        }.getOrNull()
+    }
+
+    fun clearNegativeCache() {
+        negativeCache.clear()
     }
 }

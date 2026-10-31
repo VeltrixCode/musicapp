@@ -1,7 +1,8 @@
 package com.example.musicapp.proxy
 
+import com.example.musicapp.cache.AudioOfflineCache
 import com.example.musicapp.model.StreamSource
-import com.example.musicapp.provider.appHttpClient
+import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
@@ -32,9 +33,26 @@ data class ProxySession(
     @Volatile var streamSource: StreamSource,
     val onRefreshNeeded: (suspend () -> StreamSource?)? = null,
     val createdAtMs: Long = System.currentTimeMillis(),
-    val ttlMs: Long = 30 * 60 * 1000L, // 30 minutes session TTL
+    @Volatile var lastAccessMs: Long = System.currentTimeMillis(),
+    val ttlMs: Long = 30 * 60 * 1000L, // 30 minutes sliding inactivity TTL
 ) {
-    fun isExpired(): Boolean = System.currentTimeMillis() - createdAtMs > ttlMs
+    fun touch() {
+        lastAccessMs = System.currentTimeMillis()
+    }
+
+    fun isExpired(): Boolean {
+        val now = System.currentTimeMillis()
+        // Sliding timeout: expires after 30 minutes of complete inactivity
+        if (now - lastAccessMs > ttlMs) return true
+
+        // Session stays alive as long as the track is currently playing/paused or queued in player
+        val isCurrentOrQueued = AudioOfflineCache.currentlyPlayingTrackId == trackId ||
+                AudioOfflineCache.currentlyQueuedTrackIds.contains(trackId)
+        if (!isCurrentOrQueued) {
+            return true
+        }
+        return false
+    }
 }
 
 object LocalStreamingProxy {
@@ -42,6 +60,12 @@ object LocalStreamingProxy {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     var serverPort: Int = 0
         private set
+
+    val proxyHttpClient: HttpClient by lazy {
+        HttpClient {
+            followRedirects = false
+        }
+    }
 
     init {
         start()
@@ -68,50 +92,76 @@ object LocalStreamingProxy {
         }.start(wait = false)
     }
 
-    suspend fun fetchUpstream(streamSource: StreamSource, rangeHeader: String?): HttpResponse {
+    fun isSameOrigin(from: URI, to: URI): Boolean {
+        val sameScheme = from.scheme.equals(to.scheme, ignoreCase = true)
+        val sameHost = from.host?.equals(to.host, ignoreCase = true) == true
+        val fromPort = if (from.port != -1) from.port else (if (from.scheme.equals("https", true)) 443 else 80)
+        val toPort = if (to.port != -1) to.port else (if (to.scheme.equals("https", true)) 443 else 80)
+        val samePort = fromPort == toPort
+        val isDowngrade = from.scheme.equals("https", ignoreCase = true) && to.scheme.equals("http", ignoreCase = true)
+        return sameScheme && sameHost && samePort && !isDowngrade
+    }
+
+    suspend fun fetchUpstream(
+        streamSource: StreamSource,
+        rangeHeader: String?,
+        httpClient: HttpClient = proxyHttpClient,
+        maxRedirectHops: Int = 5,
+    ): HttpResponse {
         val initialUri = runCatching { URI(streamSource.url) }.getOrNull()
-        val initialHost = initialUri?.host
+            ?: throw IllegalArgumentException("Invalid stream source URL: ${streamSource.url}")
 
-        val initialResponse = appHttpClient.get(streamSource.url) {
-            header(HttpHeaders.UserAgent, "JVXMusic/1.0 (Desktop Player)")
-            streamSource.headers.forEach { (k, v) -> header(k, v) }
-            if (rangeHeader != null) {
-                header(HttpHeaders.Range, rangeHeader)
-            }
-        }
+        var currentUri = initialUri
+        var currentHeaders = streamSource.headers.toMap()
+        var hops = 0
 
-        // Cross-host redirect security: do NOT forward Authorization header to a different host
-        val status = initialResponse.status
-        if (status in listOf(
-                HttpStatusCode.MovedPermanently,
-                HttpStatusCode.Found,
-                HttpStatusCode.SeeOther,
-                HttpStatusCode.TemporaryRedirect,
-                HttpStatusCode.PermanentRedirect
-            )
-        ) {
-            val location = initialResponse.headers[HttpHeaders.Location]
-            if (!location.isNullOrBlank()) {
-                val targetUri = runCatching { URI(location) }.getOrNull()
-                val targetHost = targetUri?.host
-                val isSameHost = targetHost.isNullOrBlank() || targetHost.equals(initialHost, ignoreCase = true)
-
-                return appHttpClient.get(location) {
-                    header(HttpHeaders.UserAgent, "JVXMusic/1.0 (Desktop Player)")
-                    streamSource.headers.forEach { (k, v) ->
-                        // Strip Authorization if redirecting to a foreign host (e.g. cloud storage CDN)
-                        if (isSameHost || !k.equals(HttpHeaders.Authorization, ignoreCase = true)) {
-                            header(k, v)
-                        }
-                    }
-                    if (rangeHeader != null) {
-                        header(HttpHeaders.Range, rangeHeader)
-                    }
+        while (true) {
+            val response = httpClient.get(currentUri.toString()) {
+                header(HttpHeaders.UserAgent, "JVXMusic/1.0 (Desktop Player)")
+                currentHeaders.forEach { (k, v) -> header(k, v) }
+                if (rangeHeader != null) {
+                    header(HttpHeaders.Range, rangeHeader)
                 }
             }
-        }
 
-        return initialResponse
+            val status = response.status
+            val isRedirect = status in listOf(
+                HttpStatusCode.MovedPermanently, // 301
+                HttpStatusCode.Found,            // 302
+                HttpStatusCode.SeeOther,         // 303
+                HttpStatusCode.TemporaryRedirect,// 307
+                HttpStatusCode.PermanentRedirect// 308
+            )
+
+            if (!isRedirect) {
+                return response
+            }
+
+            val location = response.headers[HttpHeaders.Location]
+            if (location.isNullOrBlank()) {
+                return response
+            }
+
+            hops++
+            if (hops > maxRedirectHops) {
+                return response
+            }
+
+            val nextUri = runCatching {
+                currentUri.resolve(location)
+            }.getOrNull() ?: runCatching { URI(location) }.getOrNull() ?: return response
+
+            // Strip Authorization and Cookie headers on foreign host/port or https->http downgrade
+            val sameOrigin = isSameOrigin(initialUri, nextUri)
+            if (!sameOrigin) {
+                currentHeaders = currentHeaders.filterNot { (k, _) ->
+                    k.equals(HttpHeaders.Authorization, ignoreCase = true) ||
+                            k.equals(HttpHeaders.Cookie, ignoreCase = true)
+                }
+            }
+
+            currentUri = nextUri
+        }
     }
 
     fun isValidHost(host: String?): Boolean {
@@ -124,7 +174,7 @@ object LocalStreamingProxy {
     }
 
     /**
-     * Registers a new playback session with a random single-use token and TTL.
+     * Registers a new playback session with a random single-use token and sliding TTL.
      */
     fun registerStream(
         trackId: String,
@@ -150,6 +200,10 @@ object LocalStreamingProxy {
 
     fun invalidateSessionsForTrack(trackId: String) {
         sessions.entries.removeIf { it.value.trackId == trackId }
+    }
+
+    fun invalidateAllSessions() {
+        sessions.clear()
     }
 
     fun cleanupExpiredSessions() {
@@ -192,6 +246,9 @@ fun configureStreamingProxyRoutes(
                 return@head
             }
 
+            // Touch session last access timestamp
+            session.touch()
+
             try {
                 val upstream = LocalStreamingProxy.fetchUpstream(session.streamSource, "bytes=0-0")
                 val contentType = upstream.headers[HttpHeaders.ContentType] ?: "audio/mpeg"
@@ -225,13 +282,16 @@ fun configureStreamingProxyRoutes(
                 return@get
             }
 
+            // Touch session last access timestamp
+            session.touch()
+
             val incomingRange = call.request.headers[HttpHeaders.Range]
 
             try {
                 var streamSource = session.streamSource
                 var upstreamResponse = LocalStreamingProxy.fetchUpstream(streamSource, incomingRange)
 
-                // Item 4: Upstream 401/403/410 link refresh & retry
+                // Upstream 401/403/410 link refresh & retry
                 if (upstreamResponse.status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone)) {
                     val refreshed = session.onRefreshNeeded?.invoke()
                     if (refreshed != null) {

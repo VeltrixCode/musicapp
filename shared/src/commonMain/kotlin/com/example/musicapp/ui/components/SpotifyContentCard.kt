@@ -49,7 +49,7 @@ import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.fallbackGradientFor
 
 @Composable
-fun SpotifyContentCard(
+fun ContentCard(
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
@@ -110,7 +110,7 @@ fun SpotifyContentCard(
                     }
                 }
 
-                // Spotify Floating Green Play Button on Hover
+                // Floating Accent Play Button on Hover
                 this@Column.AnimatedVisibility(
                     visible = isHovered || isPlaying,
                     enter = fadeIn() + slideInVertically { it / 2 },
@@ -162,3 +162,26 @@ fun SpotifyContentCard(
         }
     }
 }
+
+@Composable
+fun SpotifyContentCard(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    cardWidth: Dp = 175.dp,
+    isArtist: Boolean = false,
+    isPlaying: Boolean = false,
+    badgeText: String? = null,
+    onClick: () -> Unit,
+    onPlayClick: () -> Unit,
+) = ContentCard(
+    title = title,
+    subtitle = subtitle,
+    modifier = modifier,
+    cardWidth = cardWidth,
+    isArtist = isArtist,
+    isPlaying = isPlaying,
+    badgeText = badgeText,
+    onClick = onClick,
+    onPlayClick = onPlayClick
+)

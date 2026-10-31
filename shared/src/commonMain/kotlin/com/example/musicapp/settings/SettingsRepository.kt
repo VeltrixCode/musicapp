@@ -17,6 +17,18 @@ data class AppSettings(
     val playbackSpeed: Float = 1.0f,
     val equalizerPresetName: String = "Flat",
     val equalizerCustomGains: List<Float> = emptyList(),
+    val fetchOnlineLyrics: Boolean = false,
+    val offlineMode: Boolean = false,
+    val librarySortColumn: String = "Number",
+    val librarySortDirection: String = "Ascending",
+    val sidebarFilter: String = "Все",
+    val sidebarSort: String = "Недавние",
+    val sidebarIsGrid: Boolean = false,
+    val gdriveAccountEmail: String? = null,
+    val yandexAccountEmail: String? = null,
+    val gdriveSyncFolderId: String? = null,
+    val yandexSyncFolderId: String? = null,
+    val lastSyncTimeMs: Long? = null,
 )
 
 class SettingsRepository {

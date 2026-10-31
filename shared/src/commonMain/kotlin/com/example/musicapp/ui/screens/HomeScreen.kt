@@ -1,6 +1,11 @@
 package com.example.musicapp.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -100,13 +105,25 @@ fun HomeScreen(
 
     var jamendoPopular by remember { mutableStateOf<List<RemoteTrack>>(emptyList()) }
     var audiusTrending by remember { mutableStateOf<List<RemoteTrack>>(emptyList()) }
+    var isLoadingJamendo by remember { mutableStateOf(true) }
+    var isLoadingAudius by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         launch {
-            jamendoPopular = player.providerRegistry.jamendo.listTracks().items
+            try {
+                jamendoPopular = player.providerRegistry.jamendo.listTracks().items
+            } catch (_: Throwable) {
+            } finally {
+                isLoadingJamendo = false
+            }
         }
         launch {
-            audiusTrending = player.providerRegistry.audius.listTracks().items
+            try {
+                audiusTrending = player.providerRegistry.audius.listTracks().items
+            } catch (_: Throwable) {
+            } finally {
+                isLoadingAudius = false
+            }
         }
     }
 
@@ -138,7 +155,7 @@ fun HomeScreen(
 
         // Quick 6 Cards Grid
         val quickCards = listOf(
-            QuickCardData("Любимые треки", Icons.Rounded.Favorite, Color(0xFF450AF5), favoriteTracks),
+            QuickCardData("Любимые треки", Icons.Rounded.Favorite, Color(0xFF0F5A3E), favoriteTracks),
             QuickCardData("Микс дня", Icons.Rounded.Shuffle, Color(0xFF1E3264), mixOfDay),
             QuickCardData("Свежее в медиатеке", Icons.Rounded.Explore, Color(0xFF148A3C), recentlyAdded),
             QuickCardData("Часто слушаемое", Icons.Rounded.PlayArrow, Color(0xFF8D67AB), frequentlyPlayed),
@@ -218,7 +235,10 @@ fun HomeScreen(
         }
 
         // Shelf 4: "Популярное в Jamendo (Creative Commons)"
-        if (jamendoPopular.isNotEmpty()) {
+        if (isLoadingJamendo) {
+            ShelfSkeleton(title = "Популярное в Jamendo (Лицензия CC)")
+            Spacer(Modifier.height(28.dp))
+        } else if (jamendoPopular.isNotEmpty()) {
             val converted = jamendoPopular.map { it.toTrack() }
             SpotifyShelf(
                 title = "Популярное в Jamendo (Лицензия CC)",
@@ -231,7 +251,9 @@ fun HomeScreen(
         }
 
         // Shelf 5: "Тренды Audius"
-        if (audiusTrending.isNotEmpty()) {
+        if (isLoadingAudius) {
+            ShelfSkeleton(title = "Открытая музыка Audius")
+        } else if (audiusTrending.isNotEmpty()) {
             val converted = audiusTrending.map { it.toTrack() }
             SpotifyShelf(
                 title = "Открытая музыка Audius",
@@ -240,6 +262,72 @@ fun HomeScreen(
                 badge = "AUDIUS",
                 onTrackClick = { t -> player.play(t, converted) }
             )
+        }
+    }
+}
+
+@Composable
+private fun ShimmerCardSkeleton() {
+    val transition = rememberInfiniteTransition()
+    val alpha by transition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+    Column(
+        modifier = Modifier
+            .width(160.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(AppColors.SurfaceElevated)
+            .padding(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(136.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color.White.copy(alpha = alpha))
+        )
+        Spacer(Modifier.height(12.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.75f)
+                .height(14.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.White.copy(alpha = alpha))
+        )
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.45f)
+                .height(12.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.White.copy(alpha = alpha * 0.7f))
+        )
+    }
+}
+
+@Composable
+private fun ShelfSkeleton(title: String) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                color = AppColors.TextPrimary
+            )
+        )
+        Spacer(Modifier.height(14.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            repeat(5) {
+                ShimmerCardSkeleton()
+            }
         }
     }
 }

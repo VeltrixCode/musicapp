@@ -7,6 +7,8 @@ secrets.properties
 *.keystore
 *.jks
 *.enc
+*.dpapi
+*.salt
 *.tmp
 test_audius.mp3
 .idea

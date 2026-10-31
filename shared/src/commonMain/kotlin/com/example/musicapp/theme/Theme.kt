@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 
 /**
- * Spotify-inspired color palette strictly adhering to WCAG AA contrast standards.
+ * JVXMusic dark color palette strictly adhering to WCAG AA contrast standards.
  */
 object AppColors {
     val Background = Color(0xFF121212)
@@ -134,7 +134,7 @@ val AppTypography = Typography(
     )
 )
 
-private val SpotifyDarkColorScheme = darkColorScheme(
+private val JVXDarkColorScheme = darkColorScheme(
     primary = AppColors.Accent,
     onPrimary = Color.Black,
     surface = AppColors.Surface,
@@ -171,7 +171,7 @@ fun AppTheme(
 ) {
     CompositionLocalProvider(LocalSpacing provides spacing) {
         MaterialTheme(
-            colorScheme = SpotifyDarkColorScheme,
+            colorScheme = JVXDarkColorScheme,
             typography = AppTypography,
             shapes = AppShapes,
             content = content,

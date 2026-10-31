@@ -86,6 +86,7 @@ data class Playlist(
     val trackIds: List<String> = emptyList(),
     val isSystem: Boolean = false,
     val coverUrl: String? = null,
+    val description: String = "",
 )
 
 @Serializable

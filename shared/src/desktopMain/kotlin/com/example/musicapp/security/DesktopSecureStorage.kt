@@ -29,8 +29,14 @@ actual object SecureStorage {
      * - Windows: %USERPROFILE%\JVXMusic\.security\vault.dpapi
      * - macOS / Linux: ~/.config/JVXMusic/.security/vault.enc
      *
-     * On Windows, the master encryption key is managed strictly by the Windows OS Security Subsystem
-     * (LSA / TPM via Windows Data Protection API - DPAPI) and is non-exportable.
+     * Security model:
+     * - Windows: Uses the Windows Data Protection API (CryptProtectData / CryptUnprotectData via JNA).
+     *   The encryption master key is tied directly to the current Windows user account login credentials
+     *   managed by the Local Security Authority (LSA). It is NOT tied to a hardware TPM chip.
+     *   Optional caller-supplied entropy can be provided to bind ciphertext to application-specific scope.
+     * - macOS / Linux: Uses AES-256-GCM authenticated encryption (AES/GCM/NoPadding, 128-bit authentication
+     *   tag, 12-byte random IV) with key derivation via PBKDF2WithHmacSHA256 (65,536 iterations) seeded
+     *   with user entropy (user.name, user.home) and a cryptographically secure 16-byte persistent salt.
      */
     val vaultFile: File get() = File(vaultDir, if (Platform.isWindows()) "vault.dpapi" else "vault.enc")
     private val saltFile: File get() = File(vaultDir, "vault.salt")
@@ -39,17 +45,33 @@ actual object SecureStorage {
     private var isLoaded = false
     private val lock = Any()
 
-    fun encryptBytes(data: ByteArray): ByteArray {
+    /**
+     * Encrypts plaintext bytes. On Windows, uses CryptProtectData with optional entropy.
+     * On macOS/Linux, uses AES-256-GCM.
+     */
+    fun encryptBytes(data: ByteArray, entropy: ByteArray? = null): ByteArray {
         return if (Platform.isWindows()) {
-            Crypt32Util.cryptProtectData(data)
+            if (entropy != null) {
+                Crypt32Util.cryptProtectData(data, entropy, 0, null, null)
+            } else {
+                Crypt32Util.cryptProtectData(data)
+            }
         } else {
             fallbackEncrypt(data)
         }
     }
 
-    fun decryptBytes(encrypted: ByteArray): ByteArray {
+    /**
+     * Decrypts ciphertext bytes. On Windows, uses CryptUnprotectData with optional entropy.
+     * On macOS/Linux, uses AES-256-GCM.
+     */
+    fun decryptBytes(encrypted: ByteArray, entropy: ByteArray? = null): ByteArray {
         return if (Platform.isWindows()) {
-            Crypt32Util.cryptUnprotectData(encrypted)
+            if (entropy != null) {
+                Crypt32Util.cryptUnprotectData(encrypted, entropy, 0, null)
+            } else {
+                Crypt32Util.cryptUnprotectData(encrypted)
+            }
         } else {
             fallbackDecrypt(encrypted)
         }
@@ -138,7 +160,7 @@ actual object SecureStorage {
         return SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
     }
 
-    private fun fallbackEncrypt(data: ByteArray): ByteArray {
+    internal fun fallbackEncrypt(data: ByteArray): ByteArray {
         val iv = ByteArray(12)
         SecureRandom().nextBytes(iv)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -150,7 +172,7 @@ actual object SecureStorage {
         return output
     }
 
-    private fun fallbackDecrypt(data: ByteArray): ByteArray {
+    internal fun fallbackDecrypt(data: ByteArray): ByteArray {
         val iv = data.copyOfRange(0, 12)
         val cipherText = data.copyOfRange(12, data.size)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")

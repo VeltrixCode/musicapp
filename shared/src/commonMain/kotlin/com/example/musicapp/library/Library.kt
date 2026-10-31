@@ -199,9 +199,62 @@ class Library {
         track.source?.let { AppStorage.deleteFile(it) }
     }
 
-    fun createPlaylist(name: String) {
-        playlists.add(Playlist(newId(), name.trim()))
+    /**
+     * Updates track duration from the authoritative audio player and saves to storage.
+     */
+    fun updateTrackDuration(trackId: String, durationMs: Long) {
+        if (durationMs <= 0L) return
+        val idx = tracks.indexOfFirst { it.id == trackId }
+        if (idx >= 0 && tracks[idx].durationMs != durationMs) {
+            tracks[idx] = tracks[idx].copy(durationMs = durationMs)
+            save()
+        }
+    }
+
+    fun createPlaylist(name: String, description: String = "", coverUrl: String? = null) {
+        playlists.add(
+            Playlist(
+                id = newId(),
+                name = name.trim(),
+                description = description.trim(),
+                coverUrl = coverUrl?.trim()?.takeIf { it.isNotBlank() }
+            )
+        )
         save()
+    }
+
+    fun updatePlaylist(playlistId: String, name: String, description: String, coverUrl: String?) {
+        val i = playlists.indexOfFirst { it.id == playlistId }
+        if (i >= 0 && playlistId != FAVORITES_PLAYLIST_ID) {
+            playlists[i] = playlists[i].copy(
+                name = name.trim(),
+                description = description.trim(),
+                coverUrl = coverUrl?.trim()?.takeIf { it.isNotBlank() }
+            )
+            save()
+        }
+    }
+
+    fun movePlaylist(playlistId: String, moveUp: Boolean) {
+        if (playlistId == FAVORITES_PLAYLIST_ID) return
+        val i = playlists.indexOfFirst { it.id == playlistId }
+        if (i < 0) return
+        val targetIdx = if (moveUp) i - 1 else i + 1
+        // Keep Favorites (index 0) pinned at the top
+        if (targetIdx in 1 until playlists.size) {
+            val item = playlists.removeAt(i)
+            playlists.add(targetIdx, item)
+            save()
+        }
+    }
+
+    fun reorderPlaylists(fromIndex: Int, toIndex: Int) {
+        if (fromIndex == 0 || toIndex == 0) return // Preserve Favorites at top
+        if (fromIndex in playlists.indices && toIndex in playlists.indices) {
+            val item = playlists.removeAt(fromIndex)
+            playlists.add(toIndex, item)
+            save()
+        }
     }
 
     fun deletePlaylist(playlistId: String) {

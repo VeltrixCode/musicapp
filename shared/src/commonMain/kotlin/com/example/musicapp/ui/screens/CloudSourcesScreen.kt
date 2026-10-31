@@ -16,11 +16,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Save
@@ -40,7 +42,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import com.example.musicapp.service.CoverArtService
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,14 +54,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.musicapp.cache.AudioOfflineCache
 import com.example.musicapp.config.AppConfig
 import com.example.musicapp.library.Library
+import com.example.musicapp.platform.currentTimeMillis
 import com.example.musicapp.player.AudioPlayer
+import com.example.musicapp.service.CoverArtService
+import com.example.musicapp.service.LyricsService
+import com.example.musicapp.settings.SettingsRepository
 import com.example.musicapp.theme.AppColors
 import kotlinx.coroutines.launch
+
+private fun formatSyncTime(timeMs: Long?): String {
+    if (timeMs == null || timeMs <= 0L) return "Ещё не проводилась"
+    val diffSec = (currentTimeMillis() - timeMs) / 1000L
+    return when {
+        diffSec < 60 -> "Только что"
+        diffSec < 3600 -> "${diffSec / 60} мин. назад"
+        diffSec < 86400 -> "${diffSec / 3600} ч. назад"
+        else -> "${diffSec / 86400} дн. назад"
+    }
+}
 
 @Composable
 fun CloudSourcesScreen(
@@ -72,6 +89,16 @@ fun CloudSourcesScreen(
     val scope = rememberCoroutineScope()
     val registry = player.providerRegistry
 
+    val settingsRepo = remember { SettingsRepository() }
+    var appSettings by remember { mutableStateOf(settingsRepo.load()) }
+
+    // Synchronize settings with singleton services
+    remember(appSettings.fetchOnlineLyrics) { LyricsService.fetchOnlineLyrics = appSettings.fetchOnlineLyrics }
+    remember(appSettings.offlineMode) {
+        LyricsService.offlineMode = appSettings.offlineMode
+        CoverArtService.offlineMode = appSettings.offlineMode
+    }
+
     val isGDriveSignedIn by registry.gdrive.isSignedIn.collectAsState()
     val isYandexSignedIn by registry.yandex.isSignedIn.collectAsState()
     val isSyncing by registry.isSyncing.collectAsState()
@@ -80,6 +107,11 @@ fun CloudSourcesScreen(
     var yandexTokenInput by remember { mutableStateOf("") }
     var showGDriveTokenDialog by remember { mutableStateOf(false) }
     var showYandexTokenDialog by remember { mutableStateOf(false) }
+
+    // Folder sync input dialogs
+    var showGDriveFolderDialog by remember { mutableStateOf(false) }
+    var showYandexFolderDialog by remember { mutableStateOf(false) }
+    var folderInput by remember { mutableStateOf("") }
 
     // API Config State
     var googleClientIdInput by remember { mutableStateOf(AppConfig.googleClientId) }
@@ -122,13 +154,22 @@ fun CloudSourcesScreen(
             name = "Google Диск",
             description = "OAuth 2.0 PKCE • Чтение файлов audio/* • Потоковое воспроизведение с Range",
             isConnected = isGDriveSignedIn,
+            accountEmail = appSettings.gdriveAccountEmail ?: if (isGDriveSignedIn) "Google Drive Account" else null,
+            folderId = appSettings.gdriveSyncFolderId,
+            lastSyncTime = formatSyncTime(appSettings.lastSyncTimeMs),
+            onSelectFolder = {
+                folderInput = appSettings.gdriveSyncFolderId ?: ""
+                showGDriveFolderDialog = true
+            },
             onConnect = {
                 showGDriveTokenDialog = true
             },
             onDisconnect = {
                 scope.launch {
                     registry.gdrive.signOut()
-                    onShowMessage("Google Диск отключен")
+                    appSettings = appSettings.copy(gdriveAccountEmail = null, gdriveSyncFolderId = null)
+                    settingsRepo.save(appSettings)
+                    onShowMessage("Google Диск отключен, токен удален из SecureStorage")
                 }
             }
         )
@@ -138,12 +179,37 @@ fun CloudSourcesScreen(
                 label = "OAuth Access Token (Google Drive)",
                 value = gdriveTokenInput,
                 onValueChange = { gdriveTokenInput = it },
+                onOAuthClick = {
+                    scope.launch {
+                        onShowMessage("Запуск авторизации Google (OAuth 2.0 PKCE)...")
+                        val res = com.example.musicapp.oauth.GoogleOAuth.performSignIn()
+                        if (res.isSuccess) {
+                            val token = res.getOrNull()
+                            if (!token.isNullOrBlank()) {
+                                registry.gdrive.updateToken(token)
+                                appSettings = appSettings.copy(gdriveAccountEmail = "Google OAuth User")
+                                settingsRepo.save(appSettings)
+                                gdriveTokenInput = ""
+                                showGDriveTokenDialog = false
+                                onShowMessage("Google Диск успешно подключен!")
+                            }
+                        } else {
+                            onShowMessage("Ошибка входа Google: ${res.exceptionOrNull()?.message}")
+                        }
+                    }
+                },
                 onSave = {
                     registry.gdrive.updateToken(gdriveTokenInput.trim())
+                    appSettings = appSettings.copy(gdriveAccountEmail = "Google Token User")
+                    settingsRepo.save(appSettings)
+                    gdriveTokenInput = ""
                     showGDriveTokenDialog = false
                     onShowMessage("Google Диск успешно подключен!")
                 },
-                onCancel = { showGDriveTokenDialog = false }
+                onCancel = {
+                    gdriveTokenInput = ""
+                    showGDriveTokenDialog = false
+                }
             )
         }
 
@@ -154,13 +220,22 @@ fun CloudSourcesScreen(
             name = "Яндекс Диск",
             description = "OAuth REST API • Потоковая передача аудио • Автоматическая синхронизация",
             isConnected = isYandexSignedIn,
+            accountEmail = appSettings.yandexAccountEmail ?: if (isYandexSignedIn) "Yandex Disk Account" else null,
+            folderId = appSettings.yandexSyncFolderId,
+            lastSyncTime = formatSyncTime(appSettings.lastSyncTimeMs),
+            onSelectFolder = {
+                folderInput = appSettings.yandexSyncFolderId ?: ""
+                showYandexFolderDialog = true
+            },
             onConnect = {
                 showYandexTokenDialog = true
             },
             onDisconnect = {
                 scope.launch {
                     registry.yandex.signOut()
-                    onShowMessage("Яндекс Диск отключен")
+                    appSettings = appSettings.copy(yandexAccountEmail = null, yandexSyncFolderId = null)
+                    settingsRepo.save(appSettings)
+                    onShowMessage("Яндекс Диск отключен, токен удален из SecureStorage")
                 }
             }
         )
@@ -172,10 +247,45 @@ fun CloudSourcesScreen(
                 onValueChange = { yandexTokenInput = it },
                 onSave = {
                     registry.yandex.updateToken(yandexTokenInput.trim())
+                    appSettings = appSettings.copy(yandexAccountEmail = "Yandex OAuth User")
+                    settingsRepo.save(appSettings)
+                    yandexTokenInput = ""
                     showYandexTokenDialog = false
                     onShowMessage("Яндекс Диск успешно подключен!")
                 },
-                onCancel = { showYandexTokenDialog = false }
+                onCancel = {
+                    yandexTokenInput = ""
+                    showYandexTokenDialog = false
+                }
+            )
+        }
+
+        // Folder selection dialogs
+        if (showGDriveFolderDialog) {
+            FolderSelectionDialog(
+                title = "Папка синхронизации Google Диска",
+                currentFolder = folderInput,
+                onDismiss = { showGDriveFolderDialog = false },
+                onSave = { selected ->
+                    appSettings = appSettings.copy(gdriveSyncFolderId = selected.takeIf { it.isNotBlank() })
+                    settingsRepo.save(appSettings)
+                    showGDriveFolderDialog = false
+                    onShowMessage("Папка Google Диска сохранена")
+                }
+            )
+        }
+
+        if (showYandexFolderDialog) {
+            FolderSelectionDialog(
+                title = "Папка синхронизации Яндекс Диска",
+                currentFolder = folderInput,
+                onDismiss = { showYandexFolderDialog = false },
+                onSave = { selected ->
+                    appSettings = appSettings.copy(yandexSyncFolderId = selected.takeIf { it.isNotBlank() })
+                    settingsRepo.save(appSettings)
+                    showYandexFolderDialog = false
+                    onShowMessage("Папка Яндекс Диска сохранена")
+                }
             )
         }
 
@@ -190,6 +300,149 @@ fun CloudSourcesScreen(
             onConnect = {},
             onDisconnect = {}
         )
+
+        Spacer(Modifier.height(28.dp))
+
+        // Sync Now Button
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppColors.Surface)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Синхронизация медиатеки",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                    )
+                    Text(
+                        "Ищет новые аудиофайлы во всех подключенных облаках и добавляет в медиатеку с дедупликацией.",
+                        style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary)
+                    )
+                }
+                Spacer(Modifier.width(16.dp))
+                Button(
+                    onClick = {
+                        registry.syncAll(library.tracks.toList()) { newTracks ->
+                            library.addTracks(newTracks)
+                            val now = currentTimeMillis()
+                            appSettings = appSettings.copy(lastSyncTimeMs = now)
+                            settingsRepo.save(appSettings)
+                            onShowMessage("Синхронизировано новых треков: ${newTracks.size}")
+                        }
+                    },
+                    enabled = !isSyncing,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                ) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    } else {
+                        Icon(Icons.Rounded.Sync, contentDescription = null, tint = Color.Black)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text("Синхронизировать сейчас", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
+
+        // SECTION: Privacy & Network (Point 6)
+        Text(
+            text = "Приватность и Сеть",
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                color = AppColors.TextPrimary
+            )
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "User-Agent приложения: ${LyricsService.USER_AGENT}",
+            style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted)
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppColors.Surface)
+                .padding(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                // Privacy toggle 1: Online lyrics
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Загружать тексты песен из интернета",
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "По умолчанию выключено. При включении название и исполнитель трека отправляются на открытый сервис lrclib.net для поиска синхронизированных караоке-текстов.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppColors.TextSecondary
+                        )
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Switch(
+                        checked = appSettings.fetchOnlineLyrics,
+                        onCheckedChange = { enabled ->
+                            appSettings = appSettings.copy(fetchOnlineLyrics = enabled)
+                            LyricsService.fetchOnlineLyrics = enabled
+                            settingsRepo.save(appSettings)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
+                    )
+                }
+
+                Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+
+                // Privacy toggle 2: Offline mode
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Офлайн-режим",
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "Блокирует все внешние сетевые подключения приложения (к облачным дискам, каталогам, поиску текстов и обложек). Воспроизводятся только локальные файлы и сохранённый офлайн-кэш.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppColors.TextSecondary
+                        )
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Switch(
+                        checked = appSettings.offlineMode,
+                        onCheckedChange = { enabled ->
+                            appSettings = appSettings.copy(offlineMode = enabled)
+                            LyricsService.offlineMode = enabled
+                            CoverArtService.offlineMode = enabled
+                            settingsRepo.save(appSettings)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
+                    )
+                }
+            }
+        }
 
         Spacer(Modifier.height(28.dp))
 
@@ -229,6 +482,7 @@ fun CloudSourcesScreen(
                     onValueChange = { googleClientSecretInput = it },
                     label = { Text("Google Client Secret") },
                     singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -335,54 +589,6 @@ fun CloudSourcesScreen(
 
         Spacer(Modifier.height(28.dp))
 
-        // Sync Now Button
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(AppColors.Surface)
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Синхронизация медиатеки",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
-                    )
-                    Text(
-                        "Ищет новые аудиофайлы во всех подключенных облаках и добавляет в медиатеку с дедупликацией.",
-                        style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary)
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Button(
-                    onClick = {
-                        registry.syncAll(library.tracks.toList()) { newTracks ->
-                            library.addTracks(newTracks)
-                            onShowMessage("Синхронизировано новых треков: ${newTracks.size}")
-                        }
-                    },
-                    enabled = !isSyncing,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
-                ) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                    } else {
-                        Icon(Icons.Rounded.Sync, contentDescription = null, tint = Color.Black)
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text("Синхронизировать сейчас", color = Color.Black, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-
-        Spacer(Modifier.height(28.dp))
-
         // Section: Offline Cache & Media Settings
         Text(
             text = "Управление офлайн-кэшем и медиа",
@@ -405,20 +611,16 @@ fun CloudSourcesScreen(
                 .background(AppColors.Surface)
                 .padding(16.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f)) {
+                    Column {
+                        Text("Использовано диска для кэша", color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold)
                         Text(
-                            "Использовано: $usedCacheMb МБ из ${cacheLimitMb.toInt()} МБ",
-                            fontWeight = FontWeight.Bold,
-                            color = AppColors.TextPrimary
-                        )
-                        Text(
-                            "Автоматическое LRU-вытеснение защищает играющие и добавленные в очередь треки",
+                            "$usedCacheMb МБ из ${cacheLimitMb.toInt()} МБ",
                             style = MaterialTheme.typography.bodySmall,
                             color = AppColors.TextSecondary
                         )
@@ -427,35 +629,38 @@ fun CloudSourcesScreen(
                         onClick = { showClearCacheConfirm = true },
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceElevated)
                     ) {
-                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = AppColors.Error, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Rounded.Delete, contentDescription = null, tint = AppColors.Error)
                         Spacer(Modifier.width(6.dp))
-                        Text("Очистить кэш", color = Color.White, maxLines = 1, softWrap = false)
+                        Text("Очистить кэш", color = AppColors.Error)
                     }
                 }
 
-                // Cache usage progress bar
-                val progressFrac = (usedCacheMb.toFloat() / cacheLimitMb.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                // Progress Bar of Cache
+                val progress = (usedCacheMb.toFloat() / cacheLimitMb.coerceAtLeast(1f)).coerceIn(0f, 1f)
                 LinearProgressIndicator(
-                    progress = { progressFrac },
-                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                    color = if (progressFrac > 0.85f) Color(0xFFFFA000) else AppColors.Accent,
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                    color = AppColors.Accent,
                     trackColor = AppColors.SurfaceElevated
                 )
 
-                // Cache limit slider (512 MB to 20 GB)
+                // Slider to set Cache Limit
                 Column {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Лимит размера кэша", fontSize = 12.sp, color = AppColors.TextSecondary)
-                        Text("${cacheLimitMb.toInt()} МБ (${(cacheLimitMb / 1024f).let { if (it >= 1f) "${(it * 10).toInt() / 10f} ГБ" else "${it.toInt()} МБ" }})", fontSize = 12.sp, color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Максимальный размер кэша", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextPrimary)
+                        Text("${cacheLimitMb.toInt()} МБ", style = MaterialTheme.typography.bodyMedium, color = AppColors.Accent)
                     }
                     Slider(
                         value = cacheLimitMb,
-                        onValueChange = {
-                            cacheLimitMb = it
-                            AudioOfflineCache.maxSizeBytes = it.toLong() * 1024L * 1024L
+                        onValueChange = { cacheLimitMb = it },
+                        onValueChangeFinished = {
+                            AudioOfflineCache.maxSizeBytes = cacheLimitMb.toLong() * 1024L * 1024L
                         },
-                        valueRange = 512f..20480f,
-                        steps = 38,
+                        valueRange = 100f..5000f,
+                        steps = 49,
                         colors = SliderDefaults.colors(
                             thumbColor = AppColors.Accent,
                             activeTrackColor = AppColors.Accent,
@@ -464,26 +669,26 @@ fun CloudSourcesScreen(
                     )
                 }
 
-                Spacer(Modifier.height(4.dp))
-
-                // Setting: Load online cover art (iTunes Search API)
+                // Toggle: Auto-download cover art from internet
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("Загружать обложки из интернета", fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
-                        Text("Поиск высокого разрешения через iTunes Search API при отсутствии локальных тегов", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                        Text("Загружать обложки из iTunes / Cover Art Archive", color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Автоматически находить недостающие обложки с ограничением частоты запросов и негативным кэшем.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppColors.TextSecondary
+                        )
                     }
                     Switch(
                         checked = CoverArtService.loadOnlineCovers,
                         onCheckedChange = { CoverArtService.loadOnlineCovers = it },
                         colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = AppColors.Accent,
-                            uncheckedThumbColor = AppColors.TextMuted,
-                            uncheckedTrackColor = AppColors.SurfaceElevated
+                            checkedThumbColor = AppColors.Accent,
+                            checkedTrackColor = AppColors.Accent.copy(alpha = 0.5f)
                         )
                     )
                 }
@@ -493,24 +698,28 @@ fun CloudSourcesScreen(
         if (showClearCacheConfirm) {
             AlertDialog(
                 onDismissRequest = { showClearCacheConfirm = false },
-                title = { Text("Очистить офлайн-кэш?", fontWeight = FontWeight.Bold) },
+                title = { Text("Очистить офлайн-кэш музыки?", color = AppColors.TextPrimary) },
                 text = {
-                    Text("Все временно загруженные треки ($usedCacheMb МБ) будут удалены из локального хранилища. Локальные файлы и плейлисты не будут затронуты.")
+                    Text(
+                        "Все временно закэшированные потоковые аудиофайлы будут удалены с диска. Локальная музыка и плейлисты не пострадают.",
+                        color = AppColors.TextSecondary
+                    )
                 },
                 confirmButton = {
-                    TextButton(
+                    Button(
                         onClick = {
                             AudioOfflineCache.clearCache()
                             showClearCacheConfirm = false
-                            onShowMessage("Офлайн-кэш успешно очищен")
-                        }
+                            onShowMessage("Офлайн-кэш успешно очищен!")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Error)
                     ) {
-                        Text("Очистить", color = AppColors.Error, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        Text("Удалить", color = Color.White)
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearCacheConfirm = false }) {
-                        Text("Отмена", color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
+                        Text("Отмена", color = AppColors.TextSecondary)
                     }
                 },
                 containerColor = AppColors.SurfaceElevated
@@ -524,6 +733,10 @@ private fun CloudProviderItem(
     name: String,
     description: String,
     isConnected: Boolean,
+    accountEmail: String? = null,
+    folderId: String? = null,
+    lastSyncTime: String? = null,
+    onSelectFolder: (() -> Unit)? = null,
     isAlwaysActive: Boolean = false,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
@@ -535,55 +748,108 @@ private fun CloudProviderItem(
             .background(AppColors.Surface)
             .padding(16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isConnected) AppColors.Accent.copy(alpha = 0.2f) else AppColors.SurfaceElevated),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isConnected) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
-                        contentDescription = null,
-                        tint = if (isConnected) AppColors.Accent else AppColors.TextMuted,
-                        modifier = Modifier.size(24.dp)
-                    )
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isConnected) AppColors.Accent.copy(alpha = 0.2f) else AppColors.SurfaceElevated),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isConnected) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
+                            contentDescription = null,
+                            tint = if (isConnected) AppColors.Accent else AppColors.TextMuted,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column {
+                        Text(name, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                        Text(description, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                    }
                 }
-                Spacer(Modifier.width(14.dp))
-                Column {
-                    Text(name, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
-                    Text(description, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+
+                if (!isAlwaysActive) {
+                    Spacer(Modifier.width(16.dp))
+                    if (isConnected) {
+                        OutlinedButton(onClick = onDisconnect) {
+                            Text("Отключить", color = AppColors.Error)
+                        }
+                    } else {
+                        Button(
+                            onClick = onConnect,
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                        ) {
+                            Text("Подключить", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(AppColors.Accent.copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text("Активен", color = AppColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
-            if (!isAlwaysActive) {
-                Spacer(Modifier.width(16.dp))
-                if (isConnected) {
-                    OutlinedButton(onClick = onDisconnect) {
-                        Text("Отключить", color = AppColors.Error)
-                    }
-                } else {
-                    Button(
-                        onClick = onConnect,
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+            // Extended connected account info: account, folder, last sync time (Point 5)
+            if (isConnected && !isAlwaysActive) {
+                Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("Подключить", color = Color.Black, fontWeight = FontWeight.Bold)
+                        Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                        Text(
+                            text = accountEmail ?: "Аккаунт подключен",
+                            style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary, fontWeight = FontWeight.Medium)
+                        )
+                    }
+
+                    if (lastSyncTime != null) {
+                        Text(
+                            text = "Синхронизация: $lastSyncTime",
+                            style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted, fontSize = 11.sp)
+                        )
                     }
                 }
-            } else {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(AppColors.Accent.copy(alpha = 0.15f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text("Активен", color = AppColors.Accent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+                if (onSelectFolder != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Rounded.Folder, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                            Text(
+                                text = "Папка: ${folderId ?: "Вся музыка (корень)"}",
+                                style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary)
+                            )
+                        }
+                        TextButton(onClick = onSelectFolder) {
+                            Text("Изменить папку", fontSize = 12.sp, color = AppColors.Accent)
+                        }
+                    }
                 }
             }
         }
@@ -591,10 +857,57 @@ private fun CloudProviderItem(
 }
 
 @Composable
+private fun FolderSelectionDialog(
+    title: String,
+    currentFolder: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(currentFolder) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "Укажите ID или путь к папке (оставьте пустым для синхронизации всех аудиофайлов):",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppColors.TextSecondary
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("Например: Music или folder_id", color = AppColors.TextMuted) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(text.trim()) },
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+            ) {
+                Text("Сохранить", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Отмена", color = AppColors.TextSecondary)
+            }
+        },
+        containerColor = AppColors.SurfaceElevated
+    )
+}
+
+@Composable
 private fun TokenEntryBox(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
+    onOAuthClick: (() -> Unit)? = null,
     onSave: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -609,11 +922,24 @@ private fun TokenEntryBox(
         Column {
             Text(label, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
             Spacer(Modifier.height(8.dp))
+            if (onOAuthClick != null) {
+                OutlinedButton(
+                    onClick = onOAuthClick,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AppColors.Accent)
+                ) {
+                    Text("Войти через браузер (OAuth 2.0 PKCE)", fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text("или введите токен вручную:", style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted))
+                Spacer(Modifier.height(4.dp))
+            }
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
                 placeholder = { Text("Вставьте токен...", color = AppColors.TextMuted) },
                 singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(12.dp))

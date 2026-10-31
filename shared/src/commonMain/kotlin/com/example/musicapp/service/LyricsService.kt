@@ -1,12 +1,18 @@
 package com.example.musicapp.service
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.example.musicapp.lyrics.LrcParser
 import com.example.musicapp.model.LrcLine
 import com.example.musicapp.model.Track
 import com.example.musicapp.platform.AppStorage
 import com.example.musicapp.provider.appHttpClient
+import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.http.HttpHeaders
 import io.ktor.http.encodeURLQueryComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -26,14 +32,31 @@ private data class LrclibResponse(
 
 /**
  * Service to load synchronized LRC or plain lyrics with LRCLIB online lookup and disk caching.
+ * Privacy-focused:
+ * - fetchOnlineLyrics is OFF by default (user must opt-in)
+ * - offlineMode turns off all outbound requests immediately
+ * - Uses dedicated User-Agent
  */
 object LyricsService {
-    private val memoryCache = mutableMapOf<String, List<LrcLine>>()
+    const val USER_AGENT = "JVXMusic/1.0 (https://github.com/VeltrixCode/MusicApp)"
 
-    suspend fun getLyrics(track: Track): List<LrcLine> = withContext(Dispatchers.IO) {
-        val cacheKey = "${track.artist.trim().lowercase()}_${track.title.trim().lowercase()}"
+    var fetchOnlineLyrics by mutableStateOf(false)
+    var offlineMode by mutableStateOf(false)
+
+    internal val memoryCache = mutableMapOf<String, List<LrcLine>>()
+
+    suspend fun getLyrics(
+        track: Track,
+        client: HttpClient = appHttpClient
+    ): List<LrcLine> = withContext(Dispatchers.IO) {
+        val cleanArtist = track.artist.trim().lowercase()
+        val cleanTitle = track.title.trim().lowercase()
+        val cacheKey = "${cleanArtist}_$cleanTitle"
+
+        // 1. In-memory cache
         memoryCache[cacheKey]?.let { return@withContext it }
 
+        // 2. Persistent local disk cache
         val diskKey = "lyrics_" + cacheKey.hashCode().toString(16) + ".lrc"
         val cachedText = AppStorage.read(diskKey)
         if (cachedText != null && cachedText.isNotBlank()) {
@@ -44,7 +67,17 @@ object LyricsService {
             }
         }
 
-        // Fetch from lrclib.net free open lyrics database
+        // 3. Privacy check: do not make network requests if offline mode or online lyrics disabled
+        if (offlineMode || !fetchOnlineLyrics) {
+            return@withContext emptyList()
+        }
+
+        // Sanity check: do not query for unknown or blank metadata
+        if (cleanTitle.isBlank() || cleanArtist.isBlank() || cleanArtist == "неизвестный исполнитель") {
+            return@withContext emptyList()
+        }
+
+        // 4. Fetch from lrclib.net open lyrics database with app User-Agent
         runCatching {
             val artist = track.artist.encodeURLQueryComponent()
             val title = track.title.encodeURLQueryComponent()
@@ -52,7 +85,10 @@ object LyricsService {
             val durationParam = if (durationSec.isNotEmpty()) "&duration=$durationSec" else ""
             val url = "https://lrclib.net/api/get?artist_name=$artist&track_name=$title$durationParam"
 
-            val resp = appHttpClient.get(url).body<LrclibResponse>()
+            val resp = client.get(url) {
+                header(HttpHeaders.UserAgent, USER_AGENT)
+            }.body<LrclibResponse>()
+
             val synced = resp.syncedLyrics
             if (synced != null && synced.isNotBlank()) {
                 AppStorage.write(diskKey, synced)
@@ -70,5 +106,9 @@ object LyricsService {
                 lines
             } else emptyList()
         }.getOrElse { emptyList() }
+    }
+
+    fun clearCache() {
+        memoryCache.clear()
     }
 }

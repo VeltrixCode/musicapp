@@ -58,6 +58,12 @@ expect fun launchFolderImport(onImported: (List<Track>) -> Unit)
 /** Prepares a stream URL for playback on the platform engine (e.g. desktop local proxy for auth headers). */
 expect fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String
 
+/** Notifies the platform streaming layer of a track change, allowing session cleanup. */
+expect fun onPlaybackTrackChanged(previousTrackId: String?, newTrackId: String?)
+
+/** Notifies the platform streaming layer that playback has released/stopped. */
+expect fun onPlaybackReleased()
+
 expect fun getEnv(name: String): String?
 
 /** Builds a Track from a copied file, using its tags when present and the file name otherwise. */
