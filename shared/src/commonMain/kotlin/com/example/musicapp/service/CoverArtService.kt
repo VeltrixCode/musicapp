@@ -1,8 +1,5 @@
 package com.example.musicapp.service
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import com.example.musicapp.cache.ArtworkCache
 import com.example.musicapp.model.Track
@@ -10,6 +7,7 @@ import com.example.musicapp.platform.AppStorage
 import com.example.musicapp.platform.decodeImageBytes
 import com.example.musicapp.platform.loadArtwork
 import com.example.musicapp.provider.appHttpClient
+import com.example.musicapp.settings.SettingsRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -52,12 +50,12 @@ private data class ITunesSearchResult(
  */
 object CoverArtService {
     const val USER_AGENT = "JVXMusic/1.0 (https://github.com/VeltrixCode/MusicApp)"
-    const val MUSICBRAINZ_USER_AGENT = "JVXMusic/1.0 ( https://github.com/VeltrixCode/MusicApp; support@jvxmusic.org )"
+    const val MUSICBRAINZ_USER_AGENT = "JVXMusic/1.0 (https://github.com/VeltrixCode/MusicApp)"
     const val NEGATIVE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000L // 7 days
     private const val NEGATIVE_CACHE_FILE = "negative_cover_cache.json"
 
-    var loadOnlineCovers by mutableStateOf(true)
-    var offlineMode by mutableStateOf(false)
+    // Single source of truth for online covers / offline mode
+    var settingsRepository: SettingsRepository = SettingsRepository()
 
     // Rate limiter mutexes: ensures at least 350ms between iTunes calls, 1000ms between MusicBrainz calls
     private val itunesRateLimiterMutex = Mutex()
@@ -66,11 +64,12 @@ object CoverArtService {
     private val mbRateLimiterMutex = Mutex()
     private var lastMbTimeMs = 0L
 
-    // Negative cache: normalizedKey -> timestamp of failed query
+    // Thread-safe negative cache: normalizedKey -> timestamp of failed query
+    private val negativeCacheMutex = Mutex()
     internal val negativeCache = mutableMapOf<String, Long>()
     private var isNegativeCacheLoaded = false
 
-    private fun loadNegativeCacheIfNeeded() {
+    private fun loadNegativeCacheIfNeededLocked() {
         if (isNegativeCacheLoaded) return
         isNegativeCacheLoaded = true
         runCatching {
@@ -86,12 +85,31 @@ object CoverArtService {
         }
     }
 
-    private fun persistNegativeCache() {
+    private fun persistNegativeCacheLocked() {
         runCatching {
             val json = Json { prettyPrint = false }
             val encoded = json.encodeToString<Map<String, Long>>(negativeCache)
-            AppStorage.write(NEGATIVE_CACHE_FILE, encoded)
+            AppStorage.writeAtomic(NEGATIVE_CACHE_FILE, encoded)
         }
+    }
+
+    suspend fun isNegativeCached(key: String): Boolean = negativeCacheMutex.withLock {
+        loadNegativeCacheIfNeededLocked()
+        val lastFailedTime = negativeCache[key] ?: return false
+        val elapsed = System.currentTimeMillis() - lastFailedTime
+        if (elapsed < NEGATIVE_CACHE_TTL_MS) {
+            true
+        } else {
+            negativeCache.remove(key)
+            persistNegativeCacheLocked()
+            false
+        }
+    }
+
+    suspend fun recordNegativeCache(key: String) = negativeCacheMutex.withLock {
+        loadNegativeCacheIfNeededLocked()
+        negativeCache[key] = System.currentTimeMillis()
+        persistNegativeCacheLocked()
     }
 
     /**
@@ -121,8 +139,9 @@ object CoverArtService {
             if (localBmp != null) return@withContext localBmp
         }
 
-        // 2. Online check: verify global settings
-        if (offlineMode || !loadOnlineCovers) return@withContext null
+        // 2. Online check: verify global settings from SettingsRepository (single source of truth)
+        val settings = settingsRepository.load()
+        if (settings.offlineMode || !settings.fetchOnlineCovers) return@withContext null
 
         val artist = track.artist.trim()
         val title = track.title.trim()
@@ -143,7 +162,8 @@ object CoverArtService {
         title: String,
         client: HttpClient = appHttpClient
     ): ImageBitmap? = withContext(Dispatchers.IO) {
-        if (offlineMode || !loadOnlineCovers) return@withContext null
+        val settings = settingsRepository.load()
+        if (settings.offlineMode || !settings.fetchOnlineCovers) return@withContext null
 
         val normalizedKey = "online_${artist.trim().lowercase()}_${title.trim().lowercase()}"
 
@@ -163,18 +183,9 @@ object CoverArtService {
             }
         }
 
-        loadNegativeCacheIfNeeded()
-
-        // Negative cache check (do not search again for 7 days)
-        val lastFailedTime = negativeCache[normalizedKey]
-        if (lastFailedTime != null) {
-            val elapsed = System.currentTimeMillis() - lastFailedTime
-            if (elapsed < NEGATIVE_CACHE_TTL_MS) {
-                return@withContext null
-            } else {
-                negativeCache.remove(normalizedKey)
-                persistNegativeCache()
-            }
+        // Negative cache check (thread-safe, do not search again for 7 days)
+        if (isNegativeCached(normalizedKey)) {
+            return@withContext null
         }
 
         // 1. Attempt lookup via iTunes Search API with rate limiting
@@ -189,9 +200,8 @@ object CoverArtService {
             return@withContext archiveBitmap
         }
 
-        // Record negative cache entry for 7 days and persist to disk
-        negativeCache[normalizedKey] = System.currentTimeMillis()
-        persistNegativeCache()
+        // Record negative cache entry for 7 days (thread-safe and atomic persistence)
+        recordNegativeCache(normalizedKey)
         null
     }
 
@@ -289,8 +299,13 @@ object CoverArtService {
         }.getOrNull()
     }
 
-    fun clearNegativeCache() {
+    suspend fun clearNegativeCache() = negativeCacheMutex.withLock {
         negativeCache.clear()
-        AppStorage.write(NEGATIVE_CACHE_FILE, "{}")
+        isNegativeCacheLoaded = true
+        AppStorage.writeAtomic(NEGATIVE_CACHE_FILE, "{}")
+    }
+
+    fun clearNegativeCacheBlocking() = kotlinx.coroutines.runBlocking {
+        clearNegativeCache()
     }
 }

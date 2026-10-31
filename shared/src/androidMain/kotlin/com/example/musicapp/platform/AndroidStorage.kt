@@ -12,6 +12,25 @@ actual object AppStorage {
         File(dir, name).writeText(text)
     }
 
+    actual fun writeAtomic(name: String, text: String) {
+        val target = File(dir, name)
+        val temp = File(dir, "$name.tmp")
+        temp.writeText(text)
+        try {
+            java.nio.file.Files.move(
+                temp.toPath(),
+                target.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: Exception) {
+            if (!temp.renameTo(target)) {
+                temp.copyTo(target, overwrite = true)
+                temp.delete()
+            }
+        }
+    }
+
     actual fun readBytes(name: String): ByteArray? =
         File(dir, name).takeIf { it.exists() }?.readBytes()
 

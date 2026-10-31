@@ -78,7 +78,11 @@ import java.awt.dnd.DropTargetEvent
 import java.awt.dnd.DropTargetListener
 import java.io.File
 
-fun main() = application {
+fun main() {
+    Runtime.getRuntime().addShutdownHook(Thread {
+        com.example.musicapp.provider.closeAppHttpClient()
+    })
+    application {
     var isMiniPlayer by remember { mutableStateOf(false) }
 
     val windowState = rememberWindowState(
@@ -93,6 +97,7 @@ fun main() = application {
         onCloseRequest = {
             com.example.musicapp.proxy.LocalStreamingProxy.stop()
             player.release()
+            com.example.musicapp.provider.closeAppHttpClient()
             exitApplication()
         },
         title = "JVXMusic",
@@ -372,6 +377,7 @@ fun main() = application {
             }
         }
     }
+}
 }
 
 @Composable

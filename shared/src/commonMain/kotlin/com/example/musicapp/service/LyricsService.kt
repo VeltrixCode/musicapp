@@ -112,6 +112,10 @@ object LyricsService {
         memoryCache.clear()
     }
 
+    /**
+     * Clears in-memory caches. Does NOT close the shared appHttpClient,
+     * which lives for the entire application lifecycle and is closed only on app exit.
+     */
     fun close() {
         clearCache()
     }

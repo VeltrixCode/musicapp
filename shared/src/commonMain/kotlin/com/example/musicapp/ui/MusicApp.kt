@@ -1165,11 +1165,11 @@ private fun AppSidebar(
             var draggedPlaylistId by remember { mutableStateOf<String?>(null) }
             var dragOffsetY by remember { mutableStateOf(0f) }
 
-            val displayedPlaylists = remember(library.playlists.size, sortOrder, library.playlists.map { it.name }) {
+            val displayedPlaylists = remember(library.playlists.map { it.id }, sortOrder) {
                 when (sortOrder) {
                     "По алфавиту" -> library.playlists.sortedBy { it.name.lowercase() }
                     "Недавние" -> library.playlists.reversed()
-                    else -> library.playlists
+                    else -> library.playlists.toList()
                 }
             }
             val distinctAlbums = remember(library.tracks.size) {
@@ -1332,11 +1332,19 @@ private fun AppSidebar(
                                                         dragOffsetY += dragAmount.y
                                                         val threshold = 40.dp.toPx()
                                                         if (dragOffsetY > threshold) {
-                                                            library.movePlaylist(p.id, moveUp = false)
-                                                            dragOffsetY -= threshold
+                                                            val moved = library.movePlaylist(p.id, moveUp = false)
+                                                            if (moved) {
+                                                                dragOffsetY -= threshold
+                                                            } else {
+                                                                dragOffsetY = dragOffsetY.coerceAtMost(threshold)
+                                                            }
                                                         } else if (dragOffsetY < -threshold) {
-                                                            library.movePlaylist(p.id, moveUp = true)
-                                                            dragOffsetY += threshold
+                                                            val moved = library.movePlaylist(p.id, moveUp = true)
+                                                            if (moved) {
+                                                                dragOffsetY += threshold
+                                                            } else {
+                                                                dragOffsetY = dragOffsetY.coerceAtLeast(-threshold)
+                                                            }
                                                         }
                                                     }
                                                 )

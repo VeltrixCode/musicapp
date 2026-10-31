@@ -91,7 +91,7 @@ public class GenerateIcons {
             g2.fill(new Ellipse2D.Double(cx - gr, cy - gr + 2 * s, gr * 2, gr * 2));
         }
 
-        // Badge Gradient (Vibrant Spotify neon emerald)
+        // Badge Gradient (Vibrant JVX neon emerald)
         Paint badgePaint = new GradientPaint(
             (float)cx, (float)(cy - badgeRadius), new Color(0x1E, 0xD7, 0x60), // #1ED760 bright neon
             (float)cx, (float)(cy + badgeRadius), new Color(0x16, 0x9C, 0x46)  // #169C46 deep emerald

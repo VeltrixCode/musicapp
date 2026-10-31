@@ -18,7 +18,7 @@ data class AppSettings(
     val equalizerPresetName: String = "Flat",
     val equalizerCustomGains: List<Float> = emptyList(),
     val fetchOnlineLyrics: Boolean = false,
-    val fetchOnlineCovers: Boolean = true,
+    val fetchOnlineCovers: Boolean = false,
     val offlineMode: Boolean = false,
     val librarySortColumn: String = "Number",
     val librarySortDirection: String = "Ascending",

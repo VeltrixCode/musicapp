@@ -246,17 +246,19 @@ class Library {
         }
     }
 
-    fun movePlaylist(playlistId: String, moveUp: Boolean) {
-        if (playlistId == FAVORITES_PLAYLIST_ID) return
+    fun movePlaylist(playlistId: String, moveUp: Boolean): Boolean {
+        if (playlistId == FAVORITES_PLAYLIST_ID) return false
         val i = playlists.indexOfFirst { it.id == playlistId }
-        if (i < 0) return
+        if (i < 0) return false
         val targetIdx = if (moveUp) i - 1 else i + 1
         // Keep Favorites (index 0) pinned at the top
         if (targetIdx in 1 until playlists.size) {
             val item = playlists.removeAt(i)
             playlists.add(targetIdx, item)
             save()
+            return true
         }
+        return false
     }
 
     fun reorderPlaylists(fromIndex: Int, toIndex: Int) {

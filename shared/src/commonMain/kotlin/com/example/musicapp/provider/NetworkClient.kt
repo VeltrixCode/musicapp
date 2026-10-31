@@ -19,3 +19,10 @@ val appHttpClient: HttpClient by lazy {
         }
     }
 }
+
+/**
+ * Closes the shared HTTP client when the application process terminates.
+ */
+fun closeAppHttpClient() {
+    runCatching { appHttpClient.close() }
+}

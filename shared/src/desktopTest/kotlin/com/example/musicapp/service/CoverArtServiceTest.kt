@@ -30,9 +30,13 @@ class CoverArtServiceTest {
 
     @BeforeTest
     fun setup() {
-        CoverArtService.negativeCache.clear()
-        CoverArtService.offlineMode = false
-        CoverArtService.loadOnlineCovers = true
+        CoverArtService.clearNegativeCacheBlocking()
+        CoverArtService.settingsRepository.save(
+            CoverArtService.settingsRepository.load().copy(
+                offlineMode = false,
+                fetchOnlineCovers = true
+            )
+        )
     }
 
     @Test
@@ -81,7 +85,11 @@ class CoverArtServiceTest {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
         }
 
-        CoverArtService.offlineMode = true
+        CoverArtService.settingsRepository.save(
+            CoverArtService.settingsRepository.load().copy(
+                offlineMode = true
+            )
+        )
 
         val track = Track(
             id = "t_offline",
@@ -107,7 +115,11 @@ class CoverArtServiceTest {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
         }
 
-        CoverArtService.loadOnlineCovers = false
+        CoverArtService.settingsRepository.save(
+            CoverArtService.settingsRepository.load().copy(
+                fetchOnlineCovers = false
+            )
+        )
 
         val track = Track(
             id = "t_no_online_covers",

@@ -37,7 +37,7 @@ kotlin {
         }
         val desktopMain by getting {
             dependencies {
-                implementation(compose.desktop.currentOs)
+                implementation(compose.desktop.common)
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
                 val fx = "21.0.4"
                 implementation("org.openjfx:javafx-base:$fx:win")
@@ -56,6 +56,7 @@ kotlin {
         }
         val desktopTest by getting {
             dependencies {
+                implementation(compose.desktop.currentOs)
                 implementation("io.ktor:ktor-server-test-host:$ktorVersion")
             }
         }

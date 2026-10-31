@@ -100,10 +100,8 @@ fun CloudSourcesScreen(
 
     // Synchronize settings with singleton services
     remember(appSettings.fetchOnlineLyrics) { LyricsService.fetchOnlineLyrics = appSettings.fetchOnlineLyrics }
-    remember(appSettings.fetchOnlineCovers) { CoverArtService.loadOnlineCovers = appSettings.fetchOnlineCovers }
     remember(appSettings.offlineMode) {
         LyricsService.offlineMode = appSettings.offlineMode
-        CoverArtService.offlineMode = appSettings.offlineMode
     }
 
     val isGDriveSignedIn by registry.gdrive.isSignedIn.collectAsState()
@@ -466,7 +464,7 @@ fun CloudSourcesScreen(
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            "Поиск недостающих обложек в iTunes и MusicBrainz / Cover Art Archive с rate limit и 7-дневным негативным кэшем.",
+                            "По умолчанию выключено. При включении название исполнителя и альбома/трека отправляются в открытые сервисы iTunes и MusicBrainz / Cover Art Archive для поиска обложки. Локальные пути к файлам и имена файлов никогда не передаются.",
                             style = MaterialTheme.typography.bodySmall,
                             color = AppColors.TextSecondary
                         )
@@ -476,7 +474,6 @@ fun CloudSourcesScreen(
                         checked = appSettings.fetchOnlineCovers,
                         onCheckedChange = { enabled ->
                             appSettings = appSettings.copy(fetchOnlineCovers = enabled)
-                            CoverArtService.loadOnlineCovers = enabled
                             settingsRepo.save(appSettings)
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
@@ -510,7 +507,6 @@ fun CloudSourcesScreen(
                         onCheckedChange = { enabled ->
                             appSettings = appSettings.copy(offlineMode = enabled)
                             LyricsService.offlineMode = enabled
-                            CoverArtService.offlineMode = enabled
                             settingsRepo.save(appSettings)
                         },
                         colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
@@ -759,8 +755,11 @@ fun CloudSourcesScreen(
                         )
                     }
                     Switch(
-                        checked = CoverArtService.loadOnlineCovers,
-                        onCheckedChange = { CoverArtService.loadOnlineCovers = it },
+                        checked = appSettings.fetchOnlineCovers,
+                        onCheckedChange = { enabled ->
+                            appSettings = appSettings.copy(fetchOnlineCovers = enabled)
+                            settingsRepo.save(appSettings)
+                        },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = AppColors.Accent,
                             checkedTrackColor = AppColors.Accent.copy(alpha = 0.5f)
