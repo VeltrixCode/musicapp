@@ -128,18 +128,73 @@ object CoverArtService {
                 lower.endsWith(".aac")
     }
 
+    suspend fun loadArtworkByUrl(
+        url: String,
+        client: HttpClient = appHttpClient
+    ): ImageBitmap? = withContext(Dispatchers.IO) {
+        val settings = settingsRepository.load()
+        if (settings.offlineMode || !settings.fetchOnlineCovers) return@withContext null
+        if (url.isBlank()) return@withContext null
+
+        val diskKey = "cover_url_" + url.hashCode().toString(16) + ".jpg"
+
+        // 1. Memory cache check
+        val memCached = ArtworkCache.get(url)
+        if (memCached != null) return@withContext memCached
+
+        // 2. Persistent disk cache check
+        val cachedBytes = AppStorage.readBytes(diskKey)
+        if (cachedBytes != null && cachedBytes.isNotEmpty()) {
+            val bmp = decodeImageBytes(cachedBytes)
+            if (bmp != null) {
+                ArtworkCache.put(url, bmp)
+                ArtworkCache.computeAndStoreDominantColor(url, bmp)
+                return@withContext bmp
+            }
+        }
+
+        // 3. Network fetch
+        runCatching {
+            val imageBytes = client.get(url) {
+                header(HttpHeaders.UserAgent, USER_AGENT)
+            }.bodyAsBytes()
+            if (imageBytes.isNotEmpty()) {
+                AppStorage.writeBytes(diskKey, imageBytes)
+                val bmp = decodeImageBytes(imageBytes)
+                if (bmp != null) {
+                    ArtworkCache.put(url, bmp)
+                    ArtworkCache.computeAndStoreDominantColor(url, bmp)
+                    bmp
+                } else null
+            } else null
+        }.getOrNull()
+    }
+
     suspend fun loadArtworkForTrack(
         track: Track,
         client: HttpClient = appHttpClient
     ): ImageBitmap? = withContext(Dispatchers.IO) {
         // 1. Try local embedded file tags
         val src = track.source
+        if (src != null && track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) {
+            val localBmp = loadArtwork(src)
+            if (localBmp != null) return@withContext localBmp
+        }
+
+        // 2. Direct artworkUrl provided by cloud providers (Audius 480x480, Jamendo image, etc.)
+        val directUrl = track.artworkUrl
+        if (!directUrl.isNullOrBlank()) {
+            val cloudBmp = loadArtworkByUrl(directUrl, client)
+            if (cloudBmp != null) return@withContext cloudBmp
+        }
+
+        // Fallback to local artwork check if not checked yet
         if (src != null) {
             val localBmp = loadArtwork(src)
             if (localBmp != null) return@withContext localBmp
         }
 
-        // 2. Online check: verify global settings from SettingsRepository (single source of truth)
+        // 3. Online check: verify global settings from SettingsRepository (single source of truth)
         val settings = settingsRepository.load()
         if (settings.offlineMode || !settings.fetchOnlineCovers) return@withContext null
 

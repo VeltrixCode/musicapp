@@ -2,6 +2,9 @@ package com.example.musicapp.settings
 
 import com.example.musicapp.platform.AppStorage
 import com.example.musicapp.player.RepeatMode
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -37,6 +40,8 @@ data class AppSettings(
 class SettingsRepository {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val fileName = "settings.json"
+    private val _settings = MutableStateFlow(load())
+    val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     fun load(): AppSettings {
         val raw = AppStorage.read(fileName) ?: return AppSettings()
@@ -47,6 +52,7 @@ class SettingsRepository {
         runCatching {
             val encoded = json.encodeToString(settings)
             AppStorage.write(fileName, encoded)
+            _settings.value = settings
         }
     }
 }

@@ -43,13 +43,20 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -103,19 +110,25 @@ fun HomeScreen(
         }
     }
 
+    val hasJamendoKey = remember { com.example.musicapp.config.AppConfig.jamendoClientId.isNotBlank() }
+
     var jamendoPopular by remember { mutableStateOf<List<RemoteTrack>>(emptyList()) }
     var audiusTrending by remember { mutableStateOf<List<RemoteTrack>>(emptyList()) }
-    var isLoadingJamendo by remember { mutableStateOf(true) }
+    var isLoadingJamendo by remember { mutableStateOf(hasJamendoKey) }
     var isLoadingAudius by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
-        launch {
-            try {
-                jamendoPopular = player.providerRegistry.jamendo.listTracks().items
-            } catch (_: Throwable) {
-            } finally {
-                isLoadingJamendo = false
+    LaunchedEffect(hasJamendoKey) {
+        if (hasJamendoKey) {
+            launch {
+                try {
+                    jamendoPopular = player.providerRegistry.jamendo.listTracks().items
+                } catch (_: Throwable) {
+                } finally {
+                    isLoadingJamendo = false
+                }
             }
+        } else {
+            isLoadingJamendo = false
         }
         launch {
             try {
@@ -142,6 +155,70 @@ fun HomeScreen(
     ) {
         Spacer(Modifier.height(16.dp))
 
+        // Onboarding card for new/empty library
+        if (library.tracks.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF0F3B2E), Color(0xFF1E2838))
+                        )
+                    )
+                    .padding(20.dp)
+            ) {
+                Column {
+                    Text(
+                        "Добро пожаловать в JVXMusic!",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Ваша медиатека пока пуста. Начните с добавления локальных файлов или подключите облако для потокового воспроизведения.",
+                        style = MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.85f))
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                com.example.musicapp.platform.launchAudioImport { tr -> library.addTrack(tr) }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                        ) {
+                            Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = Color.Black)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Добавить файлы", color = Color.Black, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                com.example.musicapp.platform.launchFolderImport { trs -> library.addTracks(trs) }
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) {
+                            Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = Color.White)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Импорт папки", color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(
+                            onClick = onNavigateCloud
+                        ) {
+                            Icon(Icons.Rounded.CloudQueue, contentDescription = null, tint = AppColors.Accent)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Подключить облако", color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+
         // Time-of-day Greeting
         Text(
             text = greeting,
@@ -153,45 +230,52 @@ fun HomeScreen(
 
         Spacer(Modifier.height(18.dp))
 
-        // Quick 6 Cards Grid
-        val quickCards = listOf(
-            QuickCardData("Любимые треки", Icons.Rounded.Favorite, Color(0xFF0F5A3E), favoriteTracks),
-            QuickCardData("Микс дня", Icons.Rounded.Shuffle, Color(0xFF1E3264), mixOfDay),
-            QuickCardData("Свежее в медиатеке", Icons.Rounded.Explore, Color(0xFF148A3C), recentlyAdded),
-            QuickCardData("Часто слушаемое", Icons.Rounded.PlayArrow, Color(0xFF8D67AB), frequentlyPlayed),
-            QuickCardData("Новое в облаке", Icons.Rounded.CloudQueue, Color(0xFFE91429), cloudTracks),
-            QuickCardData("Jamendo Тренды", Icons.Rounded.CloudDone, Color(0xFFBA5D07), jamendoPopular.map { it.toTrack() }),
-        )
+        // Quick Cards Adaptive Grid (min ~280dp, max 4-5 columns)
+        val quickCards = buildList {
+            add(QuickCardData("Любимые треки", Icons.Rounded.Favorite, Color(0xFF0F5A3E), favoriteTracks))
+            add(QuickCardData("Микс дня", Icons.Rounded.Shuffle, Color(0xFF1E3264), mixOfDay))
+            add(QuickCardData("Свежее в медиатеке", Icons.Rounded.Explore, Color(0xFF148A3C), recentlyAdded))
+            add(QuickCardData("Часто слушаемое", Icons.Rounded.PlayArrow, Color(0xFF8D67AB), frequentlyPlayed))
+            add(QuickCardData("Новое в облаке", Icons.Rounded.CloudQueue, Color(0xFFE91429), cloudTracks))
+            if (hasJamendoKey && jamendoPopular.isNotEmpty()) {
+                add(QuickCardData("Jamendo Тренды", Icons.Rounded.CloudDone, Color(0xFFBA5D07), jamendoPopular.map { it.toTrack() }))
+            }
+        }
 
-        val columns = if (isCompact) 2 else 3
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (rowIndex in 0 until (quickCards.size / columns)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    for (colIndex in 0 until columns) {
-                        val card = quickCards[rowIndex * columns + colIndex]
-                        val isCardPlaying = player.isPlaying && card.tracks.any { it.id == player.current?.id }
-                        QuickGridCard(
-                            data = card,
-                            isPlaying = isCardPlaying,
-                            modifier = Modifier.weight(1f),
-                            onPlay = {
-                                if (isCardPlaying) {
-                                    player.pause()
-                                } else if (card.tracks.isNotEmpty()) {
-                                    player.play(card.tracks.first(), card.tracks)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = (maxWidth / 280.dp).toInt().coerceIn(2, 5)
+            val chunks = quickCards.chunked(columns)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                chunks.forEach { rowCards ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        rowCards.forEach { card ->
+                            val isCardPlaying = player.isPlaying && card.tracks.any { it.id == player.current?.id }
+                            QuickGridCard(
+                                data = card,
+                                isPlaying = isCardPlaying,
+                                modifier = Modifier.weight(1f),
+                                onPlay = {
+                                    if (isCardPlaying) {
+                                        player.pause()
+                                    } else if (card.tracks.isNotEmpty()) {
+                                        player.play(card.tracks.first(), card.tracks)
+                                    }
+                                },
+                                onClick = {
+                                    when (card.title) {
+                                        "Любимые треки" -> onNavigatePlaylist(FAVORITES_PLAYLIST_ID)
+                                        "Новое в облаке" -> onNavigateCloud()
+                                        else -> onNavigateSmartMix(card.title)
+                                    }
                                 }
-                            },
-                            onClick = {
-                                when (card.title) {
-                                    "Любимые треки" -> onNavigatePlaylist(FAVORITES_PLAYLIST_ID)
-                                    "Новое в облаке" -> onNavigateCloud()
-                                    else -> onNavigateSmartMix(card.title)
-                                }
-                            }
-                        )
+                            )
+                        }
+                        for (i in 0 until (columns - rowCards.size)) {
+                            Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -234,20 +318,22 @@ fun HomeScreen(
             Spacer(Modifier.height(28.dp))
         }
 
-        // Shelf 4: "Популярное в Jamendo (Creative Commons)"
-        if (isLoadingJamendo) {
-            ShelfSkeleton(title = "Популярное в Jamendo (Лицензия CC)")
-            Spacer(Modifier.height(28.dp))
-        } else if (jamendoPopular.isNotEmpty()) {
-            val converted = jamendoPopular.map { it.toTrack() }
-            ContentShelf(
-                title = "Популярное в Jamendo (Лицензия CC)",
-                tracks = converted,
-                player = player,
-                badge = "JAMENDO",
-                onTrackClick = { t -> player.play(t, converted) }
-            )
-            Spacer(Modifier.height(28.dp))
+        // Shelf 4: "Популярное в Jamendo (Creative Commons)" - shown only when client key is configured
+        if (hasJamendoKey) {
+            if (isLoadingJamendo) {
+                ShelfSkeleton(title = "Популярное в Jamendo (Лицензия CC)")
+                Spacer(Modifier.height(28.dp))
+            } else if (jamendoPopular.isNotEmpty()) {
+                val converted = jamendoPopular.map { it.toTrack() }
+                ContentShelf(
+                    title = "Популярное в Jamendo (Лицензия CC)",
+                    tracks = converted,
+                    player = player,
+                    badge = "JAMENDO",
+                    onTrackClick = { t -> player.play(t, converted) }
+                )
+                Spacer(Modifier.height(28.dp))
+            }
         }
 
         // Shelf 5: "Тренды Audius"
@@ -486,6 +572,7 @@ fun ContentShelf(
                     title = track.title,
                     subtitle = track.artist,
                     badgeText = badge ?: if (track.isCloud) track.sourceProvider.name else null,
+                    track = track,
                     isPlaying = isPlayingThis,
                     onClick = { onTrackClick(track) },
                     onPlayClick = {

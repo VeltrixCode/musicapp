@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -32,11 +33,14 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -61,6 +65,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.musicapp.cache.AudioOfflineCache
@@ -144,6 +149,7 @@ fun CloudSourcesScreen(
     // API Config State
     var googleClientIdInput by remember { mutableStateOf(AppConfig.googleClientId) }
     var googleClientSecretInput by remember { mutableStateOf(AppConfig.googleClientSecret) }
+    var showGoogleSecret by remember { mutableStateOf(false) }
     var yandexClientIdInput by remember { mutableStateOf(AppConfig.yandexClientId) }
     var jamendoClientIdInput by remember { mutableStateOf(AppConfig.jamendoClientId) }
     var audiusAppNameInput by remember { mutableStateOf(AppConfig.audiusAppName) }
@@ -155,11 +161,20 @@ fun CloudSourcesScreen(
         AudioOfflineCache.getUsedSizeBytes() / (1024L * 1024L)
     }
 
+    val appSwitchColors = SwitchDefaults.colors(
+        checkedThumbColor = Color.Black,
+        checkedTrackColor = AppColors.Accent,
+        checkedBorderColor = AppColors.Accent,
+        uncheckedThumbColor = Color(0xFFC0C0C0),
+        uncheckedTrackColor = Color(0xFF282828),
+        uncheckedBorderColor = Color(0xFF757575),
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(vertical = 16.dp, horizontal = 8.dp)
+            .padding(vertical = 16.dp, horizontal = 0.dp)
             .padding(bottom = 96.dp)
     ) {
         Text(
@@ -195,7 +210,11 @@ fun CloudSourcesScreen(
                 }
             },
             onConnect = {
-                showGDriveTokenDialog = true
+                if (googleClientIdInput.isBlank()) {
+                    onShowMessage("Сначала укажите Google Client ID в секции «Конфигурация ключей API» ниже.")
+                } else {
+                    showGDriveTokenDialog = true
+                }
             },
             onDisconnect = {
                 scope.launch {
@@ -266,7 +285,11 @@ fun CloudSourcesScreen(
                 }
             },
             onConnect = {
-                showYandexTokenDialog = true
+                if (yandexClientIdInput.isBlank()) {
+                    onShowMessage("Сначала укажите Яндекс Client ID в секции «Конфигурация ключей API» ниже.")
+                } else {
+                    showYandexTokenDialog = true
+                }
             },
             onDisconnect = {
                 scope.launch {
@@ -333,14 +356,35 @@ fun CloudSourcesScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // Public Catalogs Status
+        // Catalog 1: Audius
         CloudProviderItem(
-            name = "Jamendo & Audius",
-            description = "Открытые каталоги музыки с лицензиями Creative Commons • Всегда активны",
+            name = "Audius",
+            description = "Децентрализованный открытый каталог музыки • Всегда активен",
             isConnected = true,
             isAlwaysActive = true,
             onConnect = {},
             onDisconnect = {}
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        // Catalog 2: Jamendo
+        val hasJamendoKey = jamendoClientIdInput.isNotBlank()
+        CloudProviderItem(
+            name = "Jamendo Music",
+            description = if (hasJamendoKey) "Каталог независимой музыки (Creative Commons) • Подключен"
+                          else "Нужен ключ API (укажите в блоке «Конфигурация ключей API» ниже)",
+            isConnected = hasJamendoKey,
+            isAlwaysActive = false,
+            connectButtonText = if (hasJamendoKey) "Подключен" else "Нужен ключ",
+            onConnect = {
+                onShowMessage("Укажите Jamendo Client ID в блоке «Конфигурация ключей API» ниже и сохраните его.")
+            },
+            onDisconnect = {
+                jamendoClientIdInput = ""
+                AppConfig.jamendoClientId = ""
+                onShowMessage("Jamendo Client ID удален")
+            }
         )
 
         Spacer(Modifier.height(28.dp))
@@ -446,7 +490,7 @@ fun CloudSourcesScreen(
                             LyricsService.fetchOnlineLyrics = enabled
                             settingsRepo.save(appSettings)
                         },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
+                        colors = appSwitchColors
                     )
                 }
 
@@ -476,7 +520,7 @@ fun CloudSourcesScreen(
                             appSettings = appSettings.copy(fetchOnlineCovers = enabled)
                             settingsRepo.save(appSettings)
                         },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
+                        colors = appSwitchColors
                     )
                 }
 
@@ -509,7 +553,7 @@ fun CloudSourcesScreen(
                             LyricsService.offlineMode = enabled
                             settingsRepo.save(appSettings)
                         },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AppColors.Accent)
+                        colors = appSwitchColors
                     )
                 }
             }
@@ -539,7 +583,10 @@ fun CloudSourcesScreen(
                 .background(AppColors.Surface)
                 .padding(16.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 OutlinedTextField(
                     value = googleClientIdInput,
                     onValueChange = { googleClientIdInput = it },
@@ -553,7 +600,16 @@ fun CloudSourcesScreen(
                     onValueChange = { googleClientSecretInput = it },
                     label = { Text("Google Client Secret") },
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = if (showGoogleSecret) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showGoogleSecret = !showGoogleSecret }) {
+                            Icon(
+                                imageVector = if (showGoogleSecret) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                contentDescription = if (showGoogleSecret) "Скрыть" else "Показать",
+                                tint = AppColors.TextSecondary
+                            )
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -722,7 +778,7 @@ fun CloudSourcesScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Максимальный размер кэша", style = MaterialTheme.typography.bodyMedium, color = AppColors.TextPrimary)
-                        Text("${cacheLimitMb.toInt()} МБ", style = MaterialTheme.typography.bodyMedium, color = AppColors.Accent)
+                        Text("${cacheLimitMb.toInt()} МБ", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = AppColors.Accent)
                     }
                     Slider(
                         value = cacheLimitMb,
@@ -731,38 +787,11 @@ fun CloudSourcesScreen(
                             AudioOfflineCache.maxSizeBytes = cacheLimitMb.toLong() * 1024L * 1024L
                         },
                         valueRange = 100f..5000f,
-                        steps = 49,
+                        steps = 7,
                         colors = SliderDefaults.colors(
                             thumbColor = AppColors.Accent,
                             activeTrackColor = AppColors.Accent,
                             inactiveTrackColor = AppColors.SurfaceElevated
-                        )
-                    )
-                }
-
-                // Toggle: Auto-download cover art from internet
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Загружать обложки из iTunes / Cover Art Archive", color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Автоматически находить недостающие обложки с ограничением частоты запросов и негативным кэшем.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = AppColors.TextSecondary
-                        )
-                    }
-                    Switch(
-                        checked = appSettings.fetchOnlineCovers,
-                        onCheckedChange = { enabled ->
-                            appSettings = appSettings.copy(fetchOnlineCovers = enabled)
-                            settingsRepo.save(appSettings)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = AppColors.Accent,
-                            checkedTrackColor = AppColors.Accent.copy(alpha = 0.5f)
                         )
                     )
                 }
@@ -812,6 +841,7 @@ private fun CloudProviderItem(
     lastSyncTime: String? = null,
     onSelectFolder: (() -> Unit)? = null,
     isAlwaysActive: Boolean = false,
+    connectButtonText: String = "Подключить",
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
@@ -861,7 +891,7 @@ private fun CloudProviderItem(
                             onClick = onConnect,
                             colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
                         ) {
-                            Text("Подключить", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text(connectButtonText, color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
@@ -1050,6 +1080,7 @@ private fun TokenEntryBox(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .widthIn(max = 560.dp)
             .padding(vertical = 8.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(AppColors.SurfaceElevated)
