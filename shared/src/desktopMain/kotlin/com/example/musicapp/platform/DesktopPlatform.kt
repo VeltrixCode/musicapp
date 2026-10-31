@@ -118,6 +118,7 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
 }
 
 actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String {
+    com.example.musicapp.proxy.LocalStreamingProxy.setActivePlayingTrack(trackId)
     if (streamSource.url.startsWith("http://127.0.0.1:") || streamSource.url.startsWith("http://localhost:")) {
         return streamSource.url
     }
@@ -129,12 +130,14 @@ actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.exampl
 }
 
 actual fun onPlaybackTrackChanged(previousTrackId: String?, newTrackId: String?) {
+    com.example.musicapp.proxy.LocalStreamingProxy.setActivePlayingTrack(newTrackId)
     if (previousTrackId != null && previousTrackId != newTrackId) {
         com.example.musicapp.proxy.LocalStreamingProxy.invalidateSessionsForTrack(previousTrackId)
     }
 }
 
 actual fun onPlaybackReleased() {
+    com.example.musicapp.proxy.LocalStreamingProxy.setActivePlayingTrack(null)
     com.example.musicapp.proxy.LocalStreamingProxy.invalidateAllSessions()
 }
 

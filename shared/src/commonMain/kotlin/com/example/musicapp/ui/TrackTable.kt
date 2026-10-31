@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -93,25 +94,27 @@ internal fun TableHeader(
             .padding(horizontal = spacing.sm, vertical = spacing.xs),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Track number: 40dp
-        Box(
-            modifier = Modifier.width(40.dp).clickable { onSort(SortColumn.Number) },
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "#",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = if (sortColumn == SortColumn.Number) AppColors.Accent else AppColors.TextMuted
+        // Track number: 40dp (hidden on compact screens)
+        if (!isCompact) {
+            Box(
+                modifier = Modifier.width(40.dp).clickable { onSort(SortColumn.Number) },
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "#",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = if (sortColumn == SortColumn.Number) AppColors.Accent else AppColors.TextMuted
+                        )
                     )
-                )
-                if (sortColumn == SortColumn.Number) {
-                    Icon(
-                        imageVector = if (sortDirection == SortDirection.Ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
-                        contentDescription = null,
-                        tint = AppColors.Accent,
-                        modifier = Modifier.size(12.dp)
-                    )
+                    if (sortColumn == SortColumn.Number) {
+                        Icon(
+                            imageVector = if (sortDirection == SortDirection.Ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                            contentDescription = null,
+                            tint = AppColors.Accent,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                 }
             }
         }
@@ -257,6 +260,7 @@ internal fun TrackRowItem(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = if (isCompact) 56.dp else 48.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(
                 when {
@@ -282,30 +286,32 @@ internal fun TrackRowItem(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Track number / Animated Equalizer / Play Icon: 40dp
-            Box(
-                modifier = Modifier.width(40.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                when {
-                    isPlaying -> AnimatedEqualizer()
-                    isCurrent -> FrozenEqualizer()
-                    isRowHovered -> {
-                        Icon(
-                            imageVector = Icons.Rounded.PlayArrow,
-                            contentDescription = "Воспроизвести",
-                            tint = AppColors.TextPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    else -> {
-                        Text(
-                            index.toString(),
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = AppColors.TextMuted,
-                                fontWeight = FontWeight.Medium
+            // Track number / Animated Equalizer / Play Icon: 40dp (hidden on compact)
+            if (!isCompact) {
+                Box(
+                    modifier = Modifier.width(40.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    when {
+                        isPlaying -> AnimatedEqualizer()
+                        isCurrent -> FrozenEqualizer()
+                        isRowHovered -> {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = "Воспроизвести",
+                                tint = AppColors.TextPrimary,
+                                modifier = Modifier.size(18.dp)
                             )
-                        )
+                        }
+                        else -> {
+                            Text(
+                                index.toString(),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = AppColors.TextMuted,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -460,9 +466,24 @@ internal fun TrackRowItem(
                 }
             }
 
-            // Actions: 40dp (More Options Button)
+            // Favorite button directly accessible on compact screens
+            if (isCompact) {
+                IconButton(
+                    onClick = onToggleFavorite,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = if (track.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        contentDescription = "В избранное",
+                        tint = if (track.isFavorite) AppColors.Accent else AppColors.TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Actions: 40dp (desktop) / 44dp (compact) More Options Button
             Box(
-                modifier = Modifier.width(40.dp),
+                modifier = Modifier.width(if (isCompact) 44.dp else 40.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val showActions = isRowHovered || isCompact || contextMenuOpen
@@ -470,13 +491,13 @@ internal fun TrackRowItem(
                 if (showActions) {
                     IconButton(
                         onClick = { contextMenuOpen = true },
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(if (isCompact) 44.dp else 28.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.MoreVert,
                             contentDescription = "Меню трека",
                             tint = AppColors.TextSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(if (isCompact) 20.dp else 18.dp)
                         )
                     }
 

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -392,6 +393,7 @@ private fun SearchResultRow(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 56.dp)
             .clip(RoundedCornerShape(6.dp))
             .clickable { onClick() }
             .padding(horizontal = 8.dp, vertical = 6.dp)
@@ -422,13 +424,15 @@ private fun SearchResultRow(
                         fontWeight = FontWeight.Bold,
                         color = AppColors.TextPrimary
                     ),
-                    maxLines = 1
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         track.artist,
                         style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     if (license != null) {
                         Spacer(Modifier.width(6.dp))

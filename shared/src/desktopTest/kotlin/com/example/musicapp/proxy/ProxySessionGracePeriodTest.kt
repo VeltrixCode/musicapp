@@ -16,6 +16,8 @@ class ProxySessionGracePeriodTest {
 
     @Test
     fun testFreshSessionIsNotExpiredEvenIfNotYetPlayingOrQueued() {
+        LocalStreamingProxy.activePlayingTrackId = null
+        LocalStreamingProxy.activeQueuedTrackIds.clear()
         AudioOfflineCache.currentlyPlayingTrackId = null
         AudioOfflineCache.currentlyQueuedTrackIds = emptySet()
 
@@ -32,6 +34,8 @@ class ProxySessionGracePeriodTest {
 
     @Test
     fun testOldSessionExpiresWhenNotInQueueOrPlaying() {
+        LocalStreamingProxy.activePlayingTrackId = "other-track"
+        LocalStreamingProxy.activeQueuedTrackIds.clear()
         AudioOfflineCache.currentlyPlayingTrackId = "other-track"
         AudioOfflineCache.currentlyQueuedTrackIds = setOf("other-track")
 
@@ -48,6 +52,8 @@ class ProxySessionGracePeriodTest {
 
     @Test
     fun testOldSessionDoesNotExpireIfCurrentlyPlaying() {
+        LocalStreamingProxy.activePlayingTrackId = "track-test-3"
+        LocalStreamingProxy.activeQueuedTrackIds.clear()
         AudioOfflineCache.currentlyPlayingTrackId = "track-test-3"
         AudioOfflineCache.currentlyQueuedTrackIds = emptySet()
 
@@ -60,6 +66,27 @@ class ProxySessionGracePeriodTest {
         )
 
         assertFalse(playingSession.isExpired(), "Currently playing track session must remain alive")
+    }
+
+    @Test
+    fun testUpstreamDelayOverFiveSecondsDoesNotExpireActivePlaybackSession() {
+        // Bound directly to the fact of track playback in LocalStreamingProxy, not AudioOfflineCache flags
+        val activeTrack = "active-track-delayed"
+        LocalStreamingProxy.setActivePlayingTrack(activeTrack)
+
+        // Player / upstream experienced a 7-second delay (> 5s grace period) before making the first HTTP request
+        val sessionWithLongDelay = ProxySession(
+            token = "delayed-token-abc",
+            trackId = activeTrack,
+            streamSource = StreamSource(url = "https://provider.example.com/slow-stream.mp3"),
+            createdAtMs = System.currentTimeMillis() - 7_000L,
+            lastAccessMs = System.currentTimeMillis() - 7_000L
+        )
+
+        assertFalse(
+            sessionWithLongDelay.isExpired(),
+            "Session for the track undergoing playback must stay valid even after >5s delay before player's first request"
+        )
     }
 
     @Test

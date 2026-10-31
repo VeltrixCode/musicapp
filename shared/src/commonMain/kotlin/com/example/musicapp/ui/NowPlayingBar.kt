@@ -142,14 +142,172 @@ internal fun NowPlayingBar(
 
     Surface(
         color = AppColors.Surface,
-        modifier = Modifier.fillMaxWidth().height(92.dp)
+        modifier = Modifier.fillMaxWidth().height(if (isCompact) 64.dp else 92.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = spacing.md),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        if (isCompact) {
+            // Mobile Compact Mini Player Layout
+            Box(Modifier.fillMaxSize()) {
+                // Top Progress indicator line (2dp)
+                val isLiveTrack = track?.isLiveStream == true || track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
+                val progFraction = if (hasTrack) (if (isLiveTrack) 1f else fraction) else 0f
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .align(Alignment.TopStart)
+                        .background(AppColors.SurfaceElevated)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progFraction)
+                            .fillMaxHeight()
+                            .background(AppColors.Accent)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Track Thumbnail (44.dp) + Title & Artist (taking weight(1f)) -> Click opens fullscreen
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable { onOpenFullscreen() },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (track != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(fallbackGradientFor(track.title)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Crossfade(targetState = activeArtwork) { bmp ->
+                                    if (bmp != null) {
+                                        Image(
+                                            bitmap = bmp,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Rounded.MusicNote,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(spacing.xs))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    track.title,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = AppColors.TextPrimary,
+                                        fontSize = 13.sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    track.artist,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = AppColors.TextSecondary,
+                                        fontSize = 11.5.sp
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(AppColors.SurfaceElevated),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.MusicNote,
+                                    contentDescription = null,
+                                    tint = AppColors.TextMuted,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(spacing.xs))
+                            Text(
+                                "Ничего не играет",
+                                style = MaterialTheme.typography.bodyMedium.copy(color = AppColors.TextMuted, fontSize = 13.sp)
+                            )
+                        }
+                    }
+
+                    // Mobile Controls: Favorite, Play/Pause, Next (All with 48x48dp touch targets)
+                    if (track != null) {
+                        IconButton(
+                            onClick = { library.toggleFavorite(track) },
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (track.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = if (track.isFavorite) "В избранном" else "Добавить в избранное",
+                                tint = if (track.isFavorite) AppColors.Accent else AppColors.TextSecondary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clickable(enabled = hasTrack && track.source != null) { player.toggle() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(AppColors.TextPrimary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (player.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                    contentDescription = if (player.isPlaying) "Пауза" else "Воспроизведение",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { player.next() },
+                            enabled = hasTrack,
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SkipNext,
+                                contentDescription = "Следующий",
+                                tint = AppColors.TextPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = spacing.md),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             // Left Column: 56dp Cover + Title + Heart
             Row(
                 modifier = Modifier
@@ -545,6 +703,7 @@ internal fun NowPlayingBar(
             }
         }
     }
+}
 }
 
 @Composable

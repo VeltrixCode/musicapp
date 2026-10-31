@@ -47,26 +47,49 @@ data class ProxySession(
         // Sliding timeout: expires after 30 minutes of complete inactivity
         if (now - lastAccessMs > ttlMs) return true
 
-        // Grace period: if player has not yet initialized active playback queue, allow grace period
-        // for newly registered sessions (limited to 5 seconds) so that initial requests succeed before player state updates
-        val hasActivePlaybackState = AudioOfflineCache.currentlyPlayingTrackId != null ||
-                AudioOfflineCache.currentlyQueuedTrackIds.isNotEmpty()
-        if (!hasActivePlaybackState) {
-            val isNew = now - createdAtMs < PROXY_SESSION_GRACE_PERIOD_MS
-            if (isNew) return false
+        // Fact of playback: active playing track or queued tracks never expire prematurely
+        val activeTrack = LocalStreamingProxy.activePlayingTrackId ?: AudioOfflineCache.currentlyPlayingTrackId
+        val queuedTracks = if (LocalStreamingProxy.activeQueuedTrackIds.isNotEmpty()) {
+            LocalStreamingProxy.activeQueuedTrackIds
+        } else {
+            AudioOfflineCache.currentlyQueuedTrackIds
         }
 
-        // Session stays alive as long as the track is currently playing/paused or queued in player
-        val isCurrentOrQueued = AudioOfflineCache.currentlyPlayingTrackId == trackId ||
-                AudioOfflineCache.currentlyQueuedTrackIds.contains(trackId)
-        if (!isCurrentOrQueued) {
+        // 1. If this track is actively playing or queued, it stays alive regardless of age
+        if (trackId == activeTrack || queuedTracks.contains(trackId)) {
+            return false
+        }
+
+        // 2. If active playback is established, tracks outside active/queue expire immediately
+        val hasActivePlayback = activeTrack != null || queuedTracks.isNotEmpty()
+        if (hasActivePlayback) {
             return true
         }
-        return false
+
+        // 3. If playback is not yet established, newly registered session is protected within initial grace period
+        if (now - createdAtMs < PROXY_SESSION_GRACE_PERIOD_MS) {
+            return false
+        }
+
+        // Grace period elapsed without becoming active or queued
+        return true
     }
 }
 
 object LocalStreamingProxy {
+    @Volatile
+    var activePlayingTrackId: String? = null
+    val activeQueuedTrackIds = ConcurrentHashMap.newKeySet<String>()
+
+    fun setActivePlayingTrack(trackId: String?) {
+        activePlayingTrackId = trackId
+    }
+
+    fun setActiveQueuedTracks(trackIds: Collection<String>) {
+        activeQueuedTrackIds.clear()
+        activeQueuedTrackIds.addAll(trackIds)
+    }
+
     val sessions = ConcurrentHashMap<String, ProxySession>()
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     var serverPort: Int = 0

@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import com.example.musicapp.lyrics.LrcParser
 import com.example.musicapp.model.LrcLine
 import com.example.musicapp.model.Track
+import com.example.musicapp.platform.PlayerEngine
 import com.example.musicapp.platform.createPlayerEngine
 import com.example.musicapp.platform.currentTimeMillis
 import com.example.musicapp.platform.readLrcContent
@@ -123,8 +124,9 @@ interface AudioPlayer {
 class PlayerController(
     val settingsRepository: SettingsRepository = SettingsRepository(),
     var onTrackDurationResolved: ((trackId: String, durationMs: Long) -> Unit)? = null,
+    customEngine: PlayerEngine? = null,
 ) : AudioPlayer {
-    private val engine = createPlayerEngine()
+    private val engine: PlayerEngine = customEngine ?: createPlayerEngine()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _state = MutableStateFlow(PlayerState())
@@ -247,7 +249,7 @@ class PlayerController(
     private var pendingSeekTargetMs: Long? = null
     private var seekTimestamp: Long = 0L
 
-    private var consecutivePlaybackErrors = 0
+    internal var consecutivePlaybackErrors = 0
 
     private var sleepTimerJob: Job? = null
 
