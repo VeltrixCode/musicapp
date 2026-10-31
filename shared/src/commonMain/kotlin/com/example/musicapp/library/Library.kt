@@ -39,7 +39,7 @@ data class DeletedTrackSnapshot(
 class Library {
     val tracks = mutableStateListOf<Track>()
     val playlists = mutableStateListOf<Playlist>()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     var lastDeleted by mutableStateOf<DeletedTrackSnapshot?>(null)
         private set

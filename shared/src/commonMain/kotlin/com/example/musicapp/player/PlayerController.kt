@@ -68,7 +68,7 @@ class PlayerController(
     private val settingsRepository: SettingsRepository = SettingsRepository(),
 ) : AudioPlayer {
     private val engine = createPlayerEngine()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _state = MutableStateFlow(PlayerState())
     override val state: StateFlow<PlayerState> = _state.asStateFlow()
