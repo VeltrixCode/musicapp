@@ -2,16 +2,22 @@ package com.example.musicapp.player
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.example.musicapp.lyrics.LrcParser
+import com.example.musicapp.model.LrcLine
 import com.example.musicapp.model.Track
 import com.example.musicapp.platform.createPlayerEngine
+import com.example.musicapp.platform.currentTimeMillis
+import com.example.musicapp.platform.readLrcContent
 import com.example.musicapp.platform.readTrackInfoAsync
 import com.example.musicapp.platform.runOnUiThread
 import com.example.musicapp.settings.AppSettings
 import com.example.musicapp.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -21,8 +27,26 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 enum class RepeatMode { Off, All, One }
+
+enum class EqualizerPreset(val title: String, val gains: FloatArray) {
+    Flat("Обычный", floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)),
+    BassBoost("Усиление басов", floatArrayOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
+    Rock("Рок", floatArrayOf(4f, 3f, 2f, 0f, -1f, 1f, 3f, 4f, 5f, 5f)),
+    Pop("Поп", floatArrayOf(-1f, 1f, 3f, 4f, 4f, 3f, 1f, -1f, -1f, -1f)),
+    Vocal("Вокал", floatArrayOf(-2f, -2f, -1f, 2f, 4f, 4f, 3f, 1f, 0f, -1f)),
+    Classical("Классика", floatArrayOf(4f, 3f, 3f, 2f, -1f, -1f, 0f, 2f, 3f, 4f)),
+}
+
+@Immutable
+data class PlaybackState(
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val isPlaying: Boolean = false,
+    val isBuffering: Boolean = false,
+)
 
 @Immutable
 data class PlayerState(
@@ -34,12 +58,17 @@ data class PlayerState(
     val isMuted: Boolean = false,
     val shuffle: Boolean = false,
     val repeat: RepeatMode = RepeatMode.Off,
+    val speed: Float = 1.0f,
     val queue: List<Track> = emptyList(),
     val index: Int = -1,
 )
 
 interface AudioPlayer {
     val state: StateFlow<PlayerState>
+    val playbackState: StateFlow<PlaybackState>
+    val spectrumState: StateFlow<FloatArray>
+    val sleepTimerRemainingSec: StateFlow<Int?>
+
     val current: Track?
     val isPlaying: Boolean
     val positionMs: Long
@@ -47,12 +76,17 @@ interface AudioPlayer {
     val volume: Float
     val shuffle: Boolean
     val repeat: RepeatMode
+    val speed: Float
+    val equalizerPreset: EqualizerPreset
+    val equalizerGains: FloatArray
+    val lyrics: List<LrcLine>
+    val queue: List<Track>
 
     fun play(track: Track, context: List<Track> = listOf(track))
     fun toggle()
     fun pause()
     fun resume()
-    fun seekTo(ms: Long)
+    fun seekTo(positionMs: Long)
     fun updateVolume(vol: Float)
     fun toggleMute()
     fun next()
@@ -60,6 +94,17 @@ interface AudioPlayer {
     fun setShuffle(enabled: Boolean)
     fun setRepeat(mode: RepeatMode)
     fun cycleRepeat()
+    fun setPlaybackSpeed(speed: Float)
+    fun setEqualizerPreset(preset: EqualizerPreset)
+    fun setEqualizerBand(bandIndex: Int, gainDb: Float)
+    fun setSleepTimer(minutes: Int?)
+
+    fun playNext(track: Track)
+    fun addToQueue(track: Track)
+    fun removeFromQueue(index: Int)
+    fun moveQueueItem(fromIndex: Int, toIndex: Int)
+    fun clearQueue()
+
     fun onTrackRemoved(trackId: String)
     fun release()
 }
@@ -73,6 +118,15 @@ class PlayerController(
     private val _state = MutableStateFlow(PlayerState())
     override val state: StateFlow<PlayerState> = _state.asStateFlow()
 
+    private val _playbackState = MutableStateFlow(PlaybackState())
+    override val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    private val _spectrumState = MutableStateFlow(FloatArray(32) { 0f })
+    override val spectrumState: StateFlow<FloatArray> = _spectrumState.asStateFlow()
+
+    private val _sleepTimerRemainingSec = MutableStateFlow<Int?>(null)
+    override val sleepTimerRemainingSec: StateFlow<Int?> = _sleepTimerRemainingSec.asStateFlow()
+
     override var current by mutableStateOf<Track?>(null)
         private set
     override var isPlaying by mutableStateOf(false)
@@ -84,15 +138,34 @@ class PlayerController(
 
     private var shuffleState by mutableStateOf(false)
     private var repeatState by mutableStateOf(RepeatMode.Off)
-
     override val shuffle: Boolean get() = shuffleState
     override val repeat: RepeatMode get() = repeatState
+
     override var volume by mutableStateOf(0.8f)
         private set
+    override var speed by mutableStateOf(1.0f)
+        private set
+
+    private var equalizerPresetState by mutableStateOf(EqualizerPreset.Flat)
+    override val equalizerPreset: EqualizerPreset get() = equalizerPresetState
+    override val equalizerGains = FloatArray(10) { 0f }
+
+    override var lyrics by mutableStateOf<List<LrcLine>>(emptyList())
+        private set
+
+    private val _queue = mutableStateListOf<Track>()
+    override val queue: List<Track> get() = _queue
 
     private var lastNonZeroVolume = 0.8f
-    private var queue: List<Track> = emptyList()
-    private var index = -1
+    private var currentIndex = -1
+    private val shuffledIndices = mutableListOf<Int>()
+    private var shufflePointer = -1
+
+    // Grace period guard against tick() overwriting async seek position
+    private var pendingSeekTargetMs: Long? = null
+    private var seekTimestamp: Long = 0L
+
+    private var sleepTimerJob: Job? = null
 
     init {
         // Load persisted settings
@@ -101,14 +174,39 @@ class PlayerController(
         lastNonZeroVolume = if (settings.volume > 0f) settings.volume else 0.8f
         shuffleState = settings.shuffle
         repeatState = settings.repeatMode
+        speed = settings.playbackSpeed.coerceIn(0.5f, 2.0f)
+
+        val preset = EqualizerPreset.entries.find { it.name.equals(settings.equalizerPresetName, true) } ?: EqualizerPreset.Flat
+        equalizerPresetState = preset
+        preset.gains.copyInto(equalizerGains)
+        if (settings.equalizerCustomGains.size == 10) {
+            for (i in 0 until 10) equalizerGains[i] = settings.equalizerCustomGains[i]
+        }
+
         engine.setVolume(volume)
+        engine.setPlaybackSpeed(speed)
+        for (i in equalizerGains.indices) {
+            engine.setEqualizerBand(i, equalizerGains[i])
+        }
+
+        // Setup spectrum listener from platform engine
+        engine.setSpectrumListener { rawFrequencies ->
+            // Compress 64 bands down to 32 visual bands with smooth decay
+            val target = FloatArray(32) { idx ->
+                val r1 = rawFrequencies.getOrElse(idx * 2) { 0f }
+                val r2 = rawFrequencies.getOrElse(idx * 2 + 1) { 0f }
+                ((r1 + r2) / 2f).coerceIn(0f, 1f)
+            }
+            _spectrumState.value = target
+        }
+
         syncState()
 
-        // Background ticker coroutine for progress updates
+        // Background progress ticker
         scope.launch {
             while (isActive) {
                 tick()
-                delay(200)
+                delay(120)
             }
         }
     }
@@ -133,6 +231,9 @@ class PlayerController(
 
     override fun setShuffle(enabled: Boolean) {
         shuffleState = enabled
+        if (enabled) {
+            rebuildShuffledQueue()
+        }
         persistSettings()
         syncState()
     }
@@ -153,14 +254,137 @@ class PlayerController(
         syncState()
     }
 
-    override fun play(track: Track, context: List<Track>) {
-        queue = context
-        index = queue.indexOfFirst { it.id == track.id }
-        if (index < 0) {
-            queue = listOf(track)
-            index = 0
+    override fun setPlaybackSpeed(speed: Float) {
+        val s = speed.coerceIn(0.25f, 3.0f)
+        this.speed = s
+        engine.setPlaybackSpeed(s)
+        persistSettings()
+        syncState()
+    }
+
+    override fun setEqualizerPreset(preset: EqualizerPreset) {
+        equalizerPresetState = preset
+        preset.gains.copyInto(equalizerGains)
+        for (i in equalizerGains.indices) {
+            engine.setEqualizerBand(i, equalizerGains[i])
         }
-        start(queue[index])
+        persistSettings()
+    }
+
+    override fun setEqualizerBand(bandIndex: Int, gainDb: Float) {
+        if (bandIndex in equalizerGains.indices) {
+            equalizerGains[bandIndex] = gainDb.coerceIn(-24f, 12f)
+            engine.setEqualizerBand(bandIndex, equalizerGains[bandIndex])
+            persistSettings()
+        }
+    }
+
+    override fun setSleepTimer(minutes: Int?) {
+        sleepTimerJob?.cancel()
+        if (minutes == null || minutes <= 0) {
+            _sleepTimerRemainingSec.value = null
+            return
+        }
+        var remainingSec = minutes * 60
+        _sleepTimerRemainingSec.value = remainingSec
+        sleepTimerJob = scope.launch {
+            while (isActive && remainingSec > 0) {
+                delay(1000)
+                remainingSec--
+                _sleepTimerRemainingSec.value = remainingSec
+            }
+            if (remainingSec <= 0) {
+                // Smooth fade-out before pause
+                smoothFadeOutAndPause()
+                _sleepTimerRemainingSec.value = null
+            }
+        }
+    }
+
+    private fun smoothFadeOutAndPause() {
+        scope.launch {
+            val initial = volume
+            for (step in 10 downTo 0) {
+                engine.setVolume((initial * (step / 10f)).coerceAtLeast(0f))
+                delay(30)
+            }
+            pause()
+            engine.setVolume(initial)
+        }
+    }
+
+    override fun play(track: Track, context: List<Track>) {
+        _queue.clear()
+        _queue.addAll(context)
+        currentIndex = _queue.indexOfFirst { it.id == track.id }
+        if (currentIndex < 0) {
+            _queue.add(0, track)
+            currentIndex = 0
+        }
+        if (shuffleState) {
+            rebuildShuffledQueue()
+        }
+        start(_queue[currentIndex])
+    }
+
+    override fun playNext(track: Track) {
+        if (currentIndex >= 0 && currentIndex < _queue.size) {
+            _queue.add(currentIndex + 1, track)
+        } else {
+            _queue.add(track)
+        }
+        if (shuffleState) rebuildShuffledQueue()
+        syncState()
+    }
+
+    override fun addToQueue(track: Track) {
+        _queue.add(track)
+        if (shuffleState) rebuildShuffledQueue()
+        syncState()
+    }
+
+    override fun removeFromQueue(index: Int) {
+        if (index in _queue.indices) {
+            val isCurrent = index == currentIndex
+            _queue.removeAt(index)
+            if (isCurrent) {
+                if (_queue.isNotEmpty()) {
+                    currentIndex = currentIndex.coerceIn(0, _queue.lastIndex)
+                    start(_queue[currentIndex])
+                } else {
+                    engine.release()
+                    current = null
+                    isPlaying = false
+                }
+            } else if (index < currentIndex) {
+                currentIndex--
+            }
+            if (shuffleState) rebuildShuffledQueue()
+            syncState()
+        }
+    }
+
+    override fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        if (fromIndex in _queue.indices && toIndex in _queue.indices && fromIndex != toIndex) {
+            val item = _queue.removeAt(fromIndex)
+            _queue.add(toIndex, item)
+            current?.let { c ->
+                currentIndex = _queue.indexOfFirst { it.id == c.id }
+            }
+            syncState()
+        }
+    }
+
+    override fun clearQueue() {
+        val c = current
+        _queue.clear()
+        if (c != null) {
+            _queue.add(c)
+            currentIndex = 0
+        } else {
+            currentIndex = -1
+        }
+        syncState()
     }
 
     override fun toggle() {
@@ -193,42 +417,72 @@ class PlayerController(
         if (positionMs > 3_000) seekTo(0) else advance(-1)
     }
 
-    override fun seekTo(ms: Long) {
-        engine.seekTo(ms)
-        positionMs = ms
+    /**
+     * Reliable seeking: updates UI immediately and guards against tick()
+     * overwriting position until the hardware player confirms.
+     */
+    override fun seekTo(positionMs: Long) {
+        val bounded = positionMs.coerceIn(0L, durationMs.coerceAtLeast(0L))
+        this.positionMs = bounded
+        pendingSeekTargetMs = bounded
+        seekTimestamp = currentTimeMillis()
+
+        engine.seekTo(bounded)
         syncState()
     }
 
     fun tick() {
         if (current == null) return
-        positionMs = engine.positionMs()
-        val d = engine.durationMs()
-        if (d > 0) {
-            durationMs = d
-            if (current?.durationMs == 0L) {
-                current = current?.copy(durationMs = d)
+        val engPos = engine.positionMs()
+        val engDur = engine.durationMs()
+
+        if (engDur > 0) {
+            durationMs = engDur
+            if (current?.durationMs != engDur) {
+                current = current?.copy(durationMs = engDur)
             }
         }
+
+        val target = pendingSeekTargetMs
+        if (target != null) {
+            // Guard: don't let stale position overwrite user seek
+            val elapsed = currentTimeMillis() - seekTimestamp
+            if (abs(engPos - target) <= 800L || elapsed > 1500L) {
+                pendingSeekTargetMs = null
+                positionMs = engPos
+            } else {
+                positionMs = target
+            }
+        } else {
+            positionMs = engPos
+        }
+
         syncState()
     }
 
     override fun onTrackRemoved(trackId: String) {
         val playingId = current?.id
-        queue = queue.filter { it.id != trackId }
+        val idx = _queue.indexOfFirst { it.id == trackId }
+        if (idx >= 0) {
+            _queue.removeAt(idx)
+        }
         if (playingId == trackId) {
             engine.release()
             current = null
             isPlaying = false
             positionMs = 0
             durationMs = 0
+            lyrics = emptyList()
         }
-        index = current?.let { c -> queue.indexOfFirst { it.id == c.id } } ?: -1
+        currentIndex = current?.let { c -> _queue.indexOfFirst { it.id == c.id } } ?: -1
+        if (shuffleState) rebuildShuffledQueue()
         persistSettings()
         syncState()
     }
 
     override fun release() {
         scope.cancel()
+        sleepTimerJob?.cancel()
         engine.release()
     }
 
@@ -236,8 +490,8 @@ class PlayerController(
         current = track
         positionMs = 0
         durationMs = track.durationMs
-        persistSettings()
-        syncState()
+        pendingSeekTargetMs = null
+        lyrics = emptyList()
 
         val path = track.source
         if (path == null) {
@@ -247,23 +501,32 @@ class PlayerController(
             return
         }
 
-        // Asynchronously inspect real duration if zero
-        if (track.durationMs <= 0L) {
-            scope.launch {
-                val info = readTrackInfoAsync(path)
-                if (info != null && info.durationMs > 0L) {
-                    if (current?.id == track.id) {
-                        current = track.copy(durationMs = info.durationMs)
-                        durationMs = info.durationMs
-                        syncState()
-                    }
-                }
-            }
+        // Asynchronously load lyrics if available
+        scope.launch {
+            val lrcText = readLrcContent(path)
+            lyrics = if (lrcText != null) LrcParser.parse(lrcText) else emptyList()
         }
 
         try {
-            engine.load(path) { runOnUiThread { onTrackFinished() } }
+            engine.load(
+                path = path,
+                onReady = { authoritativeDur ->
+                    runOnUiThread {
+                        if (authoritativeDur > 0) {
+                            durationMs = authoritativeDur
+                            if (current?.id == track.id) {
+                                current = track.copy(durationMs = authoritativeDur)
+                            }
+                        }
+                        syncState()
+                    }
+                },
+                onFinished = {
+                    runOnUiThread { onTrackFinished() }
+                }
+            )
             engine.setVolume(volume)
+            engine.setPlaybackSpeed(speed)
             engine.play()
             isPlaying = true
             syncState()
@@ -274,7 +537,7 @@ class PlayerController(
     }
 
     private fun onTrackFinished() {
-        if (repeat == RepeatMode.One) {
+        if (repeatState == RepeatMode.One) {
             current?.let { start(it) }
         } else {
             advance(+1)
@@ -282,60 +545,93 @@ class PlayerController(
     }
 
     private fun advance(direction: Int) {
-        val i = pickIndex(direction)
-        if (i == null) {
+        val nextIdx = pickIndex(direction)
+        if (nextIdx == null) {
             engine.pause()
             isPlaying = false
             syncState()
             return
         }
-        index = i
-        start(queue[i])
+        currentIndex = nextIdx
+        start(_queue[currentIndex])
     }
 
     private fun pickIndex(direction: Int): Int? {
-        if (queue.none { it.source != null }) return null
-        if (shuffle && direction > 0) {
-            val others = queue.indices.filter { it != index && queue[it].source != null }
-            return others.randomOrNull() ?: index.takeIf { queue.getOrNull(it)?.source != null }
-        }
-        var i = index
-        for (step in 1..queue.size) {
-            i += direction
-            if (i !in queue.indices) {
-                if (repeat != RepeatMode.All) return null
-                i = if (direction > 0) 0 else queue.lastIndex
+        if (_queue.none { it.source != null }) return null
+        if (shuffleState && direction > 0) {
+            if (shuffledIndices.isEmpty()) rebuildShuffledQueue()
+            shufflePointer++
+            if (shufflePointer !in shuffledIndices.indices) {
+                if (repeatState == RepeatMode.All) {
+                    rebuildShuffledQueue()
+                    shufflePointer = 0
+                } else {
+                    return null
+                }
             }
-            if (queue[i].source != null) return i
+            return shuffledIndices.getOrNull(shufflePointer)
+        }
+
+        var i = currentIndex
+        for (step in 1.._queue.size) {
+            i += direction
+            if (i !in _queue.indices) {
+                if (repeatState != RepeatMode.All) return null
+                i = if (direction > 0) 0 else _queue.lastIndex
+            }
+            if (_queue[i].source != null) return i
         }
         return null
+    }
+
+    private fun rebuildShuffledQueue() {
+        val playable = _queue.indices.filter { _queue[it].source != null }
+        val cur = currentIndex
+        val others = playable.filter { it != cur }.shuffled()
+        shuffledIndices.clear()
+        if (cur in playable) {
+            shuffledIndices.add(cur)
+        }
+        shuffledIndices.addAll(others)
+        shufflePointer = 0
     }
 
     private fun persistSettings() {
         settingsRepository.save(
             AppSettings(
                 volume = volume,
-                shuffle = shuffle,
-                repeatMode = repeat,
+                shuffle = shuffleState,
+                repeatMode = repeatState,
                 lastTrackId = current?.id,
+                lastPositionMs = positionMs,
+                playbackSpeed = speed,
+                equalizerPresetName = equalizerPreset.name,
+                equalizerCustomGains = equalizerGains.toList(),
             )
         )
     }
 
     private fun syncState() {
-        _state.update {
-            PlayerState(
-                current = current,
-                isPlaying = isPlaying,
-                positionMs = positionMs,
-                durationMs = durationMs,
-                volume = volume,
-                isMuted = volume == 0f,
-                shuffle = shuffle,
-                repeat = repeat,
-                queue = queue,
-                index = index,
-            )
-        }
+        val pState = PlayerState(
+            current = current,
+            isPlaying = isPlaying,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            volume = volume,
+            isMuted = volume == 0f,
+            shuffle = shuffleState,
+            repeat = repeatState,
+            speed = speed,
+            queue = _queue.toList(),
+            index = currentIndex,
+        )
+        _state.value = pState
+
+        _playbackState.value = PlaybackState(
+            positionMs = positionMs,
+            durationMs = durationMs,
+            isPlaying = isPlaying,
+            isBuffering = pendingSeekTargetMs != null,
+        )
     }
 }

@@ -13,6 +13,10 @@ data class AppSettings(
     val shuffle: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.Off,
     val lastTrackId: String? = null,
+    val lastPositionMs: Long = 0L,
+    val playbackSpeed: Float = 1.0f,
+    val equalizerPresetName: String = "Flat",
+    val equalizerCustomGains: List<Float> = emptyList(),
 )
 
 class SettingsRepository {

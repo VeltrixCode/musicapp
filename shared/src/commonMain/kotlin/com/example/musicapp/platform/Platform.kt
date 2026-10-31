@@ -5,13 +5,16 @@ import com.example.musicapp.library.newId
 import com.example.musicapp.model.Track
 
 interface PlayerEngine {
-    fun load(path: String, onFinished: () -> Unit)
+    fun load(path: String, onReady: (durationMs: Long) -> Unit, onFinished: () -> Unit)
     fun play()
     fun pause()
     fun seekTo(ms: Long)
     fun positionMs(): Long
     fun durationMs(): Long
     fun setVolume(volume: Float)
+    fun setPlaybackSpeed(speed: Float)
+    fun setEqualizerBand(bandIndex: Int, gainDb: Float)
+    fun setSpectrumListener(listener: ((FloatArray) -> Unit)?)
     fun release()
 }
 
@@ -21,7 +24,15 @@ expect fun createPlayerEngine(): PlayerEngine
 /** Runs [block] on the platform's UI thread. Audio callbacks use this before touching state. */
 expect fun runOnUiThread(block: () -> Unit)
 
-data class TrackInfo(val title: String?, val artist: String?, val durationMs: Long)
+expect fun currentTimeMillis(): Long
+
+data class TrackInfo(
+    val title: String?,
+    val artist: String?,
+    val album: String?,
+    val year: Int?,
+    val durationMs: Long,
+)
 
 /** Reads ID3 / container tags and duration from an audio file synchronously. Null if unreadable. */
 expect fun readTrackInfo(path: String): TrackInfo?
@@ -32,8 +43,14 @@ expect suspend fun readTrackInfoAsync(path: String): TrackInfo?
 /** Reads embedded artwork from an audio file asynchronously on IO dispatcher. Null if absent. */
 expect suspend fun loadArtwork(source: String): ImageBitmap?
 
+/** Reads text of .lrc file if present alongside audio file (e.g. song.lrc). Null if absent. */
+expect fun readLrcContent(audioPath: String): String?
+
 /** Opens the platform file picker, copies the chosen song into app storage, and reports the new Track. */
 expect fun launchAudioImport(onImported: (Track) -> Unit)
+
+/** Opens folder picker on desktop or file picker to import multiple tracks with full tags. */
+expect fun launchFolderImport(onImported: (List<Track>) -> Unit)
 
 /** Builds a Track from a copied file, using its tags when present and the file name otherwise. */
 fun importedTrack(path: String, fileName: String, info: TrackInfo? = readTrackInfo(path)): Track {
@@ -41,7 +58,10 @@ fun importedTrack(path: String, fileName: String, info: TrackInfo? = readTrackIn
         id = newId(),
         title = info?.title ?: fileName.substringBeforeLast('.'),
         artist = info?.artist ?: "Неизвестный исполнитель",
+        album = info?.album ?: "",
+        year = info?.year,
         source = path,
         durationMs = info?.durationMs ?: 0L,
+        addedAt = currentTimeMillis(),
     )
 }

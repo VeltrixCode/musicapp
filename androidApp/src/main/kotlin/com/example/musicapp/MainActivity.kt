@@ -23,18 +23,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AndroidBridge.appContext = applicationContext
         AndroidBridge.pickAudio = { callback ->
             pending = callback
             picker.launch(arrayOf("audio/*"))
         }
+        AndroidBridge.onHeadphonesUnplugged = {
+            player.pause()
+        }
 
-        // Android MediaSession integration
+        // Android MediaSession integration with seek support
         mediaSession = MediaSession(this, "MusicAppMediaSession").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() { player.resume() }
                 override fun onPause() { player.pause() }
                 override fun onSkipToNext() { player.next() }
                 override fun onSkipToPrevious() { player.previous() }
+                override fun onSeekTo(pos: Long) { player.seekTo(pos) }
                 override fun onStop() { player.pause() }
             })
             setPlaybackState(
@@ -44,7 +49,8 @@ class MainActivity : ComponentActivity() {
                         PlaybackState.ACTION_PAUSE or
                         PlaybackState.ACTION_PLAY_PAUSE or
                         PlaybackState.ACTION_SKIP_TO_NEXT or
-                        PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                        PlaybackState.ACTION_SKIP_TO_PREVIOUS or
+                        PlaybackState.ACTION_SEEK_TO
                     )
                     .build()
             )
