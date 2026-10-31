@@ -1,5 +1,6 @@
 package com.example.musicapp.platform
 
+import androidx.compose.ui.graphics.ImageBitmap
 import com.example.musicapp.library.newId
 import com.example.musicapp.model.Track
 
@@ -22,19 +23,24 @@ expect fun runOnUiThread(block: () -> Unit)
 
 data class TrackInfo(val title: String?, val artist: String?, val durationMs: Long)
 
-/** Reads ID3 / container tags and duration from an audio file. Null if unreadable. */
+/** Reads ID3 / container tags and duration from an audio file synchronously. Null if unreadable. */
 expect fun readTrackInfo(path: String): TrackInfo?
+
+/** Reads ID3 / container tags and duration from an audio file asynchronously on IO dispatcher. */
+expect suspend fun readTrackInfoAsync(path: String): TrackInfo?
+
+/** Reads embedded artwork from an audio file asynchronously on IO dispatcher. Null if absent. */
+expect suspend fun loadArtwork(source: String): ImageBitmap?
 
 /** Opens the platform file picker, copies the chosen song into app storage, and reports the new Track. */
 expect fun launchAudioImport(onImported: (Track) -> Unit)
 
 /** Builds a Track from a copied file, using its tags when present and the file name otherwise. */
-fun importedTrack(path: String, fileName: String): Track {
-    val info = readTrackInfo(path)
+fun importedTrack(path: String, fileName: String, info: TrackInfo? = readTrackInfo(path)): Track {
     return Track(
         id = newId(),
         title = info?.title ?: fileName.substringBeforeLast('.'),
-        artist = info?.artist ?: "Unknown artist",
+        artist = info?.artist ?: "Неизвестный исполнитель",
         source = path,
         durationMs = info?.durationMs ?: 0L,
     )

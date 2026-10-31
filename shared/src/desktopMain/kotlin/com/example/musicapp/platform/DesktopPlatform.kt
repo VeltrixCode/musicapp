@@ -1,19 +1,24 @@
 package com.example.musicapp.platform
 
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.example.musicapp.library.newId
 import com.example.musicapp.model.Track
 import javafx.application.Platform
 import javafx.scene.media.Media
 import javafx.scene.media.MediaPlayer
 import javafx.util.Duration
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
+import org.jetbrains.skia.Image
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 import javax.swing.SwingUtilities
 
-private val AUDIO_EXTENSIONS = listOf(".mp3", ".wav", ".m4a", ".aac")
+private val AUDIO_EXTENSIONS = listOf(".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg")
 
 actual fun createPlayerEngine(): PlayerEngine = JavaFxPlayerEngine()
 
@@ -31,8 +36,20 @@ actual fun readTrackInfo(path: String): TrackInfo? = runCatching {
     )
 }.getOrNull()
 
+actual suspend fun readTrackInfoAsync(path: String): TrackInfo? = withContext(Dispatchers.IO) {
+    readTrackInfo(path)
+}
+
+actual suspend fun loadArtwork(source: String): ImageBitmap? = withContext(Dispatchers.IO) {
+    runCatching {
+        val file = AudioFileIO.read(File(source))
+        val raw = file.tag?.firstArtwork?.binaryData ?: return@runCatching null
+        Image.makeFromEncoded(raw).toComposeImageBitmap()
+    }.getOrNull()
+}
+
 actual fun launchAudioImport(onImported: (Track) -> Unit) {
-    val dialog = FileDialog(null as Frame?, "Choose a song", FileDialog.LOAD)
+    val dialog = FileDialog(null as Frame?, "Выберите аудиотрек", FileDialog.LOAD)
     dialog.setFilenameFilter { _, name ->
         val lower = name.lowercase()
         AUDIO_EXTENSIONS.any { lower.endsWith(it) }
@@ -47,6 +64,14 @@ actual fun launchAudioImport(onImported: (Track) -> Unit) {
     onImported(importedTrack(dest.absolutePath, name))
 }
 
+/** Handles external drag-and-drop of audio files into the desktop app. */
+fun importLocalAudioFile(sourceFile: File): Track {
+    val uploads = File(System.getProperty("user.home"), "MusicApp/uploads").apply { mkdirs() }
+    val dest = File(uploads, "${newId()}_${sourceFile.name}")
+    sourceFile.copyTo(dest, overwrite = true)
+    return importedTrack(dest.absolutePath, sourceFile.name)
+}
+
 private class JavaFxPlayerEngine : PlayerEngine {
     private var player: MediaPlayer? = null
     private var currentVolume = 0.8f
@@ -55,7 +80,7 @@ private class JavaFxPlayerEngine : PlayerEngine {
         try {
             Platform.startup {}
         } catch (e: IllegalStateException) {
-            // JavaFX toolkit already started
+            // JavaFX toolkit already initialized
         }
     }
 

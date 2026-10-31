@@ -1,10 +1,18 @@
 package com.example.musicapp.library
 
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.example.musicapp.model.LibraryData
 import com.example.musicapp.model.Playlist
 import com.example.musicapp.model.Track
 import com.example.musicapp.platform.AppStorage
+import com.example.musicapp.platform.readTrackInfoAsync
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -15,13 +23,26 @@ private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
 
 fun newId(): String = Random.nextLong().toString(16)
 
+enum class SortColumn { Number, Title, Artist, Duration }
+enum class SortDirection { Ascending, Descending }
+
+data class DeletedTrackSnapshot(
+    val track: Track,
+    val originalIndex: Int,
+    val playlistIds: List<String>,
+)
+
 /**
- * The user's tracks and playlists. Every change is written to disk immediately,
- * and the saved state is loaded on launch.
+ * The user's tracks and playlists with persistence, asynchronous metadata enrichment,
+ * sorting, and undo support.
  */
 class Library {
     val tracks = mutableStateListOf<Track>()
     val playlists = mutableStateListOf<Playlist>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    var lastDeleted by mutableStateOf<DeletedTrackSnapshot?>(null)
+        private set
 
     init {
         val raw = AppStorage.read(LIBRARY_FILE)
@@ -30,9 +51,30 @@ class Library {
             tracks.addAll(saved.tracks)
             playlists.addAll(saved.playlists)
         } else {
-            if (raw != null) AppStorage.write("$LIBRARY_FILE.bak", raw) // keep unreadable file
+            if (raw != null) AppStorage.write("$LIBRARY_FILE.bak", raw)
             tracks.addAll(sampleTracks)
             playlists.addAll(samplePlaylists)
+            save()
+        }
+
+        // Asynchronously enrich missing durations for local files in Dispatchers.IO
+        scope.launch {
+            for (i in tracks.indices) {
+                val t = tracks.getOrNull(i) ?: continue
+                if (t.durationMs <= 0L && t.source != null) {
+                    val info = readTrackInfoAsync(t.source)
+                    if (info != null && info.durationMs > 0L) {
+                        val currentIdx = tracks.indexOfFirst { it.id == t.id }
+                        if (currentIdx >= 0) {
+                            tracks[currentIdx] = t.copy(
+                                durationMs = info.durationMs,
+                                title = if (t.title == "Unknown" || t.title.isBlank()) (info.title ?: t.title) else t.title,
+                                artist = if (t.artist == "Unknown artist") (info.artist ?: t.artist) else t.artist,
+                            )
+                        }
+                    }
+                }
+            }
             save()
         }
     }
@@ -42,20 +84,51 @@ class Library {
         save()
     }
 
-    /** Removes the track from the library and every playlist. Deletes its uploaded file, if any. */
-    fun removeTrack(trackId: String) {
-        val track = tracks.find { it.id == trackId } ?: return
-        tracks.remove(track)
+    /**
+     * Removes the track from the library and records a snapshot for undo.
+     * The actual file deletion on disk is deferred or can be reverted.
+     */
+    fun removeTrack(trackId: String): DeletedTrackSnapshot? {
+        val index = tracks.indexOfFirst { it.id == trackId }
+        if (index < 0) return null
+        val track = tracks[index]
+        val affectedPlaylists = playlists.filter { trackId in it.trackIds }.map { it.id }
+
+        tracks.removeAt(index)
         for (i in playlists.indices) {
             val p = playlists[i]
-            if (trackId in p.trackIds) playlists[i] = p.copy(trackIds = p.trackIds - trackId)
+            if (trackId in p.trackIds) {
+                playlists[i] = p.copy(trackIds = p.trackIds - trackId)
+            }
         }
-        track.source?.let { AppStorage.deleteFile(it) }
+        val snapshot = DeletedTrackSnapshot(track, index, affectedPlaylists)
+        lastDeleted = snapshot
         save()
+        return snapshot
+    }
+
+    /** Restores the last deleted track back to its original position and playlists. */
+    fun undoDelete(): Track? {
+        val snapshot = lastDeleted ?: return null
+        val insertIndex = snapshot.originalIndex.coerceIn(0, tracks.size)
+        tracks.add(insertIndex, snapshot.track)
+        for (pId in snapshot.playlistIds) {
+            val idx = playlists.indexOfFirst { it.id == pId }
+            if (idx >= 0 && snapshot.track.id !in playlists[idx].trackIds) {
+                playlists[idx] = playlists[idx].copy(trackIds = playlists[idx].trackIds + snapshot.track.id)
+            }
+        }
+        lastDeleted = null
+        save()
+        return snapshot.track
+    }
+
+    fun finalizeDelete(track: Track) {
+        track.source?.let { AppStorage.deleteFile(it) }
     }
 
     fun createPlaylist(name: String) {
-        playlists.add(Playlist(newId(), name))
+        playlists.add(Playlist(newId(), name.trim()))
         save()
     }
 
@@ -72,7 +145,6 @@ class Library {
         }
     }
 
-    /** Takes the track out of one playlist. The track stays in the library. */
     fun removeFromPlaylist(playlistId: String, trackId: String) {
         val i = playlists.indexOfFirst { it.id == playlistId }
         if (i >= 0) {
@@ -91,12 +163,11 @@ class Library {
 }
 
 private val sampleTracks = listOf(
-    Track("s1", "Midnight Drive", "Sample Artist"),
-    Track("s2", "City Lights", "Sample Artist"),
-    Track("s3", "Morning Coffee", "Demo Band"),
+    Track("s1", "Midnight Drive", "Retro Wave", null, 218_000L),
+    Track("s2", "City Lights", "Urban Chill", null, 184_000L),
+    Track("s3", "Morning Coffee", "Acoustic Sun", null, 162_000L),
 )
 
 private val samplePlaylists = listOf(
-    Playlist("p1", "Favorites", listOf("s1", "s3")),
-    Playlist("p2", "Late Night", listOf("s2")),
+    Playlist("p1", "Избранное", listOf("s1", "s3")),
 )
