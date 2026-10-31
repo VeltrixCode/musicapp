@@ -1,11 +1,26 @@
 package com.example.musicapp.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode as AnimRepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -15,10 +30,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -26,9 +43,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,10 +57,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.musicapp.library.Library
@@ -58,14 +86,16 @@ import com.example.musicapp.player.RepeatMode
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
+// ==========================================
+// Spotify Design System
+// ==========================================
 private object SpotifyColors {
     val Black = Color(0xFF000000)
     val Background = Color(0xFF121212)
     val Sidebar = Color(0xFF000000)
     val Card = Color(0xFF181818)
-    val CardHover = Color(0xFF282828)
-    val SurfaceElevated = Color(0xFF242424)
-    val SurfaceHover = Color(0xFF282828)
+    val CardHover = Color(0xFF242424)
+    val SurfaceElevated = Color(0xFF282828)
     val Green = Color(0xFF1DB954)
     val GreenHover = Color(0xFF1ED760)
     val TextPrimary = Color(0xFFFFFFFF)
@@ -73,6 +103,7 @@ private object SpotifyColors {
     val TextMuted = Color(0xFF727272)
     val Divider = Color(0xFF282828)
     val Red = Color(0xFFE91429)
+    val RedHover = Color(0xFFFF3344)
 }
 
 private val CoverGradients = listOf(
@@ -88,12 +119,369 @@ private val CoverGradients = listOf(
 
 private fun getGradientFor(text: String): Brush {
     val idx = abs(text.hashCode()) % CoverGradients.size
-    val colors = CoverGradients[idx]
-    return Brush.linearGradient(colors)
+    return Brush.linearGradient(CoverGradients[idx])
 }
 
 private enum class NavSection { Library, Playlists }
 
+// ==========================================
+// Clean Vector Icons (Lucide / Phosphor style)
+// ==========================================
+@Composable
+private fun LucideIcon(
+    name: String,
+    modifier: Modifier = Modifier.size(20.dp),
+    tint: Color = SpotifyColors.TextSecondary,
+    strokeWidth: Float = 2f,
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val sx = w / 24f
+        val sy = h / 24f
+
+        when (name) {
+            "search" -> {
+                drawCircle(
+                    color = tint,
+                    radius = 6f * sx,
+                    center = Offset(11f * sx, 11f * sy),
+                    style = Stroke(width = strokeWidth * sx)
+                )
+                drawLine(
+                    color = tint,
+                    start = Offset(15.5f * sx, 15.5f * sy),
+                    end = Offset(21f * sx, 21f * sy),
+                    strokeWidth = strokeWidth * sx,
+                    cap = StrokeCap.Round
+                )
+            }
+            "library" -> {
+                drawLine(color = tint, start = Offset(4f * sx, 5f * sy), end = Offset(4f * sx, 19f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(10f * sx, 5f * sy), end = Offset(10f * sx, 19f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(16f * sx, 6f * sy), end = Offset(19f * sx, 19f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+            }
+            "play" -> {
+                val path = Path().apply {
+                    moveTo(7f * sx, 5f * sy)
+                    lineTo(19f * sx, 12f * sy)
+                    lineTo(7f * sx, 19f * sy)
+                    close()
+                }
+                drawPath(path, color = tint, style = Fill)
+            }
+            "pause" -> {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(7f * sx, 5f * sy),
+                    size = Size(3.5f * sx, 14f * sy),
+                    cornerRadius = CornerRadius(1.5f * sx)
+                )
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(13.5f * sx, 5f * sy),
+                    size = Size(3.5f * sx, 14f * sy),
+                    cornerRadius = CornerRadius(1.5f * sx)
+                )
+            }
+            "skip-back" -> {
+                val path = Path().apply {
+                    moveTo(18f * sx, 6f * sy)
+                    lineTo(8f * sx, 12f * sy)
+                    lineTo(18f * sx, 18f * sy)
+                    close()
+                }
+                drawPath(path, color = tint, style = Fill)
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(5f * sx, 6f * sy),
+                    size = Size(2.5f * sx, 12f * sy),
+                    cornerRadius = CornerRadius(1f * sx)
+                )
+            }
+            "skip-forward" -> {
+                val path = Path().apply {
+                    moveTo(6f * sx, 6f * sy)
+                    lineTo(16f * sx, 12f * sy)
+                    lineTo(6f * sx, 18f * sy)
+                    close()
+                }
+                drawPath(path, color = tint, style = Fill)
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(16.5f * sx, 6f * sy),
+                    size = Size(2.5f * sx, 12f * sy),
+                    cornerRadius = CornerRadius(1f * sx)
+                )
+            }
+            "shuffle" -> {
+                drawLine(color = tint, start = Offset(3f * sx, 18f * sy), end = Offset(8f * sx, 18f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(8f * sx, 18f * sy), end = Offset(16f * sx, 6f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(16f * sx, 6f * sy), end = Offset(21f * sx, 6f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(18f * sx, 3f * sy), end = Offset(21f * sx, 6f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(18f * sx, 9f * sy), end = Offset(21f * sx, 6f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+
+                drawLine(color = tint, start = Offset(3f * sx, 6f * sy), end = Offset(8f * sx, 6f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(8f * sx, 6f * sy), end = Offset(11f * sx, 10.5f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(13f * sx, 13.5f * sy), end = Offset(16f * sx, 18f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(16f * sx, 18f * sy), end = Offset(21f * sx, 18f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(18f * sx, 15f * sy), end = Offset(21f * sx, 18f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(18f * sx, 21f * sy), end = Offset(21f * sx, 18f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+            }
+            "repeat" -> {
+                val path = Path().apply {
+                    moveTo(17f * sx, 2f * sy)
+                    lineTo(21f * sx, 6f * sy)
+                    lineTo(17f * sx, 10f * sy)
+                }
+                drawPath(path, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                val topArc = Path().apply {
+                    moveTo(3f * sx, 12f * sy)
+                    lineTo(3f * sx, 9f * sy)
+                    quadraticTo(3f * sx, 6f * sy, 6f * sx, 6f * sy)
+                    lineTo(20f * sx, 6f * sy)
+                }
+                drawPath(topArc, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round))
+
+                val bottomArrow = Path().apply {
+                    moveTo(7f * sx, 22f * sy)
+                    lineTo(3f * sx, 18f * sy)
+                    lineTo(7f * sx, 14f * sy)
+                }
+                drawPath(bottomArrow, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                val bottomArc = Path().apply {
+                    moveTo(21f * sx, 12f * sy)
+                    lineTo(21f * sx, 15f * sy)
+                    quadraticTo(21f * sx, 18f * sy, 18f * sx, 18f * sy)
+                    lineTo(4f * sx, 18f * sy)
+                }
+                drawPath(bottomArc, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round))
+            }
+            "repeat-one" -> {
+                // repeat loop with small 1
+                drawLine(color = tint, start = Offset(12f * sx, 10f * sy), end = Offset(12f * sx, 14f * sy), strokeWidth = 1.8f * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(10.5f * sx, 11f * sy), end = Offset(12f * sx, 10f * sy), strokeWidth = 1.8f * sx, cap = StrokeCap.Round)
+            }
+            "volume-high" -> {
+                val horn = Path().apply {
+                    moveTo(3f * sx, 9f * sy)
+                    lineTo(7f * sx, 9f * sy)
+                    lineTo(12f * sx, 4f * sy)
+                    lineTo(12f * sx, 20f * sy)
+                    lineTo(7f * sx, 15f * sy)
+                    lineTo(3f * sx, 15f * sy)
+                    close()
+                }
+                drawPath(horn, color = tint, style = Fill)
+                val arc1 = Path().apply {
+                    moveTo(15.5f * sx, 8.5f * sy)
+                    quadraticTo(17.5f * sx, 12f * sy, 15.5f * sx, 15.5f * sy)
+                }
+                drawPath(arc1, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round))
+                val arc2 = Path().apply {
+                    moveTo(18.5f * sx, 5.5f * sy)
+                    quadraticTo(21.5f * sx, 12f * sy, 18.5f * sx, 18.5f * sy)
+                }
+                drawPath(arc2, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round))
+            }
+            "volume-low" -> {
+                val horn = Path().apply {
+                    moveTo(3f * sx, 9f * sy)
+                    lineTo(7f * sx, 9f * sy)
+                    lineTo(12f * sx, 4f * sy)
+                    lineTo(12f * sx, 20f * sy)
+                    lineTo(7f * sx, 15f * sy)
+                    lineTo(3f * sx, 15f * sy)
+                    close()
+                }
+                drawPath(horn, color = tint, style = Fill)
+                val arc1 = Path().apply {
+                    moveTo(15.5f * sx, 8.5f * sy)
+                    quadraticTo(17.5f * sx, 12f * sy, 15.5f * sx, 15.5f * sy)
+                }
+                drawPath(arc1, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round))
+            }
+            "volume-x" -> {
+                val horn = Path().apply {
+                    moveTo(3f * sx, 9f * sy)
+                    lineTo(7f * sx, 9f * sy)
+                    lineTo(12f * sx, 4f * sy)
+                    lineTo(12f * sx, 20f * sy)
+                    lineTo(7f * sx, 15f * sy)
+                    lineTo(3f * sx, 15f * sy)
+                    close()
+                }
+                drawPath(horn, color = tint, style = Fill)
+                drawLine(color = tint, start = Offset(16f * sx, 9f * sy), end = Offset(21f * sx, 15f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(21f * sx, 9f * sy), end = Offset(16f * sx, 15f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+            }
+            "plus" -> {
+                drawLine(color = tint, start = Offset(12f * sx, 5f * sy), end = Offset(12f * sx, 19f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(5f * sx, 12f * sy), end = Offset(19f * sx, 12f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+            }
+            "trash" -> {
+                drawLine(color = tint, start = Offset(3f * sx, 6f * sy), end = Offset(21f * sx, 6f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(8f * sx, 6f * sy), end = Offset(8f * sx, 3f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(8f * sx, 3f * sy), end = Offset(16f * sx, 3f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(16f * sx, 3f * sy), end = Offset(16f * sx, 6f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                val bin = Path().apply {
+                    moveTo(5f * sx, 6f * sy)
+                    lineTo(6.5f * sx, 20f * sy)
+                    lineTo(17.5f * sx, 20f * sy)
+                    lineTo(19f * sx, 6f * sy)
+                }
+                drawPath(bin, color = tint, style = Stroke(width = strokeWidth * sx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                drawLine(color = tint, start = Offset(10f * sx, 10f * sy), end = Offset(10f * sx, 16f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(14f * sx, 10f * sy), end = Offset(14f * sx, 16f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+            }
+            "clock" -> {
+                drawCircle(color = tint, radius = 9f * sx, center = Offset(12f * sx, 12f * sy), style = Stroke(width = strokeWidth * sx))
+                drawLine(color = tint, start = Offset(12f * sx, 7f * sy), end = Offset(12f * sx, 12f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(12f * sx, 12f * sy), end = Offset(16f * sx, 12f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+            }
+            "upload" -> {
+                drawLine(color = tint, start = Offset(4f * sx, 17f * sy), end = Offset(4f * sx, 20f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(4f * sx, 20f * sy), end = Offset(20f * sx, 20f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(20f * sx, 20f * sy), end = Offset(20f * sx, 17f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(12f * sx, 15f * sy), end = Offset(12f * sx, 4f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(7f * sx, 9f * sy), end = Offset(12f * sx, 4f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+                drawLine(color = tint, start = Offset(17f * sx, 9f * sy), end = Offset(12f * sx, 4f * sy), strokeWidth = strokeWidth * sx, cap = StrokeCap.Round)
+            }
+            "heart" -> {
+                val heart = Path().apply {
+                    moveTo(12f * sx, 20f * sy)
+                    cubicTo(5f * sx, 14f * sy, 2f * sx, 9f * sy, 4f * sx, 5.5f * sy)
+                    cubicTo(6f * sx, 2.5f * sy, 10f * sx, 3f * sy, 12f * sx, 6f * sy)
+                    cubicTo(14f * sx, 3f * sy, 18f * sx, 2.5f * sy, 20f * sx, 5.5f * sy)
+                    cubicTo(22f * sx, 9f * sy, 19f * sx, 14f * sy, 12f * sx, 20f * sy)
+                    close()
+                }
+                drawPath(heart, color = tint, style = Stroke(width = strokeWidth * sx, join = StrokeJoin.Round))
+            }
+            "heart-filled" -> {
+                val heart = Path().apply {
+                    moveTo(12f * sx, 20f * sy)
+                    cubicTo(5f * sx, 14f * sy, 2f * sx, 9f * sy, 4f * sx, 5.5f * sy)
+                    cubicTo(6f * sx, 2.5f * sy, 10f * sx, 3f * sy, 12f * sx, 6f * sy)
+                    cubicTo(14f * sx, 3f * sy, 18f * sx, 2.5f * sy, 20f * sx, 5.5f * sy)
+                    cubicTo(22f * sx, 9f * sy, 19f * sx, 14f * sy, 12f * sx, 20f * sy)
+                    close()
+                }
+                drawPath(heart, color = tint, style = Fill)
+            }
+        }
+    }
+}
+
+// ==========================================
+// Animated Sound Equalizer Indicator
+// ==========================================
+@Composable
+private fun AnimatedEqualizer(
+    color: Color = SpotifyColors.Green,
+    modifier: Modifier = Modifier.size(16.dp),
+) {
+    val transition = rememberInfiniteTransition()
+    val h1 by transition.animateFloat(
+        initialValue = 0.3f, targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(tween(420, easing = LinearEasing), AnimRepeatMode.Reverse)
+    )
+    val h2 by transition.animateFloat(
+        initialValue = 0.8f, targetValue = 0.2f,
+        animationSpec = infiniteRepeatable(tween(350, easing = LinearEasing), AnimRepeatMode.Reverse)
+    )
+    val h3 by transition.animateFloat(
+        initialValue = 0.4f, targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(tween(480, easing = LinearEasing), AnimRepeatMode.Reverse)
+    )
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val barW = w / 4f
+        val gap = w / 8f
+
+        drawRoundRect(color, Offset(0f, h * (1f - h1)), Size(barW, h * h1), CornerRadius(barW / 2))
+        drawRoundRect(color, Offset(barW + gap, h * (1f - h2)), Size(barW, h * h2), CornerRadius(barW / 2))
+        drawRoundRect(color, Offset((barW + gap) * 2, h * (1f - h3)), Size(barW, h * h3), CornerRadius(barW / 2))
+    }
+}
+
+// ==========================================
+// Spotify Interactive Scrub Slider
+// ==========================================
+@Composable
+private fun SpotifyScrubBar(
+    fraction: Float,
+    onSeek: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    barHeight: Dp = 4.dp,
+    thumbRadius: Dp = 6.dp,
+    activeColor: Color = SpotifyColors.Green,
+    inactiveColor: Color = SpotifyColors.SurfaceElevated,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    var isDragging by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = modifier
+            .hoverable(interactionSource)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = { offset ->
+                        isDragging = true
+                        val newFrac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        onSeek(newFrac)
+                        tryAwaitRelease()
+                        isDragging = false
+                    }
+                )
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(barHeight + thumbRadius * 2)
+        ) {
+            val trackH = barHeight.toPx()
+            val cy = size.height / 2f
+            val w = size.width
+
+            // Background inactive track
+            drawRoundRect(
+                color = inactiveColor,
+                topLeft = Offset(0f, cy - trackH / 2f),
+                size = Size(w, trackH),
+                cornerRadius = CornerRadius(trackH / 2f)
+            )
+
+            // Active track
+            val fillW = (fraction.coerceIn(0f, 1f) * w)
+            val fillCol = if (isHovered || isDragging) SpotifyColors.GreenHover else activeColor
+            drawRoundRect(
+                color = fillCol,
+                topLeft = Offset(0f, cy - trackH / 2f),
+                size = Size(fillW, trackH),
+                cornerRadius = CornerRadius(trackH / 2f)
+            )
+
+            // Thumb visible on hover or drag (Bug 5 fix: no stray handle, visible only on hover)
+            if (isHovered || isDragging) {
+                drawCircle(
+                    color = SpotifyColors.TextPrimary,
+                    radius = thumbRadius.toPx(),
+                    center = Offset(fillW, cy)
+                )
+            }
+        }
+    }
+}
+
+// ==========================================
+// Root MusicApp Composable
+// ==========================================
 @Composable
 fun MusicApp() {
     val library = remember { Library() }
@@ -104,6 +492,14 @@ fun MusicApp() {
     var openPlaylistId by remember { mutableStateOf<String?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var toastMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(toastMessage) {
+        if (toastMessage != null) {
+            delay(2500)
+            toastMessage = null
+        }
+    }
 
     val spotifyColorScheme = darkColorScheme(
         primary = SpotifyColors.Green,
@@ -116,69 +512,123 @@ fun MusicApp() {
 
     MaterialTheme(colorScheme = spotifyColorScheme) {
         Surface(Modifier.fillMaxSize(), color = SpotifyColors.Background) {
-            Column(Modifier.fillMaxSize()) {
-                // Top row: Sidebar + Main Content Area
-                Row(Modifier.weight(1f).fillMaxWidth()) {
-                    // Left Sidebar
-                    SpotifySidebar(
-                        library = library,
-                        currentSection = navSection,
-                        openPlaylistId = openPlaylistId,
-                        onSelectSection = {
-                            navSection = it
-                            openPlaylistId = null
-                        },
-                        onSelectPlaylist = {
-                            navSection = NavSection.Playlists
-                            openPlaylistId = it
-                        },
-                        onCreatePlaylist = { showCreatePlaylistDialog = true },
-                    )
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val isCompact = maxWidth < 900.dp
 
-                    // Main Content
-                    Column(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .background(SpotifyColors.Background)
-                    ) {
-                        // Top Navigation / Search Bar
-                        SpotifyTopBar(
-                            searchQuery = searchQuery,
-                            onSearchQueryChange = { searchQuery = it },
-                            onUploadSong = {
-                                launchAudioImport { library.addTrack(it) }
+                Column(Modifier.fillMaxSize()) {
+                    // Main area with Sidebar and Content
+                    Row(Modifier.weight(1f).fillMaxWidth()) {
+                        // Left Sidebar (collapses to icon rail below 900px)
+                        SpotifySidebar(
+                            library = library,
+                            currentSection = navSection,
+                            openPlaylistId = openPlaylistId,
+                            isCompact = isCompact,
+                            onSelectSection = {
+                                navSection = it
+                                openPlaylistId = null
                             },
+                            onSelectPlaylist = {
+                                navSection = NavSection.Playlists
+                                openPlaylistId = it
+                            },
+                            onCreatePlaylist = { showCreatePlaylistDialog = true },
                         )
 
-                        // Content Body
-                        Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 24.dp)) {
-                            when (navSection) {
-                                NavSection.Library -> {
-                                    LibraryView(
-                                        library = library,
-                                        player = player,
-                                        searchQuery = searchQuery,
-                                    )
-                                }
-                                NavSection.Playlists -> {
-                                    PlaylistDetailView(
-                                        library = library,
-                                        player = player,
-                                        playlistId = openPlaylistId,
-                                        onBack = {
-                                            navSection = NavSection.Library
-                                            openPlaylistId = null
-                                        },
-                                    )
+                        // Main Content (Constrained max-width for ultra-wide screens)
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .background(SpotifyColors.Background),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Column(
+                                Modifier
+                                    .fillMaxHeight()
+                                    .widthIn(max = 1350.dp)
+                                    .fillMaxWidth()
+                            ) {
+                                // Top Search & Action Bar (Bug 1 fixed: vertically centered, line-height fixed)
+                                SpotifyTopBar(
+                                    searchQuery = searchQuery,
+                                    onSearchQueryChange = { searchQuery = it },
+                                    onUploadSong = {
+                                        launchAudioImport { track ->
+                                            library.addTrack(track)
+                                            toastMessage = "Трек «${track.title}» добавлен"
+                                        }
+                                    },
+                                )
+
+                                // Body
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .padding(horizontal = if (isCompact) 12.dp else 24.dp)
+                                ) {
+                                    when (navSection) {
+                                        NavSection.Library -> {
+                                            LibraryView(
+                                                library = library,
+                                                player = player,
+                                                searchQuery = searchQuery,
+                                                isCompact = isCompact,
+                                                onToast = { toastMessage = it },
+                                            )
+                                        }
+                                        NavSection.Playlists -> {
+                                            PlaylistDetailView(
+                                                library = library,
+                                                player = player,
+                                                playlistId = openPlaylistId,
+                                                isCompact = isCompact,
+                                                onBack = {
+                                                    navSection = NavSection.Library
+                                                    openPlaylistId = null
+                                                },
+                                                onToast = { toastMessage = it },
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+
+                    // Bottom Fixed Player Bar (Bug 3, 5, 6 fixed)
+                    SpotifyNowPlayingBar(
+                        player = player,
+                        isCompact = isCompact,
+                    )
                 }
 
-                // Fixed Bottom Player Bar
-                SpotifyNowPlayingBar(player = player, library = library)
+                // Toast Notification
+                AnimatedVisibility(
+                    visible = toastMessage != null,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 100.dp)
+                ) {
+                    toastMessage?.let { msg ->
+                        Surface(
+                            color = SpotifyColors.Green,
+                            shape = RoundedCornerShape(500.dp),
+                            shadowElevation = 8.dp
+                        ) {
+                            Text(
+                                msg,
+                                color = SpotifyColors.Black,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -189,31 +639,39 @@ fun MusicApp() {
             onCreate = { name ->
                 library.createPlaylist(name)
                 showCreatePlaylistDialog = false
+                toastMessage = "Плейлист «$name» создан"
             },
         )
     }
 }
 
+// ==========================================
+// Sidebar Component
+// ==========================================
 @Composable
 private fun SpotifySidebar(
     library: Library,
     currentSection: NavSection,
     openPlaylistId: String?,
+    isCompact: Boolean,
     onSelectSection: (NavSection) -> Unit,
     onSelectPlaylist: (String) -> Unit,
     onCreatePlaylist: () -> Unit,
 ) {
+    val sidebarWidth = if (isCompact) 72.dp else 240.dp
+
     Column(
         Modifier
-            .width(240.dp)
+            .width(sidebarWidth)
             .fillMaxHeight()
             .background(SpotifyColors.Sidebar)
-            .padding(16.dp)
+            .padding(vertical = 16.dp, horizontal = if (isCompact) 8.dp else 12.dp)
     ) {
         // App Logo
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 20.dp, start = 8.dp)
+            modifier = Modifier.padding(bottom = 20.dp, start = if (isCompact) 0.dp else 8.dp),
+            horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
         ) {
             Box(
                 Modifier
@@ -222,53 +680,72 @@ private fun SpotifySidebar(
                     .background(SpotifyColors.Green),
                 contentAlignment = Alignment.Center
             ) {
-                Text("♫", fontSize = 20.sp, color = SpotifyColors.Black, fontWeight = FontWeight.Bold)
+                LucideIcon("play", modifier = Modifier.size(16.dp), tint = SpotifyColors.Black)
             }
-            Spacer(Modifier.width(10.dp))
-            Text(
-                "MusicApp",
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = SpotifyColors.TextPrimary,
-                    fontSize = 20.sp,
+            if (!isCompact) {
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "MusicApp",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = SpotifyColors.TextPrimary,
+                        fontSize = 19.sp,
+                    )
                 )
-            )
+            }
         }
 
         // Navigation Menu
         SidebarNavItem(
             label = "Моя медиатека",
-            icon = "📚",
+            iconName = "library",
+            isCompact = isCompact,
             isSelected = currentSection == NavSection.Library && openPlaylistId == null,
             onClick = { onSelectSection(NavSection.Library) }
         )
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(SpotifyColors.Divider))
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
 
         // Playlists Section Header
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                "ПЛЕЙЛИСТЫ",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    color = SpotifyColors.TextMuted,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
+        if (!isCompact) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "ПЛЕЙЛИСТЫ",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = SpotifyColors.TextMuted,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                        fontSize = 11.sp
+                    )
                 )
-            )
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(SpotifyColors.Card)
+                        .clickable { onCreatePlaylist() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    LucideIcon("plus", modifier = Modifier.size(16.dp), tint = SpotifyColors.TextSecondary)
+                }
+            }
+        } else {
             Box(
                 Modifier
-                    .size(24.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
-                    .clickable { onCreatePlaylist() },
+                    .background(SpotifyColors.Card)
+                    .clickable { onCreatePlaylist() }
+                    .align(Alignment.CenterHorizontally),
                 contentAlignment = Alignment.Center
             ) {
-                Text("+", color = SpotifyColors.TextSecondary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                LucideIcon("plus", modifier = Modifier.size(16.dp), tint = SpotifyColors.TextSecondary)
             }
         }
 
@@ -281,37 +758,40 @@ private fun SpotifySidebar(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(if (isSelected) SpotifyColors.SurfaceElevated else Color.Transparent)
                         .clickable { onSelectPlaylist(p.id) }
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = if (isCompact) 4.dp else 8.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
                 ) {
                     Box(
                         Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(6.dp))
                             .background(getGradientFor(p.name)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("♪", color = Color.White, fontSize = 12.sp)
+                        LucideIcon("play", modifier = Modifier.size(12.dp), tint = Color.White)
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            p.name,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = if (isSelected) SpotifyColors.Green else SpotifyColors.TextPrimary,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            "${p.trackIds.size} трек(ов)",
-                            style = MaterialTheme.typography.bodySmall.copy(color = SpotifyColors.TextMuted),
-                            fontSize = 11.sp
-                        )
+                    if (!isCompact) {
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                p.name,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = if (isSelected) SpotifyColors.Green else SpotifyColors.TextPrimary,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "${p.trackIds.size} трек(ов)",
+                                style = MaterialTheme.typography.bodySmall.copy(color = SpotifyColors.TextMuted),
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }
@@ -322,32 +802,53 @@ private fun SpotifySidebar(
 @Composable
 private fun SidebarNavItem(
     label: String,
-    icon: String,
+    iconName: String,
+    isCompact: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) SpotifyColors.SurfaceElevated else Color.Transparent)
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(icon, fontSize = 18.sp)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium.copy(
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                color = if (isSelected) SpotifyColors.TextPrimary else SpotifyColors.TextSecondary,
-                fontSize = 14.sp
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                when {
+                    isSelected -> SpotifyColors.SurfaceElevated
+                    isHovered -> SpotifyColors.CardHover
+                    else -> Color.Transparent
+                }
             )
+            .hoverable(interactionSource)
+            .clickable { onClick() }
+            .padding(horizontal = if (isCompact) 8.dp else 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
+    ) {
+        LucideIcon(
+            name = iconName,
+            tint = if (isSelected) SpotifyColors.Green else if (isHovered) SpotifyColors.TextPrimary else SpotifyColors.TextSecondary,
+            modifier = Modifier.size(20.dp)
         )
+        if (!isCompact) {
+            Spacer(Modifier.width(12.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) SpotifyColors.TextPrimary else if (isHovered) SpotifyColors.TextPrimary else SpotifyColors.TextSecondary,
+                    fontSize = 14.sp
+                )
+            )
+        }
     }
 }
 
+// ==========================================
+// Top Bar with Vertically-Centered Search (Bug 1 Fixed)
+// ==========================================
 @Composable
 private fun SpotifyTopBar(
     searchQuery: String,
@@ -361,41 +862,59 @@ private fun SpotifyTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Search Input in Spotify Style
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            placeholder = {
-                Text(
-                    "Что хочешь послушать?",
-                    color = SpotifyColors.TextMuted,
-                    fontSize = 13.sp
-                )
-            },
-            leadingIcon = { Text("🔍", fontSize = 14.sp) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    Text(
-                        "✕",
-                        color = SpotifyColors.TextSecondary,
-                        modifier = Modifier.clickable { onSearchQueryChange("") }.padding(4.dp)
+        // Search Input in Spotify Style - Custom BasicTextField for perfect line-height & vertical centering
+        Box(
+            Modifier
+                .width(360.dp)
+                .height(44.dp)
+                .clip(RoundedCornerShape(500.dp))
+                .background(SpotifyColors.SurfaceElevated)
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LucideIcon("search", modifier = Modifier.size(18.dp), tint = SpotifyColors.TextSecondary)
+                Spacer(Modifier.width(10.dp))
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (searchQuery.isEmpty()) {
+                        Text(
+                            "Что хочешь послушать?",
+                            color = SpotifyColors.TextMuted,
+                            fontSize = 13.5.sp,
+                            maxLines = 1
+                        )
+                    }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = SpotifyColors.TextPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Normal
+                        ),
+                        cursorBrush = SolidColor(SpotifyColors.Green),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(500.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = SpotifyColors.SurfaceElevated,
-                unfocusedContainerColor = SpotifyColors.SurfaceElevated,
-                focusedBorderColor = SpotifyColors.TextSecondary,
-                unfocusedBorderColor = Color.Transparent,
-                focusedTextColor = SpotifyColors.TextPrimary,
-                unfocusedTextColor = SpotifyColors.TextPrimary,
-            ),
-            modifier = Modifier.width(360.dp).height(48.dp)
-        )
+                if (searchQuery.isNotEmpty()) {
+                    Box(
+                        Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .clickable { onSearchQueryChange("") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("✕", color = SpotifyColors.TextSecondary, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
 
-        // Upload Button (Spotify Green Pill)
+        // Upload Button (Spotify Green Pill with upload icon)
         Button(
             onClick = onUploadSong,
             shape = RoundedCornerShape(500.dp),
@@ -403,18 +922,26 @@ private fun SpotifyTopBar(
                 containerColor = SpotifyColors.Green,
                 contentColor = SpotifyColors.Black
             ),
-            modifier = Modifier.height(44.dp)
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+            modifier = Modifier.height(42.dp)
         ) {
-            Text("＋ Загрузить трек", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            LucideIcon("upload", modifier = Modifier.size(16.dp), tint = SpotifyColors.Black)
+            Spacer(Modifier.width(8.dp))
+            Text("Загрузить трек", fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }
 
+// ==========================================
+// Library View
+// ==========================================
 @Composable
 private fun LibraryView(
     library: Library,
     player: PlayerController,
     searchQuery: String,
+    isCompact: Boolean,
+    onToast: (String) -> Unit,
 ) {
     var pendingDelete by remember { mutableStateOf<Track?>(null) }
     val visible = library.tracks.filter { t ->
@@ -424,10 +951,10 @@ private fun LibraryView(
     }
 
     Column(Modifier.fillMaxSize()) {
-        // Hero Banner
+        // Hero Header Banner
         HeroBanner(
             title = "Моя медиатека",
-            subtitle = "${library.tracks.size} трек(ов)",
+            subtitle = "${library.tracks.size} трек(ов) • Spotify Style",
             badge = "КОЛЛЕКЦИЯ",
             gradient = getGradientFor("Library"),
             canPlay = visible.any { it.source != null },
@@ -439,22 +966,41 @@ private fun LibraryView(
 
         Spacer(Modifier.height(20.dp))
 
-        // Tracks Table Header
-        TableHeader()
+        // Tracks Table Header (Bug 2 Fixed: proper fixed widths, clock icon for duration)
+        TableHeader(isCompact = isCompact)
 
-        // Track rows
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            itemsIndexed(visible, key = { _, track -> track.id }) { index, track ->
-                TrackRowItem(
-                    index = index + 1,
-                    track = track,
-                    isPlaying = player.current?.id == track.id && player.isPlaying,
-                    isCurrent = player.current?.id == track.id,
-                    playlists = library.playlists,
-                    onPlay = { player.play(track, visible) },
-                    onAddToPlaylist = { pId -> library.addToPlaylist(pId, track.id) },
-                    onDelete = { pendingDelete = track },
-                )
+        if (visible.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    LucideIcon("search", modifier = Modifier.size(48.dp), tint = SpotifyColors.TextMuted)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        if (searchQuery.isBlank()) "В медиатеке пока нет треков" else "По запросу «$searchQuery» ничего не найдено",
+                        color = SpotifyColors.TextSecondary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        } else {
+            // Track Rows with Hover & Action buttons
+            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                itemsIndexed(visible, key = { _, track -> track.id }) { index, track ->
+                    TrackRowItem(
+                        index = index + 1,
+                        track = track,
+                        isPlaying = player.current?.id == track.id && player.isPlaying,
+                        isCurrent = player.current?.id == track.id,
+                        isCompact = isCompact,
+                        playlists = library.playlists,
+                        onPlay = { player.play(track, visible) },
+                        onAddToPlaylist = { pId ->
+                            library.addToPlaylist(pId, track.id)
+                            onToast("Добавлено в плейлист")
+                        },
+                        onDelete = { pendingDelete = track },
+                    )
+                }
             }
         }
     }
@@ -466,18 +1012,24 @@ private fun LibraryView(
             onConfirm = {
                 player.onTrackRemoved(track.id)
                 library.removeTrack(track.id)
+                onToast("Трек «${track.title}» удален")
                 pendingDelete = null
             }
         )
     }
 }
 
+// ==========================================
+// Playlist Detail View
+// ==========================================
 @Composable
 private fun PlaylistDetailView(
     library: Library,
     player: PlayerController,
     playlistId: String?,
+    isCompact: Boolean,
     onBack: () -> Unit,
+    onToast: (String) -> Unit,
 ) {
     val playlist = library.playlists.find { it.id == playlistId }
     if (playlist == null) {
@@ -495,17 +1047,19 @@ private fun PlaylistDetailView(
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) {
-                Text("← Назад", color = SpotifyColors.TextSecondary, fontSize = 14.sp)
+                Text("← Назад к плейлистам", color = SpotifyColors.TextSecondary, fontSize = 13.sp)
             }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { pendingDeletePlaylist = true }) {
+                LucideIcon("trash", modifier = Modifier.size(16.dp), tint = SpotifyColors.Red)
+                Spacer(Modifier.width(6.dp))
                 Text("Удалить плейлист", color = SpotifyColors.Red, fontSize = 13.sp)
             }
         }
 
         HeroBanner(
             title = playlist.name,
-            subtitle = "${tracks.size} трек(ов)",
+            subtitle = "${tracks.size} трек(ов) в плейлисте",
             badge = "ПЛЕЙЛИСТ",
             gradient = getGradientFor(playlist.name),
             canPlay = tracks.any { it.source != null },
@@ -516,7 +1070,7 @@ private fun PlaylistDetailView(
         )
 
         Spacer(Modifier.height(20.dp))
-        TableHeader()
+        TableHeader(isCompact = isCompact)
 
         if (tracks.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -530,10 +1084,17 @@ private fun PlaylistDetailView(
                         track = track,
                         isPlaying = player.current?.id == track.id && player.isPlaying,
                         isCurrent = player.current?.id == track.id,
+                        isCompact = isCompact,
                         playlists = library.playlists,
                         onPlay = { player.play(track, tracks) },
-                        onAddToPlaylist = { pId -> library.addToPlaylist(pId, track.id) },
-                        onRemoveFromPlaylist = { library.removeFromPlaylist(playlist.id, track.id) }
+                        onAddToPlaylist = { pId ->
+                            library.addToPlaylist(pId, track.id)
+                            onToast("Добавлено в плейлист")
+                        },
+                        onRemoveFromPlaylist = {
+                            library.removeFromPlaylist(playlist.id, track.id)
+                            onToast("Удалено из плейлиста")
+                        }
                     )
                 }
             }
@@ -543,22 +1104,30 @@ private fun PlaylistDetailView(
     if (pendingDeletePlaylist) {
         AlertDialog(
             onDismissRequest = { pendingDeletePlaylist = false },
-            title = { Text("Удалить плейлист \"${playlist.name}\"?") },
-            text = { Text("Плейлист будет удален. Треки останутся в вашей медиатеке.") },
+            title = { Text("Удалить плейлист «${playlist.name}»?") },
+            text = { Text("Плейлист будет удален. Сами треки останутся в вашей медиатеке.") },
             confirmButton = {
-                TextButton(onClick = {
-                    library.deletePlaylist(playlist.id)
-                    pendingDeletePlaylist = false
-                    onBack()
-                }) { Text("Удалить", color = SpotifyColors.Red) }
+                Button(
+                    onClick = {
+                        library.deletePlaylist(playlist.id)
+                        pendingDeletePlaylist = false
+                        onToast("Плейлист удален")
+                        onBack()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SpotifyColors.Red)
+                ) { Text("Удалить", color = Color.White) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDeletePlaylist = false }) { Text("Отмена") }
-            }
+            },
+            containerColor = SpotifyColors.SurfaceElevated
         )
     }
 }
 
+// ==========================================
+// Hero Banner (56px circular play button with hover effect)
+// ==========================================
 @Composable
 private fun HeroBanner(
     title: String,
@@ -569,6 +1138,9 @@ private fun HeroBanner(
     isPlaying: Boolean,
     onPlayAll: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPlayHovered by interactionSource.collectIsHoveredAsState()
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -581,15 +1153,15 @@ private fun HeroBanner(
             .padding(20.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        // Big Square Cover
+        // Large Cover Art with soft shadow
         Box(
             Modifier
-                .size(130.dp)
+                .size(136.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(gradient),
             contentAlignment = Alignment.Center
         ) {
-            Text("♫", fontSize = 54.sp, color = Color.White.copy(alpha = 0.85f))
+            LucideIcon("library", modifier = Modifier.size(54.dp), tint = Color.White.copy(alpha = 0.85f))
         }
 
         Spacer(Modifier.width(20.dp))
@@ -600,7 +1172,7 @@ private fun HeroBanner(
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = SpotifyColors.TextSecondary,
-                    letterSpacing = 1.sp
+                    letterSpacing = 1.2.sp
                 )
             )
             Text(
@@ -618,52 +1190,82 @@ private fun HeroBanner(
                 subtitle,
                 style = MaterialTheme.typography.bodyMedium.copy(color = SpotifyColors.TextSecondary)
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
 
-            // Big Green Circular Play Button
+            // Big 56px Green Circular Play Button with scale hover
             Box(
                 Modifier
-                    .size(48.dp)
+                    .size(56.dp)
+                    .scale(if (isPlayHovered && canPlay) 1.05f else 1.0f)
                     .clip(CircleShape)
-                    .background(if (canPlay) SpotifyColors.Green else SpotifyColors.SurfaceHover)
+                    .background(if (canPlay) (if (isPlayHovered) SpotifyColors.GreenHover else SpotifyColors.Green) else SpotifyColors.Card)
+                    .hoverable(interactionSource)
                     .clickable(enabled = canPlay) { onPlayAll() },
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    if (isPlaying) "⏸" else "▶",
-                    fontSize = 20.sp,
-                    color = SpotifyColors.Black,
-                    fontWeight = FontWeight.Bold
+                LucideIcon(
+                    name = if (isPlaying) "pause" else "play",
+                    modifier = Modifier.size(24.dp),
+                    tint = if (canPlay) SpotifyColors.Black else SpotifyColors.TextMuted
                 )
             }
         }
     }
 }
 
+// ==========================================
+// Table Header (Bug 2 Fixed: No wrap, Clock icon)
+// ==========================================
 @Composable
-private fun TableHeader() {
+private fun TableHeader(isCompact: Boolean) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .border(width = 0.dp, color = Color.Transparent),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("#", color = SpotifyColors.TextMuted, fontSize = 12.sp, modifier = Modifier.width(36.dp))
-        Text("НАЗВАНИЕ", color = SpotifyColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text("ДЛИТЕЛЬНОСТЬ", color = SpotifyColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(90.dp))
-        Text("ДЕЙСТВИЯ", color = SpotifyColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(100.dp))
+        Text(
+            "#",
+            color = SpotifyColors.TextMuted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(36.dp)
+        )
+        Text(
+            "НАЗВАНИЕ",
+            color = SpotifyColors.TextMuted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f)
+        )
+        if (!isCompact) {
+            Box(Modifier.width(80.dp), contentAlignment = Alignment.CenterEnd) {
+                LucideIcon("clock", modifier = Modifier.size(15.dp), tint = SpotifyColors.TextMuted)
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        Text(
+            "ДЕЙСТВИЯ",
+            color = SpotifyColors.TextMuted,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(70.dp)
+        )
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(SpotifyColors.Divider))
     Spacer(Modifier.height(4.dp))
 }
 
+// ==========================================
+// Track Row Item with Equalizer & Hover Actions
+// ==========================================
 @Composable
 private fun TrackRowItem(
     index: Int,
     track: Track,
     isPlaying: Boolean,
     isCurrent: Boolean,
+    isCompact: Boolean,
     playlists: List<Playlist>,
     onPlay: () -> Unit,
     onAddToPlaylist: (String) -> Unit,
@@ -671,30 +1273,46 @@ private fun TrackRowItem(
     onDelete: (() -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    val rowInteraction = remember { MutableInteractionSource() }
+    val isRowHovered by rowInteraction.collectIsHoveredAsState()
 
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isCurrent) SpotifyColors.SurfaceElevated else Color.Transparent)
+            .background(
+                when {
+                    isCurrent -> SpotifyColors.SurfaceElevated
+                    isRowHovered -> SpotifyColors.CardHover
+                    else -> Color.Transparent
+                }
+            )
+            .hoverable(rowInteraction)
             .clickable { onPlay() }
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Track number or playing icon
-        Box(Modifier.width(36.dp)) {
-            if (isPlaying) {
-                Text("▶", color = SpotifyColors.Green, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            } else {
-                Text(
-                    index.toString(),
-                    color = if (isCurrent) SpotifyColors.Green else SpotifyColors.TextMuted,
-                    fontSize = 13.sp
-                )
+        // Track number / Animated Equalizer / Play button on hover
+        Box(Modifier.width(36.dp), contentAlignment = Alignment.CenterStart) {
+            when {
+                isPlaying -> {
+                    AnimatedEqualizer()
+                }
+                isRowHovered -> {
+                    LucideIcon("play", modifier = Modifier.size(14.dp), tint = SpotifyColors.TextPrimary)
+                }
+                else -> {
+                    Text(
+                        index.toString(),
+                        color = if (isCurrent) SpotifyColors.Green else SpotifyColors.TextMuted,
+                        fontSize = 13.sp,
+                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
             }
         }
 
-        // Thumbnail artwork
+        // Thumbnail Cover Art
         Box(
             Modifier
                 .size(40.dp)
@@ -702,7 +1320,7 @@ private fun TrackRowItem(
                 .background(getGradientFor(track.title)),
             contentAlignment = Alignment.Center
         ) {
-            Text("♪", color = Color.White, fontSize = 16.sp)
+            LucideIcon("play", modifier = Modifier.size(14.dp), tint = Color.White)
         }
 
         Spacer(Modifier.width(12.dp))
@@ -726,25 +1344,36 @@ private fun TrackRowItem(
             )
         }
 
-        // Duration
-        Text(
-            if (track.durationMs > 0) formatTime(track.durationMs) else "--:--",
-            color = SpotifyColors.TextSecondary,
-            fontSize = 13.sp,
-            modifier = Modifier.width(90.dp)
-        )
+        // Duration (Bug 7 fixed: graceful fallback)
+        if (!isCompact) {
+            Text(
+                if (track.durationMs > 0) formatTime(track.durationMs) else "--:--",
+                color = SpotifyColors.TextSecondary,
+                fontSize = 13.sp,
+                modifier = Modifier.width(80.dp),
+                maxLines = 1
+            )
+        }
 
-        // Actions
-        Row(Modifier.width(100.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.width(16.dp))
+
+        // Action Buttons (Reveal on row hover or keep visible for accessibility)
+        Row(
+            Modifier.width(70.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End
+        ) {
+            // Add to Playlist Button
             Box {
-                Text(
-                    "＋",
-                    color = SpotifyColors.TextSecondary,
-                    fontSize = 16.sp,
-                    modifier = Modifier
-                        .clickable { menuOpen = true }
-                        .padding(6.dp)
-                )
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable { menuOpen = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    LucideIcon("plus", modifier = Modifier.size(16.dp), tint = SpotifyColors.TextSecondary)
+                }
                 DropdownMenu(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
@@ -770,36 +1399,41 @@ private fun TrackRowItem(
             }
 
             if (onRemoveFromPlaylist != null) {
-                Text(
-                    "✕",
-                    color = SpotifyColors.TextMuted,
-                    fontSize = 14.sp,
-                    modifier = Modifier
-                        .clickable { onRemoveFromPlaylist() }
-                        .padding(6.dp)
-                )
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable { onRemoveFromPlaylist() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("✕", color = SpotifyColors.TextMuted, fontSize = 12.sp)
+                }
             }
 
             if (onDelete != null) {
-                Text(
-                    "🗑",
-                    color = SpotifyColors.TextMuted,
-                    fontSize = 14.sp,
-                    modifier = Modifier
-                        .clickable { onDelete() }
-                        .padding(6.dp)
-                )
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable { onDelete() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    LucideIcon("trash", modifier = Modifier.size(16.dp), tint = SpotifyColors.TextMuted)
+                }
             }
         }
     }
 }
 
+// ==========================================
+// Bottom Fixed Player Bar (Bugs 3, 5, 6 Fixed)
+// ==========================================
 @Composable
 private fun SpotifyNowPlayingBar(
     player: PlayerController,
-    library: Library,
+    isCompact: Boolean,
 ) {
-    // Keep playback tick active
+    // Keep playback ticking
     LaunchedEffect(Unit) {
         while (true) {
             player.tick()
@@ -811,6 +1445,7 @@ private fun SpotifyNowPlayingBar(
     var dragging by remember { mutableStateOf<Float?>(null) }
     val duration = player.durationMs.coerceAtLeast(1L)
     val fraction = dragging ?: (player.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    var isLiked by remember { mutableStateOf(false) }
 
     Surface(
         color = SpotifyColors.Card,
@@ -822,9 +1457,9 @@ private fun SpotifyNowPlayingBar(
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Left: Current Track Info (220.dp)
+            // Left: Track Info & Heart (240.dp)
             Row(
-                Modifier.width(220.dp),
+                Modifier.width(if (isCompact) 180.dp else 240.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (track != null) {
@@ -835,7 +1470,7 @@ private fun SpotifyNowPlayingBar(
                             .background(getGradientFor(track.title)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("♫", color = Color.White, fontSize = 22.sp)
+                        LucideIcon("play", modifier = Modifier.size(20.dp), tint = Color.White)
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -855,6 +1490,20 @@ private fun SpotifyNowPlayingBar(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable { isLiked = !isLiked },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LucideIcon(
+                            name = if (isLiked) "heart-filled" else "heart",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (isLiked) SpotifyColors.Green else SpotifyColors.TextSecondary
+                        )
+                    }
                 } else {
                     Box(
                         Modifier
@@ -863,7 +1512,7 @@ private fun SpotifyNowPlayingBar(
                             .background(SpotifyColors.SurfaceElevated),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("♪", color = SpotifyColors.TextMuted, fontSize = 20.sp)
+                        LucideIcon("library", modifier = Modifier.size(20.dp), tint = SpotifyColors.TextMuted)
                     }
                     Spacer(Modifier.width(12.dp))
                     Text(
@@ -873,7 +1522,7 @@ private fun SpotifyNowPlayingBar(
                 }
             }
 
-            // Center: Playback Controls & Timeline (Weight 1f)
+            // Center: Playback Controls & Progress Timeline (Weight 1f)
             Column(
                 Modifier
                     .weight(1f)
@@ -882,164 +1531,170 @@ private fun SpotifyNowPlayingBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // Controls Row
+                // Controls Row (SVG vector icons, no blue emojis)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     // Shuffle
-                    Text(
-                        "🔀",
-                        fontSize = 16.sp,
-                        color = if (player.shuffle) SpotifyColors.Green else SpotifyColors.TextMuted,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { player.shuffle = !player.shuffle }
-                            .padding(4.dp)
-                    )
-
-                    // Previous
-                    Text(
-                        "⏮",
-                        fontSize = 18.sp,
-                        color = SpotifyColors.TextPrimary,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { player.previous() }
-                            .padding(4.dp)
-                    )
-
-                    // Play / Pause Circular Button
                     Box(
                         Modifier
-                            .size(36.dp)
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .clickable { player.shuffle = !player.shuffle },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LucideIcon(
+                            "shuffle",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (player.shuffle) SpotifyColors.Green else SpotifyColors.TextSecondary
+                        )
+                    }
+
+                    // Previous
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable { player.previous() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LucideIcon("skip-back", modifier = Modifier.size(20.dp), tint = SpotifyColors.TextPrimary)
+                    }
+
+                    // 40px Circular White Play / Pause Button
+                    Box(
+                        Modifier
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(SpotifyColors.TextPrimary)
                             .clickable(enabled = track?.source != null) { player.toggle() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            if (player.isPlaying) "⏸" else "▶",
-                            color = SpotifyColors.Black,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
+                        LucideIcon(
+                            name = if (player.isPlaying) "pause" else "play",
+                            modifier = Modifier.size(18.dp),
+                            tint = SpotifyColors.Black
                         )
                     }
 
                     // Next
-                    Text(
-                        "⏭",
-                        fontSize = 18.sp,
-                        color = SpotifyColors.TextPrimary,
-                        modifier = Modifier
+                    Box(
+                        Modifier
+                            .size(32.dp)
                             .clip(CircleShape)
-                            .clickable { player.next() }
-                            .padding(4.dp)
-                    )
+                            .clickable { player.next() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LucideIcon("skip-forward", modifier = Modifier.size(20.dp), tint = SpotifyColors.TextPrimary)
+                    }
 
                     // Repeat
-                    Text(
-                        when (player.repeat) {
-                            RepeatMode.Off -> "🔁"
-                            RepeatMode.All -> "🔁"
-                            RepeatMode.One -> "🔂"
-                        },
-                        fontSize = 16.sp,
-                        color = if (player.repeat != RepeatMode.Off) SpotifyColors.Green else SpotifyColors.TextMuted,
-                        modifier = Modifier
+                    Box(
+                        Modifier
+                            .size(30.dp)
                             .clip(CircleShape)
-                            .clickable { player.cycleRepeat() }
-                            .padding(4.dp)
-                    )
+                            .clickable { player.cycleRepeat() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LucideIcon(
+                            name = if (player.repeat == RepeatMode.One) "repeat-one" else "repeat",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (player.repeat != RepeatMode.Off) SpotifyColors.Green else SpotifyColors.TextSecondary
+                        )
+                    }
                 }
 
-                // Progress Bar Row
+                // Progress Bar Row (Bug 5 Fixed: no stray handle, aligned labels on one baseline, thumb on hover)
                 Row(
-                    Modifier.fillMaxWidth(0.85f),
+                    Modifier.fillMaxWidth(if (isCompact) 0.95f else 0.8f),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         formatTime(player.positionMs),
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = SpotifyColors.TextMuted,
-                            fontSize = 11.sp
+                            fontSize = 11.5.sp
                         ),
                         modifier = Modifier.width(36.dp)
                     )
 
-                    Slider(
-                        value = fraction,
-                        onValueChange = { dragging = it },
-                        onValueChangeFinished = {
-                            dragging?.let { player.seekTo((it * duration).toLong()) }
-                            dragging = null
+                    Spacer(Modifier.width(8.dp))
+
+                    SpotifyScrubBar(
+                        fraction = fraction,
+                        onSeek = { newFrac ->
+                            player.seekTo((newFrac * duration).toLong())
                         },
-                        enabled = track?.source != null && player.durationMs > 0,
-                        colors = SliderDefaults.colors(
-                            thumbColor = SpotifyColors.TextPrimary,
-                            activeTrackColor = SpotifyColors.Green,
-                            inactiveTrackColor = SpotifyColors.SurfaceElevated,
-                        ),
-                        modifier = Modifier.weight(1f).height(18.dp)
+                        modifier = Modifier.weight(1f)
                     )
+
+                    Spacer(Modifier.width(8.dp))
 
                     Text(
                         formatTime(player.durationMs),
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = SpotifyColors.TextMuted,
-                            fontSize = 11.sp
+                            fontSize = 11.5.sp
                         ),
                         modifier = Modifier.width(36.dp)
                     )
                 }
             }
 
-            // Right: Volume Controls (200.dp)
-            Row(
-                Modifier.width(200.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
-                val vol = player.volume
-                val volIcon = when {
-                    vol == 0f -> "🔇"
-                    vol < 0.5f -> "🔉"
-                    else -> "🔊"
+            // Right: Volume Controls (Bug 6 Fixed: aligned thumb, thinner track, subtle text)
+            if (!isCompact) {
+                Row(
+                    Modifier.width(200.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    val vol = player.volume
+                    val volIcon = when {
+                        vol == 0f -> "volume-x"
+                        vol < 0.5f -> "volume-low"
+                        else -> "volume-high"
+                    }
+
+                    Box(
+                        Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable { player.toggleMute() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        LucideIcon(volIcon, modifier = Modifier.size(18.dp), tint = SpotifyColors.TextSecondary)
+                    }
+
+                    Spacer(Modifier.width(6.dp))
+
+                    SpotifyScrubBar(
+                        fraction = vol,
+                        onSeek = { player.updateVolume(it) },
+                        modifier = Modifier.width(96.dp),
+                        barHeight = 4.dp,
+                        thumbRadius = 5.dp
+                    )
+
+                    Spacer(Modifier.width(8.dp))
+
+                    Text(
+                        "${(vol * 100).toInt()}%",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = SpotifyColors.TextMuted,
+                            fontSize = 11.sp
+                        ),
+                        modifier = Modifier.width(32.dp)
+                    )
                 }
-
-                Text(
-                    volIcon,
-                    fontSize = 16.sp,
-                    modifier = Modifier
-                        .clickable { player.toggleMute() }
-                        .padding(4.dp)
-                )
-
-                Slider(
-                    value = vol,
-                    onValueChange = { player.updateVolume(it) },
-                    colors = SliderDefaults.colors(
-                        thumbColor = SpotifyColors.TextPrimary,
-                        activeTrackColor = SpotifyColors.Green,
-                        inactiveTrackColor = SpotifyColors.SurfaceElevated,
-                    ),
-                    modifier = Modifier.width(100.dp).height(18.dp)
-                )
-
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "${(vol * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        color = SpotifyColors.TextMuted,
-                        fontSize = 11.sp
-                    ),
-                    modifier = Modifier.width(32.dp)
-                )
             }
         }
     }
 }
 
+// ==========================================
+// Dialogs
+// ==========================================
 @Composable
 private fun CreatePlaylistDialog(
     onDismiss: () -> Unit,
@@ -1049,7 +1704,7 @@ private fun CreatePlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Новый плейлист", color = SpotifyColors.TextPrimary) },
+        title = { Text("Новый плейлист", color = SpotifyColors.TextPrimary, fontWeight = FontWeight.Bold) },
         text = {
             OutlinedTextField(
                 value = name,
@@ -1084,7 +1739,7 @@ private fun DeleteTrackDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Удалить трек \"${track.title}\"?") },
+        title = { Text("Удалить трек «${track.title}»?", fontWeight = FontWeight.Bold) },
         text = {
             Text(
                 if (track.source != null) {

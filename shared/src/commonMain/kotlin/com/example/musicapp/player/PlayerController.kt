@@ -94,7 +94,12 @@ class PlayerController {
         if (current == null) return
         positionMs = engine.positionMs()
         val d = engine.durationMs()
-        if (d > 0) durationMs = d
+        if (d > 0) {
+            durationMs = d
+            if (current?.durationMs == 0L) {
+                current = current?.copy(durationMs = d)
+            }
+        }
     }
 
     /** Call when a track is deleted: stops it if it's playing and drops it from the queue. */
