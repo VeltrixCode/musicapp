@@ -115,10 +115,11 @@ internal fun LibraryView(
         }
     }
 
-    val baseList = when (selectedFilter) {
-        "Скачанные" -> library.getOfflineDownloadedTracks()
-        "Облачные" -> library.getCloudTracks()
-        else -> library.tracks
+    val isOnline = com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled
+    val baseList = when {
+        isOnline && selectedFilter == "Скачанные" -> library.getOfflineDownloadedTracks()
+        isOnline && selectedFilter == "Облачные" -> library.getCloudTracks()
+        else -> library.visibleTracks
     }
 
     val filtered = baseList.filter { t ->
@@ -177,20 +178,22 @@ internal fun LibraryView(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Все", "Скачанные", "Облачные").forEach { filter ->
-                                val isSel = selectedFilter == filter
-                                FilterChip(
-                                    selected = isSel,
-                                    onClick = { selectedFilter = filter },
-                                    label = { Text(filter, fontSize = 12.sp) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = AppColors.Accent,
-                                        selectedLabelColor = Color.Black,
-                                        containerColor = AppColors.SurfaceElevated,
-                                        labelColor = AppColors.TextPrimary
+                        if (isOnline) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("Все", "Скачанные", "Облачные").forEach { filter ->
+                                    val isSel = selectedFilter == filter
+                                    FilterChip(
+                                        selected = isSel,
+                                        onClick = { selectedFilter = filter },
+                                        label = { Text(filter, fontSize = 12.sp) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = AppColors.Accent,
+                                            selectedLabelColor = Color.Black,
+                                            containerColor = AppColors.SurfaceElevated,
+                                            labelColor = AppColors.TextPrimary
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
 
@@ -264,7 +267,8 @@ internal fun LibraryView(
                                         )
                                         Spacer(Modifier.height(6.dp))
                                         Text(
-                                            "Добавьте локальные музыкальные файлы или подключите облачные источники",
+                                            if (isOnline) "Добавьте локальные музыкальные файлы или подключите облачные источники"
+                                            else "Добавьте локальные музыкальные файлы или импортируйте папку с музыкой",
                                             style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
                                             textAlign = TextAlign.Center
                                         )
@@ -295,7 +299,7 @@ internal fun LibraryView(
                                                     Text("Импорт папки", color = AppColors.TextPrimary, fontSize = 12.sp)
                                                 }
                                             }
-                                            if (onNavigate != null) {
+                                            if (isOnline && onNavigate != null) {
                                                 Button(
                                                     onClick = { onNavigate(AppScreen.CloudSources) },
                                                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent),
@@ -368,8 +372,8 @@ internal fun AlbumsGroupView(
     onNavigateToAlbum: (String) -> Unit,
     onBack: () -> Unit,
 ) {
-    val albumsMap = remember(library.tracks.size) {
-        library.tracks
+    val albumsMap = remember(library.visibleTracks.size) {
+        library.visibleTracks
             .filter { it.album.isNotBlank() && it.album != "Неизвестный альбом" }
             .groupBy { it.album }
             .toList()
@@ -457,8 +461,8 @@ internal fun ArtistsGroupView(
     onNavigateToArtist: (String) -> Unit,
     onBack: () -> Unit,
 ) {
-    val artistsMap = remember(library.tracks.size) {
-        library.tracks
+    val artistsMap = remember(library.visibleTracks.size) {
+        library.visibleTracks
             .filter { it.artist.isNotBlank() && it.artist != "Неизвестный исполнитель" }
             .groupBy { it.artist }
             .toList()

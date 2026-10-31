@@ -348,7 +348,7 @@ internal fun TrackRowItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (track.isOfflineAvailable || track.cachedFilePath != null) {
+                    if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled && (track.isOfflineAvailable || track.cachedFilePath != null)) {
                         Icon(
                             imageVector = Icons.Rounded.CheckCircle,
                             contentDescription = "Офлайн",
@@ -357,7 +357,7 @@ internal fun TrackRowItem(
                         )
                         Spacer(Modifier.width(4.dp))
                     }
-                    if (track.isCloud) {
+                    if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled && track.isCloud) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(3.dp))

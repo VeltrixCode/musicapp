@@ -170,42 +170,43 @@ internal fun AppTopBar(
 
         Spacer(Modifier.width(spacing.md))
 
-        // Right Action Buttons: Cloud Sources, Import file, Import folder
+        // Right Action Buttons: Cloud Sources (if enabled), Import file, Import folder
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Surface(
-                onClick = onOpenSources,
-                shape = CircleShape,
-                color = AppColors.SurfaceElevated,
-                modifier = Modifier.height(36.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = if (isCompact) 8.dp else 12.dp, vertical = 6.dp)
+            if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+                Surface(
+                    onClick = onOpenSources,
+                    shape = CircleShape,
+                    color = AppColors.SurfaceElevated,
+                    modifier = Modifier.height(36.dp)
                 ) {
-                    val (statusIcon, statusText, statusColor) = when {
-                        isSyncing -> Triple(Icons.Rounded.Sync, "Синхронизация", Color(0xFFFFA000))
-                        isOffline -> Triple(Icons.Rounded.CloudOff, "Офлайн", AppColors.TextMuted)
-                        else -> Triple(Icons.Rounded.CloudDone, "Онлайн", AppColors.Accent)
-                    }
-                    Icon(
-                        imageVector = statusIcon,
-                        contentDescription = "Источники: $statusText",
-                        tint = statusColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    if (!isCompact) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = statusText,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = statusColor
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = if (isCompact) 8.dp else 12.dp, vertical = 6.dp)
+                    ) {
+                        val (statusIcon, statusText, statusColor) = when {
+                            isSyncing -> Triple(Icons.Rounded.Sync, "Синхронизация", Color(0xFFFFA000))
+                            isOffline -> Triple(Icons.Rounded.CloudOff, "Офлайн", AppColors.TextMuted)
+                            else -> Triple(Icons.Rounded.CloudDone, "Онлайн", AppColors.Accent)
+                        }
+                        Icon(
+                            imageVector = statusIcon,
+                            contentDescription = "Источники: $statusText",
+                            tint = statusColor,
+                            modifier = Modifier.size(18.dp)
                         )
+                        if (!isCompact) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = statusText,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = statusColor
+                            )
+                        }
                     }
                 }
+                Spacer(Modifier.width(spacing.xs))
             }
-
-            Spacer(Modifier.width(spacing.xs))
 
             Button(
                 onClick = onUploadSong,

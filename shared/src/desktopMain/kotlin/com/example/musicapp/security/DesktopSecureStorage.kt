@@ -45,6 +45,8 @@ actual object SecureStorage {
     private var isLoaded = false
     private val lock = Any()
 
+    val accessCount = java.util.concurrent.atomic.AtomicInteger(0)
+
     /**
      * Encrypts plaintext bytes. On Windows, uses CryptProtectData with optional entropy.
      * On macOS/Linux, uses AES-256-GCM.
@@ -117,6 +119,7 @@ actual object SecureStorage {
     }
 
     actual fun saveSecret(key: String, value: String) {
+        accessCount.incrementAndGet()
         loadVault()
         synchronized(lock) {
             cachedProperties.setProperty(key, value)
@@ -125,6 +128,7 @@ actual object SecureStorage {
     }
 
     actual fun getSecret(key: String): String? {
+        accessCount.incrementAndGet()
         loadVault()
         synchronized(lock) {
             return cachedProperties.getProperty(key)
@@ -132,6 +136,7 @@ actual object SecureStorage {
     }
 
     actual fun removeSecret(key: String) {
+        accessCount.incrementAndGet()
         loadVault()
         synchronized(lock) {
             if (cachedProperties.containsKey(key)) {

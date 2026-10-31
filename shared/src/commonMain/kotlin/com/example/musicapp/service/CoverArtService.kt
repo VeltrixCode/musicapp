@@ -58,7 +58,10 @@ object CoverArtService {
 
     // Single source of truth for online covers / offline mode
     var settingsRepository: SettingsRepository = SettingsRepository()
-    var subsonicProvider: com.example.musicapp.provider.SubsonicProvider = com.example.musicapp.provider.SubsonicProvider()
+    private var _subsonicProvider: com.example.musicapp.provider.SubsonicProvider? = null
+    var subsonicProvider: com.example.musicapp.provider.SubsonicProvider
+        get() = _subsonicProvider ?: com.example.musicapp.provider.SubsonicProvider().also { _subsonicProvider = it }
+        set(value) { _subsonicProvider = value }
 
     // Rate limiter mutexes: ensures at least 350ms between iTunes calls, 1000ms between MusicBrainz calls
     private val itunesRateLimiterMutex = Mutex()
@@ -135,8 +138,9 @@ object CoverArtService {
 
     suspend fun loadArtworkByUrl(
         url: String,
-        client: HttpClient = appHttpClient
+        client: HttpClient? = null
     ): ImageBitmap? = withContext(Dispatchers.IO) {
+        if (!com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled && client == null) return@withContext null
         val settings = settingsRepository.load()
         if (settings.offlineMode || !settings.fetchOnlineCovers) return@withContext null
         if (url.isBlank()) return@withContext null
@@ -160,10 +164,11 @@ object CoverArtService {
             }
         }
 
+        val effectiveClient = client ?: appHttpClient
         // 3. Network fetch with 10s timeout, content-type check, size limit, no Authorization header
         withTimeoutOrNull(10000L) {
             runCatching {
-                val response = client.get(url) {
+                val response = effectiveClient.get(url) {
                     header(HttpHeaders.UserAgent, USER_AGENT)
                     headers.remove(HttpHeaders.Authorization)
                 }
@@ -200,13 +205,20 @@ object CoverArtService {
 
     suspend fun loadArtworkForTrack(
         track: Track,
-        client: HttpClient = appHttpClient
+        client: HttpClient? = null
     ): ImageBitmap? = withContext(Dispatchers.IO) {
         // 1. Try local embedded file tags
         val src = track.source
         if (src != null && track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) {
             val localBmp = loadArtwork(src)
             if (localBmp != null) return@withContext localBmp
+        }
+
+        if (!com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled && client == null) {
+            if (src != null) {
+                return@withContext loadArtwork(src)
+            }
+            return@withContext null
         }
 
         // Subsonic provider-level cover loading (supports HTTP on LAN, size limit, non-leaking cache keys)
@@ -249,8 +261,9 @@ object CoverArtService {
     suspend fun getOrFetchOnlineCover(
         artist: String,
         title: String,
-        client: HttpClient = appHttpClient
+        client: HttpClient? = null
     ): ImageBitmap? = withContext(Dispatchers.IO) {
+        if (!com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled && client == null) return@withContext null
         val settings = settingsRepository.load()
         if (settings.offlineMode || !settings.fetchOnlineCovers) return@withContext null
 
@@ -277,14 +290,15 @@ object CoverArtService {
             return@withContext null
         }
 
+        val effectiveClient = client ?: appHttpClient
         // 1. Attempt lookup via iTunes Search API with rate limiting
-        val itunesBitmap = fetchFromITunes(artist, title, diskKey, normalizedKey, client)
+        val itunesBitmap = fetchFromITunes(artist, title, diskKey, normalizedKey, effectiveClient)
         if (itunesBitmap != null) {
             return@withContext itunesBitmap
         }
 
         // 2. Fallback lookup via Cover Art Archive / MusicBrainz
-        val archiveBitmap = fetchFromCoverArtArchive(artist, title, diskKey, normalizedKey, client)
+        val archiveBitmap = fetchFromCoverArtArchive(artist, title, diskKey, normalizedKey, effectiveClient)
         if (archiveBitmap != null) {
             return@withContext archiveBitmap
         }

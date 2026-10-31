@@ -298,14 +298,16 @@ private fun NowPlayingDetailPane(
                         Text("Длительность", color = AppColors.TextMuted, fontSize = 12.sp)
                         Text(formatTrackDuration(track, player), color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Источник", color = AppColors.TextMuted, fontSize = 12.sp)
-                        Text(
-                            if (track.isCloud) track.sourceProvider.name else "Локальный файл",
-                            color = AppColors.Accent,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Источник", color = AppColors.TextMuted, fontSize = 12.sp)
+                            Text(
+                                if (track.isCloud) track.sourceProvider.name else "Локальный файл",
+                                color = AppColors.Accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }

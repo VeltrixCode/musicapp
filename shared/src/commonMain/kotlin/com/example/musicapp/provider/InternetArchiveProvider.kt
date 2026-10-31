@@ -26,9 +26,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class InternetArchiveProvider(
-    private val client: HttpClient = appHttpClient,
+    customClient: HttpClient? = null,
     private val settingsRepo: SettingsRepository = SettingsRepository(),
 ) : MusicProvider {
+    private val client: HttpClient by lazy { customClient ?: appHttpClient }
 
     override val id: String = "internet_archive"
     override val displayName: String = "Internet Archive"

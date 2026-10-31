@@ -519,13 +519,13 @@ internal fun SmartMixDetailView(
     onBack: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
-    val tracks = remember(title, library.tracks.size) {
+    val tracks = remember(title, library.visibleTracks.size) {
         when (title) {
             "Микс дня" -> library.getMixOfTheDay()
             "Недавно добавленное", "Свежее в медиатеке" -> library.getRecentlyAdded(50)
             "Часто слушаемое" -> library.getFrequentlyPlayed(50)
             "Новое в облаке" -> library.getCloudTracks()
-            else -> library.tracks.filter { it.album.equals(title, ignoreCase = true) || it.artist.equals(title, ignoreCase = true) }.ifEmpty { library.tracks.toList() }
+            else -> library.visibleTracks.filter { it.album.equals(title, ignoreCase = true) || it.artist.equals(title, ignoreCase = true) }.ifEmpty { library.visibleTracks.toList() }
         }
     }
 

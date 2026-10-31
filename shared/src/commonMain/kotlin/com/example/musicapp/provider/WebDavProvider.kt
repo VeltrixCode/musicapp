@@ -19,9 +19,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class WebDavProvider(
-    private val client: HttpClient = appHttpClient,
+    customClient: HttpClient? = null,
     private val settingsRepo: SettingsRepository = SettingsRepository(),
 ) : MusicProvider {
+    private val client: HttpClient by lazy { customClient ?: appHttpClient }
 
     override val id: String = "webdav"
     override val displayName: String = "WebDAV / Nextcloud"

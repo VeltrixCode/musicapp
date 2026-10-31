@@ -26,15 +26,19 @@ object AppConfig {
     const val TOKEN_GDRIVE_REFRESH = "token_gdrive_refresh"
     const val TOKEN_YANDEX_ACCESS = "token_yandex_access"
 
-    private fun readJamendoClientId(): String =
-        SecureStorage.getSecret(KEY_JAMENDO_CLIENT_ID)
+    private fun readJamendoClientId(): String {
+        if (!AppFeatures.isOnlineSourcesEnabled) return ""
+        return SecureStorage.getSecret(KEY_JAMENDO_CLIENT_ID)
             ?: getEnv("JAMENDO_CLIENT_ID")
             ?: ""
+    }
 
-    private fun readAudiusAppName(): String =
-        SecureStorage.getSecret(KEY_AUDIUS_APP_NAME)
+    private fun readAudiusAppName(): String {
+        if (!AppFeatures.isOnlineSourcesEnabled) return "JVXMusic"
+        return SecureStorage.getSecret(KEY_AUDIUS_APP_NAME)
             ?: getEnv("AUDIUS_APP_NAME")
             ?: "JVXMusic"
+    }
 
     private val _jamendoClientIdFlow = MutableStateFlow(readJamendoClientId())
     val jamendoClientIdFlow: StateFlow<String> = _jamendoClientIdFlow.asStateFlow()
@@ -59,52 +63,52 @@ object AppConfig {
         }
 
     var googleClientId: String
-        get() = SecureStorage.getSecret(KEY_GOOGLE_CLIENT_ID)
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_GOOGLE_CLIENT_ID)
             ?: getEnv("GOOGLE_CLIENT_ID")
             ?: ""
         set(value) = SecureStorage.saveSecret(KEY_GOOGLE_CLIENT_ID, value.trim())
 
     var googleClientSecret: String
-        get() = SecureStorage.getSecret(KEY_GOOGLE_CLIENT_SECRET)
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_GOOGLE_CLIENT_SECRET)
             ?: getEnv("GOOGLE_CLIENT_SECRET")
             ?: ""
         set(value) = SecureStorage.saveSecret(KEY_GOOGLE_CLIENT_SECRET, value.trim())
 
     var yandexClientId: String
-        get() = SecureStorage.getSecret(KEY_YANDEX_CLIENT_ID)
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_YANDEX_CLIENT_ID)
             ?: getEnv("YANDEX_CLIENT_ID")
             ?: ""
         set(value) = SecureStorage.saveSecret(KEY_YANDEX_CLIENT_ID, value.trim())
 
     var subsonicServer: String
-        get() = SecureStorage.getSecret(KEY_SUBSONIC_SERVER) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_SUBSONIC_SERVER) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_SUBSONIC_SERVER, value.trim())
 
     var subsonicUser: String
-        get() = SecureStorage.getSecret(KEY_SUBSONIC_USER) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_SUBSONIC_USER) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_SUBSONIC_USER, value.trim())
 
     var subsonicPassword: String
-        get() = SecureStorage.getSecret(KEY_SUBSONIC_PASSWORD) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_SUBSONIC_PASSWORD) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_SUBSONIC_PASSWORD, value)
 
     var webdavServer: String
-        get() = SecureStorage.getSecret(KEY_WEBDAV_SERVER) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_WEBDAV_SERVER) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_WEBDAV_SERVER, value.trim())
 
     var webdavUser: String
-        get() = SecureStorage.getSecret(KEY_WEBDAV_USER) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_WEBDAV_USER) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_WEBDAV_USER, value.trim())
 
     var webdavPassword: String
-        get() = SecureStorage.getSecret(KEY_WEBDAV_PASSWORD) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_WEBDAV_PASSWORD) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_WEBDAV_PASSWORD, value)
 
     var webdavRootPath: String
-        get() = SecureStorage.getSecret(KEY_WEBDAV_ROOT_PATH) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_WEBDAV_ROOT_PATH) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_WEBDAV_ROOT_PATH, value.trim())
 
     var acoustIdApiKey: String
-        get() = SecureStorage.getSecret(KEY_ACOUSTID_KEY) ?: ""
+        get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_ACOUSTID_KEY) ?: ""
         set(value) = SecureStorage.saveSecret(KEY_ACOUSTID_KEY, value.trim())
 }

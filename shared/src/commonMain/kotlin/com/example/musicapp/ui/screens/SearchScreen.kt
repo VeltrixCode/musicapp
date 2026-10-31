@@ -90,9 +90,13 @@ fun SearchScreen(
     // Live search with debounce from the top bar query
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
-        if (q.isBlank()) {
+        if (q.isBlank() || !com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
             cloudResults = emptyMap()
             isSearching = false
+            if (q.isNotBlank() && !searchHistory.contains(q)) {
+                searchHistory.add(0, q)
+                if (searchHistory.size > 10) searchHistory.removeAt(searchHistory.lastIndex)
+            }
             return@LaunchedEffect
         }
         delay(300)
@@ -107,9 +111,9 @@ fun SearchScreen(
         }
     }
 
-    val localMatches = remember(searchQuery, library.tracks.size) {
+    val localMatches = remember(searchQuery, library.visibleTracks.size) {
         val q = searchQuery.trim().lowercase()
-        if (q.isBlank()) emptyList() else library.tracks.filter {
+        if (q.isBlank()) emptyList() else library.visibleTracks.filter {
             it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) || it.album.lowercase().contains(q)
         }
     }
@@ -251,7 +255,7 @@ fun SearchScreen(
                     SearchResultRow(
                         track = track,
                         durationText = formatTrackDuration(track, player),
-                        badge = "Локально",
+                        badge = if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) "Локально" else null,
                         badgeColor = AppColors.Accent,
                         onClick = { onTrackClick(track) }
                     )
@@ -380,8 +384,8 @@ private fun GenreCard(
 private fun SearchResultRow(
     track: Track,
     durationText: String,
-    badge: String,
-    badgeColor: Color,
+    badge: String? = null,
+    badgeColor: Color = AppColors.Accent,
     license: String? = null,
     onClick: () -> Unit,
 ) {
@@ -446,13 +450,15 @@ private fun SearchResultRow(
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(badgeColor.copy(alpha = 0.2f))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            ) {
-                Text(badge, color = badgeColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            if (badge != null) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(badgeColor.copy(alpha = 0.2f))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(badge, color = badgeColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }

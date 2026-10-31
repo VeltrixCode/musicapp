@@ -119,11 +119,17 @@ fun HomeScreen(
     var isLoadingJamendo by remember { mutableStateOf(hasJamendoKey) }
     var isLoadingAudius by remember { mutableStateOf(true) }
 
-    LaunchedEffect(hasJamendoKey) {
+    val isOnline = com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled
+    LaunchedEffect(hasJamendoKey, isOnline) {
+        if (!isOnline) {
+            isLoadingJamendo = false
+            isLoadingAudius = false
+            return@LaunchedEffect
+        }
         if (hasJamendoKey) {
             launch {
                 try {
-                    jamendoPopular = player.providerRegistry.jamendo.listTracks().items
+                    jamendoPopular = player.providerRegistry.jamendo?.listTracks()?.items ?: emptyList()
                 } catch (_: Throwable) {
                 } finally {
                     isLoadingJamendo = false
@@ -134,7 +140,7 @@ fun HomeScreen(
         }
         launch {
             try {
-                audiusTrending = player.providerRegistry.audius.listTracks().items
+                audiusTrending = player.providerRegistry.audius?.listTracks()?.items ?: emptyList()
             } catch (_: Throwable) {
             } finally {
                 isLoadingAudius = false
@@ -180,7 +186,8 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Ваша медиатека пока пуста. Начните с добавления локальных файлов или подключите облако для потокового воспроизведения.",
+                        if (isOnline) "Ваша медиатека пока пуста. Начните с добавления локальных файлов или подключите облако для потокового воспроизведения."
+                        else "Ваша медиатека пока пуста. Начните с добавления локальных музыкальных файлов или выберите папку с музыкой на вашем компьютере.",
                         style = MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.85f))
                     )
                     Spacer(Modifier.height(16.dp))
@@ -208,12 +215,14 @@ fun HomeScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("Импорт папки", color = Color.White, fontWeight = FontWeight.Bold)
                         }
-                        TextButton(
-                            onClick = onNavigateCloud
-                        ) {
-                            Icon(Icons.Rounded.CloudQueue, contentDescription = null, tint = AppColors.Accent)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Подключить облако", color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                        if (isOnline) {
+                            TextButton(
+                                onClick = onNavigateCloud
+                            ) {
+                                Icon(Icons.Rounded.CloudQueue, contentDescription = null, tint = AppColors.Accent)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Подключить облако", color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -238,9 +247,11 @@ fun HomeScreen(
             add(QuickCardData("Микс дня", Icons.Rounded.Shuffle, Color(0xFF1E3264), mixOfDay))
             add(QuickCardData("Свежее в медиатеке", Icons.Rounded.Explore, Color(0xFF148A3C), recentlyAdded))
             add(QuickCardData("Часто слушаемое", Icons.Rounded.PlayArrow, Color(0xFF8D67AB), frequentlyPlayed))
-            add(QuickCardData("Новое в облаке", Icons.Rounded.CloudQueue, Color(0xFFE91429), cloudTracks))
-            if (hasJamendoKey && jamendoPopular.isNotEmpty()) {
-                add(QuickCardData("Jamendo Тренды", Icons.Rounded.CloudDone, Color(0xFFBA5D07), jamendoPopular.map { it.toTrack() }))
+            if (isOnline) {
+                add(QuickCardData("Новое в облаке", Icons.Rounded.CloudQueue, Color(0xFFE91429), cloudTracks))
+                if (hasJamendoKey && jamendoPopular.isNotEmpty()) {
+                    add(QuickCardData("Jamendo Тренды", Icons.Rounded.CloudDone, Color(0xFFBA5D07), jamendoPopular.map { it.toTrack() }))
+                }
             }
         }
 
@@ -309,47 +320,49 @@ fun HomeScreen(
             Spacer(Modifier.height(28.dp))
         }
 
-        // Shelf 3: "Новое в облаке"
-        if (cloudTracks.isNotEmpty()) {
-            ContentShelf(
-                title = "Синхронизировано из облака",
-                tracks = cloudTracks,
-                player = player,
-                onTrackClick = { t -> player.play(t, cloudTracks) }
-            )
-            Spacer(Modifier.height(28.dp))
-        }
-
-        // Shelf 4: "Популярное в Jamendo (Creative Commons)" - shown only when client key is configured
-        if (hasJamendoKey) {
-            if (isLoadingJamendo) {
-                ShelfSkeleton(title = "Популярное в Jamendo (Лицензия CC)")
-                Spacer(Modifier.height(28.dp))
-            } else if (jamendoPopular.isNotEmpty()) {
-                val converted = jamendoPopular.map { it.toTrack() }
+        if (isOnline) {
+            // Shelf 3: "Новое в облаке"
+            if (cloudTracks.isNotEmpty()) {
                 ContentShelf(
-                    title = "Популярное в Jamendo (Лицензия CC)",
-                    tracks = converted,
+                    title = "Синхронизировано из облака",
+                    tracks = cloudTracks,
                     player = player,
-                    badge = "JAMENDO",
-                    onTrackClick = { t -> player.play(t, converted) }
+                    onTrackClick = { t -> player.play(t, cloudTracks) }
                 )
                 Spacer(Modifier.height(28.dp))
             }
-        }
 
-        // Shelf 5: "Тренды Audius"
-        if (isLoadingAudius) {
-            ShelfSkeleton(title = "Открытая музыка Audius")
-        } else if (audiusTrending.isNotEmpty()) {
-            val converted = audiusTrending.map { it.toTrack() }
-            ContentShelf(
-                title = "Открытая музыка Audius",
-                tracks = converted,
-                player = player,
-                badge = "AUDIUS",
-                onTrackClick = { t -> player.play(t, converted) }
-            )
+            // Shelf 4: "Популярное в Jamendo (Creative Commons)" - shown only when client key is configured
+            if (hasJamendoKey) {
+                if (isLoadingJamendo) {
+                    ShelfSkeleton(title = "Популярное в Jamendo (Лицензия CC)")
+                    Spacer(Modifier.height(28.dp))
+                } else if (jamendoPopular.isNotEmpty()) {
+                    val converted = jamendoPopular.map { it.toTrack() }
+                    ContentShelf(
+                        title = "Популярное в Jamendo (Лицензия CC)",
+                        tracks = converted,
+                        player = player,
+                        badge = "JAMENDO",
+                        onTrackClick = { t -> player.play(t, converted) }
+                    )
+                    Spacer(Modifier.height(28.dp))
+                }
+            }
+
+            // Shelf 5: "Тренды Audius"
+            if (isLoadingAudius) {
+                ShelfSkeleton(title = "Открытая музыка Audius")
+            } else if (audiusTrending.isNotEmpty()) {
+                val converted = audiusTrending.map { it.toTrack() }
+                ContentShelf(
+                    title = "Открытая музыка Audius",
+                    tracks = converted,
+                    player = player,
+                    badge = "AUDIUS",
+                    onTrackClick = { t -> player.play(t, converted) }
+                )
+            }
         }
     }
 }

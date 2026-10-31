@@ -302,31 +302,54 @@ class Library {
         }
     }
 
+    val visibleTracks: List<Track>
+        get() = if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+            tracks.toList()
+        } else {
+            tracks.filter { it.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL }
+        }
+
+    val visiblePlaylists: List<Playlist>
+        get() = if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+            playlists.toList()
+        } else {
+            val visibleIds = visibleTracks.map { it.id }.toSet()
+            playlists.filter { pl ->
+                pl.isSystem || pl.trackIds.isEmpty() || pl.trackIds.any { it in visibleIds }
+            }
+        }
+
     fun tracksIn(playlist: Playlist): List<Track> =
         playlist.trackIds.mapNotNull { id -> tracks.find { it.id == id } }
+            .let { list ->
+                if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) list
+                else list.filter { it.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL }
+            }
 
     fun getMixOfTheDay(): List<Track> {
-        if (tracks.isEmpty()) return emptyList()
+        val base = visibleTracks
+        if (base.isEmpty()) return emptyList()
         val daySeed = currentTimeMillis() / (1000L * 60 * 60 * 24)
         val rnd = kotlin.random.Random(daySeed)
-        return tracks.shuffled(rnd).take(15)
+        return base.shuffled(rnd).take(15)
     }
 
     fun getRecentlyAdded(limit: Int = 20): List<Track> =
-        tracks.sortedByDescending { it.addedAt }.take(limit)
+        visibleTracks.sortedByDescending { it.addedAt }.take(limit)
 
     fun getFrequentlyPlayed(limit: Int = 20): List<Track> =
-        tracks.sortedByDescending { it.playCount }.take(limit)
+        visibleTracks.sortedByDescending { it.playCount }.take(limit)
 
     fun getCloudTracks(): List<Track> =
-        tracks.filter { it.isCloud }
+        if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) tracks.filter { it.isCloud } else emptyList()
 
     fun getOfflineDownloadedTracks(): List<Track> =
-        tracks.filter { it.isOfflineAvailable || !it.isCloud }
+        if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) tracks.filter { it.isOfflineAvailable || !it.isCloud } else visibleTracks
 
     fun getTrackRadio(track: Track): List<Track> {
-        val sameArtist = tracks.filter { it.artist.equals(track.artist, ignoreCase = true) && it.id != track.id }
-        val remaining = tracks.filter { it.id != track.id && it !in sameArtist }.shuffled()
+        val base = visibleTracks
+        val sameArtist = base.filter { it.artist.equals(track.artist, ignoreCase = true) && it.id != track.id }
+        val remaining = base.filter { it.id != track.id && it !in sameArtist }.shuffled()
         return listOf(track) + sameArtist + remaining.take(15)
     }
 

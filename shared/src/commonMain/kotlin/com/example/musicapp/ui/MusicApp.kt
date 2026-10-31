@@ -563,13 +563,24 @@ fun MusicApp(
                                                 )
                                             }
                                             is AppScreen.CloudSources -> {
-                                                CloudSourcesScreen(
-                                                    library = library,
-                                                    player = player,
-                                                    onShowMessage = { msg ->
-                                                        coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
-                                                    }
-                                                )
+                                                if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+                                                    CloudSourcesScreen(
+                                                        library = library,
+                                                        player = player,
+                                                        onShowMessage = { msg ->
+                                                            coroutineScope.launch { snackbarHostState.showSnackbar(msg) }
+                                                        }
+                                                    )
+                                                } else {
+                                                    HomeScreen(
+                                                        library = library,
+                                                        player = player,
+                                                        onNavigatePlaylist = { pId -> navigateTo(AppScreen.PlaylistView(pId)) },
+                                                        onNavigateSmartMix = { mixTitle -> navigateTo(AppScreen.SmartMixView(mixTitle)) },
+                                                        onNavigateCloud = { navigateTo(AppScreen.Home) },
+                                                        isCompact = isCompact
+                                                    )
+                                                }
                                             }
                                             is AppScreen.PlaylistView -> {
                                                 PlaylistDetailView(
@@ -698,19 +709,21 @@ fun MusicApp(
                                     unselectedTextColor = AppColors.TextMuted
                                 )
                             )
-                            NavigationBarItem(
-                                selected = currentScreen is AppScreen.CloudSources,
-                                onClick = { navigateTo(AppScreen.CloudSources) },
-                                icon = { Icon(Icons.Rounded.CloudQueue, contentDescription = "Облако") },
-                                label = { Text("Облако", fontSize = 10.sp) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = AppColors.Accent,
-                                    selectedTextColor = AppColors.Accent,
-                                    indicatorColor = Color.Transparent,
-                                    unselectedIconColor = AppColors.TextMuted,
-                                    unselectedTextColor = AppColors.TextMuted
+                            if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+                                NavigationBarItem(
+                                    selected = currentScreen is AppScreen.CloudSources,
+                                    onClick = { navigateTo(AppScreen.CloudSources) },
+                                    icon = { Icon(Icons.Rounded.CloudQueue, contentDescription = "Облако") },
+                                    label = { Text("Облако", fontSize = 10.sp) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = AppColors.Accent,
+                                        selectedTextColor = AppColors.Accent,
+                                        indicatorColor = Color.Transparent,
+                                        unselectedIconColor = AppColors.TextMuted,
+                                        unselectedTextColor = AppColors.TextMuted
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }

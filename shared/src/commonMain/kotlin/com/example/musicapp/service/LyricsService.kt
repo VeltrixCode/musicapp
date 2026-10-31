@@ -47,7 +47,7 @@ object LyricsService {
 
     suspend fun getLyrics(
         track: Track,
-        client: HttpClient = appHttpClient
+        client: HttpClient? = null
     ): List<LrcLine> = withContext(Dispatchers.IO) {
         val cleanArtist = track.artist.trim().lowercase()
         val cleanTitle = track.title.trim().lowercase()
@@ -67,8 +67,8 @@ object LyricsService {
             }
         }
 
-        // 3. Privacy check: do not make network requests if offline mode or online lyrics disabled
-        if (offlineMode || !fetchOnlineLyrics) {
+        // 3. Privacy check: do not make network requests if offline mode or online lyrics disabled or online sources disabled without client
+        if ((!com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled && client == null) || offlineMode || !fetchOnlineLyrics) {
             return@withContext emptyList()
         }
 
@@ -77,6 +77,7 @@ object LyricsService {
             return@withContext emptyList()
         }
 
+        val effectiveClient = client ?: appHttpClient
         // 4. Fetch from lrclib.net open lyrics database with app User-Agent
         runCatching {
             val artist = track.artist.encodeURLQueryComponent()
@@ -85,7 +86,7 @@ object LyricsService {
             val durationParam = if (durationSec.isNotEmpty()) "&duration=$durationSec" else ""
             val url = "https://lrclib.net/api/get?artist_name=$artist&track_name=$title$durationParam"
 
-            val resp = client.get(url) {
+            val resp = effectiveClient.get(url) {
                 header(HttpHeaders.UserAgent, USER_AGENT)
             }.body<LrclibResponse>()
 

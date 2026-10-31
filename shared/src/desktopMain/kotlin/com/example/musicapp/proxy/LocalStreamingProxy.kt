@@ -79,7 +79,6 @@ object LocalStreamingProxy {
     }
 
     init {
-        start()
         Runtime.getRuntime().addShutdownHook(Thread {
             stop()
         })
@@ -226,6 +225,7 @@ object LocalStreamingProxy {
         try {
             server?.stop(gracePeriodMillis = 200, timeoutMillis = 1000)
             server = null
+            serverPort = 0
             sessions.clear()
         } catch (_: Exception) {}
     }

@@ -160,14 +160,16 @@ internal fun AppSidebar(
                 onClick = { onNavigate(AppScreen.Library) }
             )
 
-            // Nav 4: Cloud & Sources
-            SidebarNavItem(
-                label = "Облако и Источники",
-                icon = Icons.Rounded.CloudQueue,
-                isCompact = isCompact,
-                isSelected = currentScreen is AppScreen.CloudSources,
-                onClick = { onNavigate(AppScreen.CloudSources) }
-            )
+            if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+                // Nav 4: Cloud & Sources
+                SidebarNavItem(
+                    label = "Облако и Источники",
+                    icon = Icons.Rounded.CloudQueue,
+                    isCompact = isCompact,
+                    isSelected = currentScreen is AppScreen.CloudSources,
+                    onClick = { onNavigate(AppScreen.CloudSources) }
+                )
+            }
 
             Spacer(Modifier.height(spacing.sm))
             Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
@@ -179,12 +181,21 @@ internal fun AppSidebar(
 
             // Library Filter Chips & Controls
             if (!isCompact) {
-                // Filter chips: Плейлисты, Альбомы, Исполнители, Скачанные
+                val availableFilters = if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+                    listOf("Плейлисты", "Альбомы", "Исполнители", "Скачанные")
+                } else {
+                    listOf("Плейлисты", "Альбомы", "Исполнители")
+                }
+                if (selectedFilter !in availableFilters) {
+                    selectedFilter = "Плейлисты"
+                }
+
+                // Filter chips
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    listOf("Плейлисты", "Альбомы", "Исполнители", "Скачанные").forEach { f ->
+                    availableFilters.forEach { f ->
                         val isSel = selectedFilter == f
                         Box(
                             modifier = Modifier
@@ -287,18 +298,18 @@ internal fun AppSidebar(
             var draggedPlaylistId by remember { mutableStateOf<String?>(null) }
             var dragOffsetY by remember { mutableStateOf(0f) }
 
-            val displayedPlaylists = remember(library.playlists.map { it.id }, sortOrder) {
+            val displayedPlaylists = remember(library.visiblePlaylists.map { it.id }, sortOrder) {
                 when (sortOrder) {
-                    "По алфавиту" -> library.playlists.sortedBy { it.name.lowercase() }
-                    "Недавние" -> library.playlists.reversed()
-                    else -> library.playlists.toList()
+                    "По алфавиту" -> library.visiblePlaylists.sortedBy { it.name.lowercase() }
+                    "Недавние" -> library.visiblePlaylists.reversed()
+                    else -> library.visiblePlaylists.toList()
                 }
             }
-            val distinctAlbums = remember(library.tracks.size) {
-                library.tracks.map { it.album }.filter { it.isNotBlank() && it != "Неизвестный альбом" }.distinct().sorted()
+            val distinctAlbums = remember(library.visibleTracks.size) {
+                library.visibleTracks.map { it.album }.filter { it.isNotBlank() && it != "Неизвестный альбом" }.distinct().sorted()
             }
-            val distinctArtists = remember(library.tracks.size) {
-                library.tracks.map { it.artist }.filter { it.isNotBlank() && it != "Неизвестный исполнитель" }.distinct().sorted()
+            val distinctArtists = remember(library.visibleTracks.size) {
+                library.visibleTracks.map { it.artist }.filter { it.isNotBlank() && it != "Неизвестный исполнитель" }.distinct().sorted()
             }
 
             // Playlists / Categories List
