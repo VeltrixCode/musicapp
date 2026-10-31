@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import com.example.musicapp.provider.SubsonicProvider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -409,6 +410,14 @@ fun CloudSourcesScreen(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        val subsonicHttpWarning = SubsonicProvider.checkPlainHttpWarning(subsonicServerInput)
+                        if (subsonicHttpWarning != null) {
+                            Text(
+                                text = subsonicHttpWarning,
+                                style = MaterialTheme.typography.bodySmall.copy(color = AppColors.Warning),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
                         OutlinedTextField(
                             value = subsonicUserInput,
                             onValueChange = { subsonicUserInput = it },
@@ -908,7 +917,8 @@ fun CloudSourcesScreen(
                 OutlinedTextField(
                     value = acoustIdApiKeyInput,
                     onValueChange = { acoustIdApiKeyInput = it },
-                    label = { Text("AcoustID API Key (дедупликация отпечатков)") },
+                    label = { Text("AcoustID API Key [Экспериментально / Не реализовано]") },
+                    supportingText = { Text("Дедупликация по отпечаткам требует утилиту fpcalc. В текущей версии отключена.", color = AppColors.TextSecondary) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )

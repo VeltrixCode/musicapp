@@ -15,6 +15,8 @@ import io.ktor.http.encodeURLQueryComponent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -37,11 +39,25 @@ class RadioBrowserProvider(
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val apiMirrors = listOf(
-        "https://de1.api.radio-browser.info",
-        "https://nl1.api.radio-browser.info",
-        "https://at1.api.radio-browser.info"
-    )
+    companion object {
+        const val USER_AGENT = "JVXMusic/1.0 (https://github.com/VeltrixCode/MusicApp)"
+        val API_MIRRORS = listOf(
+            "https://de1.api.radio-browser.info",
+            "https://nl1.api.radio-browser.info",
+            "https://at1.api.radio-browser.info"
+        )
+    }
+
+    private val mirrorMutex = Mutex()
+    private var currentMirrorIndex = 0
+
+    suspend fun getActiveMirror(): String = mirrorMutex.withLock {
+        API_MIRRORS[currentMirrorIndex]
+    }
+
+    suspend fun rotateToNextMirror() = mirrorMutex.withLock {
+        currentMirrorIndex = (currentMirrorIndex + 1) % API_MIRRORS.size
+    }
 
     override suspend fun signIn() {
         _isSignedIn.value = true
@@ -77,22 +93,26 @@ class RadioBrowserProvider(
         val streamUrl = track.streamUrl ?: track.id
         return StreamSource(
             url = streamUrl,
-            headers = emptyMap(),
+            headers = mapOf(HttpHeaders.UserAgent to USER_AGENT),
             supportsRange = false // Live radio stream does not support range requests/seeking
         )
     }
 
     private suspend fun fetchWithMirrorFallback(urlBuilder: (String) -> String): List<RemoteTrack> {
         var lastException: Exception? = null
-        for (mirror in apiMirrors) {
+        val mirrorCount = API_MIRRORS.size
+
+        for (attempt in 0 until mirrorCount) {
+            val mirror = getActiveMirror()
             try {
                 val url = urlBuilder(mirror)
                 val responseText: String = client.get(url) {
-                    header(HttpHeaders.UserAgent, "JVXMusic/1.0 (Radio Browser Client)")
+                    header(HttpHeaders.UserAgent, USER_AGENT)
                 }.body()
                 return parseRadioStationsJson(responseText)
             } catch (e: Exception) {
                 lastException = e
+                rotateToNextMirror()
             }
         }
         if (lastException is AppError) throw lastException

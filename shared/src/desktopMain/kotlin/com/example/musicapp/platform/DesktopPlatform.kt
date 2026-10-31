@@ -162,6 +162,10 @@ private class JavaFxPlayerEngine : PlayerEngine {
     }
 
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit) {
+        load(path, onReady, onFinished, null)
+    }
+
+    override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit, onError: ((String) -> Unit)?) {
         Platform.runLater {
             try {
                 player?.dispose()
@@ -170,7 +174,7 @@ private class JavaFxPlayerEngine : PlayerEngine {
 
                 // Check for FLAC/OGG which JavaFX Media cannot play natively
                 val lower = path.lowercase()
-                if (lower.endsWith(".flac") || lower.endsWith(".ogg")) {
+                if (lower.endsWith(".flac") || lower.endsWith(".ogg") || lower.contains(".flac?") || lower.contains(".ogg?")) {
                     System.err.println("Предупреждение: Формат FLAC/OGG не поддерживается встроенным движком JavaFX Media.")
                 }
 
@@ -211,11 +215,15 @@ private class JavaFxPlayerEngine : PlayerEngine {
                     }
 
                     setOnError {
-                        System.err.println("MediaPlayer error: " + error?.message)
+                        val msg = error?.message ?: "Ошибка воспроизведения"
+                        System.err.println("MediaPlayer error: $msg")
+                        runOnUiThread { onError?.invoke(msg) }
                     }
                 }
             } catch (e: Exception) {
-                System.err.println("Failed to load audio: " + e.message)
+                val msg = e.message ?: "Failed to load audio"
+                System.err.println("Failed to load audio: $msg")
+                runOnUiThread { onError?.invoke(msg) }
             }
         }
     }

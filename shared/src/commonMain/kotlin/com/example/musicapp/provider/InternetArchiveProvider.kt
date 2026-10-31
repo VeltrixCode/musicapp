@@ -5,6 +5,7 @@ import com.example.musicapp.model.Page
 import com.example.musicapp.model.RemoteTrack
 import com.example.musicapp.model.StreamSource
 import com.example.musicapp.model.TrackSource
+import com.example.musicapp.platform.currentTimeMillis
 import com.example.musicapp.settings.SettingsRepository
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -12,10 +13,12 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.http.encodeURLQueryComponent
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.Serializable
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -38,8 +41,35 @@ class InternetArchiveProvider(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    companion object {
+        const val MIN_QUERY_DELAY_MS = 1000L // 1 second minimum delay between metadata queries
+        const val DEFAULT_NO_LICENSE = "лицензия не указана"
+
+        fun isLicenseRestrictedOrUnknown(license: String?): Boolean {
+            if (license.isNullOrBlank()) return true
+            if (license.equals(DEFAULT_NO_LICENSE, ignoreCase = true)) return true
+            val lower = license.lowercase()
+            return !(lower.contains("publicdomain") ||
+                    lower.contains("public domain") ||
+                    lower.contains("creativecommons.org") ||
+                    lower.contains("cc-by") ||
+                    lower.contains("cc0"))
+        }
+    }
+
+    private val rateLimiterMutex = Mutex()
+    private var lastQueryTimeMs = 0L
+
+    suspend fun enforceRateLimit() = rateLimiterMutex.withLock {
+        val now = currentTimeMillis()
+        val elapsed = now - lastQueryTimeMs
+        if (elapsed < MIN_QUERY_DELAY_MS) {
+            delay(MIN_QUERY_DELAY_MS - elapsed)
+        }
+        lastQueryTimeMs = currentTimeMillis()
+    }
+
     override suspend fun signIn() {
-        // Public open catalog, no user login required
         _isSignedIn.value = true
     }
 
@@ -60,6 +90,7 @@ class InternetArchiveProvider(
         if (cleanQuery.isBlank()) return emptyList()
 
         return try {
+            enforceRateLimit()
             val encodedQuery = cleanQuery.encodeURLQueryComponent()
             val url = "https://archive.org/advancedsearch.php?q=collection:(audio)+AND+($encodedQuery)&fl[]=identifier,title,creator,album,mediatype,licenseurl,year&sort[]=&rows=40&page=1&output=json"
 
@@ -85,8 +116,11 @@ class InternetArchiveProvider(
                 val title = doc["title"]?.jsonPrimitive?.contentOrNull ?: identifier
                 val creator = doc["creator"]?.jsonPrimitive?.contentOrNull ?: "Internet Archive Audio"
                 val album = doc["album"]?.jsonPrimitive?.contentOrNull
-                val license = doc["licenseurl"]?.jsonPrimitive?.contentOrNull
-                    ?: "Public Domain / Creative Commons (Archive.org)"
+
+                val rawLicense = doc["licenseurl"]?.jsonPrimitive?.contentOrNull?.trim()
+                    ?: doc["license"]?.jsonPrimitive?.contentOrNull?.trim()
+                val license = if (!rawLicense.isNullOrBlank()) rawLicense else DEFAULT_NO_LICENSE
+
                 val webUrl = "https://archive.org/details/$identifier"
                 val artwork = "https://archive.org/services/img/$identifier"
 
@@ -113,6 +147,7 @@ class InternetArchiveProvider(
         if (settingsRepo.load().offlineMode) {
             throw AppError.OfflineModeError()
         }
+        enforceRateLimit()
         val identifier = track.id.removePrefix("ia_")
         val metadataUrl = "https://archive.org/metadata/$identifier"
 

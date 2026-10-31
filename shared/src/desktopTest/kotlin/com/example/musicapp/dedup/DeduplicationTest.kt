@@ -2,6 +2,8 @@ package com.example.musicapp.dedup
 
 import com.example.musicapp.model.Track
 import com.example.musicapp.model.TrackSource
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,6 +29,9 @@ class DeduplicationTest {
         assertEquals(VersionMarker.RADIO_EDIT, VersionMarker.extract("One More Time (Radio Edit)"))
         assertEquals(VersionMarker.EXTENDED, VersionMarker.extract("Around the World (Extended Mix)"))
         assertEquals(VersionMarker.ORIGINAL, VersionMarker.extract("Smells Like Teen Spirit"))
+        // Original marker variants treated as ORIGINAL
+        assertEquals(VersionMarker.ORIGINAL, VersionMarker.extract("Bring Me To Life (original)"))
+        assertEquals(VersionMarker.ORIGINAL, VersionMarker.extract("Bring Me To Life (Original Mix)"))
     }
 
     @Test
@@ -101,10 +106,146 @@ class DeduplicationTest {
         val localWithIsrc = local.copy(isrc = "USUM71600001")
         assertTrue(DeduplicationService.canAutoMerge(localWithIsrc, cloudWithIsrc), "Matching ISRC must merge")
 
-        // 5. AcoustID fingerprint match merges
+        // 5. AcoustID fingerprint dummy strings do not merge while fpcalc binary is not implemented
         val cloudWithFp = cloudSubsonic.copy(audioFingerprint = "fp_abc123")
         val localWithFp = local.copy(audioFingerprint = "fp_abc123")
-        assertTrue(DeduplicationService.canAutoMerge(localWithFp, cloudWithFp), "Matching Audio Fingerprint must merge")
+        assertFalse(DeduplicationService.canAutoMerge(localWithFp, cloudWithFp), "Dummy AcoustID fingerprints must not merge without fpcalc integration")
+    }
+
+    @Test
+    fun testRussianAndInternationalTextNormalization() {
+        // 1. ё -> е normalization
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Моё сердце"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Мое сердце"))
+        assertEquals(DeduplicationService.normalizeText("Моё сердце"), DeduplicationService.normalizeText("Мое сердце"))
+
+        // 2. Strip collaboration markers: feat., ft., featuring, при уч., при участии, prod. by, remastered
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Мое сердце feat. Баста"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Моё сердце (feat. Баста)"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Мое сердце при уч. Баста"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Моё сердце (при уч. Баста)"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Мое сердце при участии Баста"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Мое сердце prod. by Баста"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Мое сердце (remastered)"))
+        assertEquals("мое сердце", DeduplicationService.normalizeText("Мое сердце remastered"))
+
+        // Standalone prefix collaboration markers
+        assertEquals("баста", DeduplicationService.normalizeText("feat. Баста"))
+        assertEquals("баста", DeduplicationService.normalizeText("при уч. Баста"))
+
+        // 3. Merging Russian tracks with ё / collaboration differences
+        val t1 = Track(id = "ru_1", title = "Моё сердце", artist = "Сплин", durationMs = 245000L)
+        val t2 = Track(id = "ru_2", title = "Мое сердце", artist = "Сплин feat. Баста", durationMs = 246000L)
+        val t3 = Track(id = "ru_3", title = "Мое сердце (при уч. Баста)", artist = "Сплин", durationMs = 244000L)
+
+        assertTrue(DeduplicationService.canAutoMerge(t1, t2), "Russian ё/е and feat. in artist must auto merge")
+        assertTrue(DeduplicationService.canAutoMerge(t1, t3), "Russian при уч. in title must auto merge")
+
+        val works = DeduplicationService.groupTracksIntoWorks(listOf(t1, t2, t3))
+        assertEquals(1, works.size, "All 3 Russian variants must group into 1 Work")
+        assertEquals(3, works.first().variants.size)
+    }
+
+    @Test
+    fun testBringMeToLifeOriginalMerging() {
+        val tStudio = Track(
+            id = "ev_studio",
+            title = "Bring Me To Life",
+            artist = "Evanescence",
+            durationMs = 237000L,
+            sourceProvider = TrackSource.LOCAL
+        )
+        val tOriginal = Track(
+            id = "ev_orig",
+            title = "Bring Me To Life (original)",
+            artist = "Evanescence",
+            durationMs = 238000L, // 1s diff
+            sourceProvider = TrackSource.AUDIUS
+        )
+        val tOriginalMix = Track(
+            id = "ev_orig_mix",
+            title = "Bring Me To Life (Original Mix)",
+            artist = "Evanescence",
+            durationMs = 237500L,
+            sourceProvider = TrackSource.JAMENDO
+        )
+
+        // VersionMarkers must all be ORIGINAL
+        assertEquals(VersionMarker.ORIGINAL, VersionMarker.extract(tStudio.title))
+        assertEquals(VersionMarker.ORIGINAL, VersionMarker.extract(tOriginal.title))
+        assertEquals(VersionMarker.ORIGINAL, VersionMarker.extract(tOriginalMix.title))
+
+        // Normalized titles must be identical
+        assertEquals(DeduplicationService.normalizeText(tStudio.title), DeduplicationService.normalizeText(tOriginal.title))
+        assertEquals(DeduplicationService.normalizeText(tStudio.title), DeduplicationService.normalizeText(tOriginalMix.title))
+
+        assertTrue(DeduplicationService.canAutoMerge(tStudio, tOriginal), "Studio and (original) must merge")
+        assertTrue(DeduplicationService.canAutoMerge(tStudio, tOriginalMix), "Studio and (Original Mix) must merge")
+
+        val works = DeduplicationService.groupTracksIntoWorks(listOf(tStudio, tOriginal, tOriginalMix))
+        assertEquals(1, works.size, "Bring Me To Life variants must collapse cleanly into exactly 1 Work")
+        assertEquals(3, works.first().variants.size)
+    }
+
+    @Test
+    fun testBenchmark5000TracksExecutionTime() {
+        // Generate 5000 tracks (2500 unique works with 2 variants each)
+        val tracks = ArrayList<Track>(5000)
+        for (i in 0 until 5000) {
+            val trackGroup = i % 2500
+            val isSecondVariant = i >= 2500
+            val title = if (isSecondVariant && trackGroup % 3 == 0) {
+                "Song $trackGroup (original)"
+            } else {
+                "Song $trackGroup"
+            }
+            val artist = if (isSecondVariant && trackGroup % 5 == 0) {
+                "Artist $trackGroup feat. Guest"
+            } else {
+                "Artist $trackGroup"
+            }
+            tracks.add(
+                Track(
+                    id = "track_$i",
+                    title = title,
+                    artist = artist,
+                    durationMs = 200000L + (if (isSecondVariant) 1000L else 0L),
+                    sourceProvider = if (isSecondVariant) TrackSource.AUDIUS else TrackSource.LOCAL,
+                    musicBrainzId = if (trackGroup % 7 == 0) "mbid_$trackGroup" else null,
+                    isrc = if (trackGroup % 11 == 0) "ISRC$trackGroup" else null
+                )
+            )
+        }
+
+        val start = System.currentTimeMillis()
+        val works = DeduplicationService.groupTracksIntoWorks(tracks)
+        val elapsed = System.currentTimeMillis() - start
+
+        println("Deduplication benchmark: 5000 tracks processed into ${works.size} works in ${elapsed}ms")
+        assertTrue(elapsed < 2000, "5000 tracks deduplication took ${elapsed}ms, which must be under 2000ms (< 2s)")
+        assertTrue(works.isNotEmpty(), "Works should be produced")
+    }
+
+    @Test
+    fun testDedupDecisionsVersioningAndGracefulMigration() {
+        assertEquals(1, DedupDecisions.CURRENT_VERSION)
+
+        // Test decoding old JSON payload that lacked 'version' field
+        val legacyJson = """
+            {
+                "manualMerges": {"t1": "work_1"},
+                "manualSplits": [["t2", "t3"]],
+                "preferredVariants": {"work_1": "t1"}
+            }
+        """.trimIndent()
+        val json = Json { ignoreUnknownKeys = true }
+        val decoded = json.decodeFromString<DedupDecisions>(legacyJson)
+        assertEquals(1, decoded.version, "Missing version field should default to current version (1)")
+
+        // Migration logic handles older versions smoothly
+        val migrated = DeduplicationStore.migrate(decoded.copy(version = 0))
+        assertEquals(1, migrated.version)
+        assertEquals("work_1", migrated.manualMerges["t1"])
     }
 
     @Test

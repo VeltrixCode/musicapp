@@ -320,49 +320,80 @@ internal fun NowPlayingBar(
                 }
 
                 // Progress Bar Row (Accurate drag + tooltip + click)
+                val isLiveTrack = track?.isLiveStream == true || track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
                 Row(
                     modifier = Modifier.fillMaxWidth(if (isCompact) 0.95f else 0.82f),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val displayPos = draggingFraction?.let { (it * duration).toLong() } ?: playbackState.positionMs
-                    Text(
-                        formatTime(if (hasTrack) displayPos else 0L),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = AppColors.TextMuted,
-                            fontSize = 11.5.sp,
-                            textAlign = TextAlign.Start
-                        ),
-                        modifier = Modifier.width(36.dp)
-                    )
+                    if (isLiveTrack) {
+                        Text(
+                            "LIVE",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = AppColors.Accent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp,
+                                textAlign = TextAlign.Start
+                            ),
+                            modifier = Modifier.width(36.dp)
+                        )
+                    } else {
+                        val displayPos = draggingFraction?.let { (it * duration).toLong() } ?: playbackState.positionMs
+                        Text(
+                            formatTime(if (hasTrack) displayPos else 0L),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = AppColors.TextMuted,
+                                fontSize = 11.5.sp,
+                                textAlign = TextAlign.Start
+                            ),
+                            modifier = Modifier.width(36.dp)
+                        )
+                    }
 
                     Spacer(Modifier.width(spacing.xs))
 
                     CustomScrubBar(
-                        fraction = if (hasTrack) fraction else 0f,
+                        fraction = if (hasTrack) (if (isLiveTrack) 1f else fraction) else 0f,
                         durationMs = duration,
-                        enabled = hasTrack,
+                        enabled = hasTrack && !isLiveTrack,
                         onSeekToFraction = { newFrac ->
-                            val targetMs = (newFrac * duration).toLong()
-                            player.seekTo(targetMs)
-                            draggingFraction = null
+                            if (!isLiveTrack) {
+                                val targetMs = (newFrac * duration).toLong()
+                                player.seekTo(targetMs)
+                                draggingFraction = null
+                            }
                         },
                         onDragFraction = { newFrac ->
-                            draggingFraction = newFrac
+                            if (!isLiveTrack) {
+                                draggingFraction = newFrac
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     )
 
                     Spacer(Modifier.width(spacing.xs))
 
-                    Text(
-                        formatTime(effectiveTotalDuration),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = AppColors.TextMuted,
-                            fontSize = 11.5.sp,
-                            textAlign = TextAlign.End
-                        ),
-                        modifier = Modifier.width(36.dp)
-                    )
+                    if (isLiveTrack) {
+                        Text(
+                            "LIVE",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = AppColors.Accent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.5.sp,
+                                textAlign = TextAlign.End
+                            ),
+                            modifier = Modifier.width(36.dp)
+                        )
+                    } else {
+                        Text(
+                            formatTime(effectiveTotalDuration),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = AppColors.TextMuted,
+                                fontSize = 11.5.sp,
+                                textAlign = TextAlign.End
+                            ),
+                            modifier = Modifier.width(36.dp)
+                        )
+                    }
                 }
             }
 
@@ -1033,21 +1064,31 @@ internal fun FullscreenNowPlayingView(
             val duration = effectiveDuration.coerceAtLeast(1L)
             val fraction = (playbackState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
+            val isFullscreenLive = track?.isLiveStream == true || track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
             Row(
                 modifier = Modifier.fillMaxWidth(0.7f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(formatTime(playbackState.positionMs), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                if (isFullscreenLive) {
+                    Text("LIVE", color = AppColors.Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                } else {
+                    Text(formatTime(playbackState.positionMs), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
                 Spacer(Modifier.width(spacing.sm))
                 CustomScrubBar(
-                    fraction = fraction,
+                    fraction = if (isFullscreenLive) 1f else fraction,
                     durationMs = duration,
-                    onSeekToFraction = { player.seekTo((it * duration).toLong()) },
+                    enabled = !isFullscreenLive,
+                    onSeekToFraction = { if (!isFullscreenLive) player.seekTo((it * duration).toLong()) },
                     onDragFraction = {},
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(spacing.sm))
-                Text(formatTime(effectiveDuration), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                if (isFullscreenLive) {
+                    Text("LIVE", color = AppColors.Accent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                } else {
+                    Text(formatTime(effectiveDuration), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
             }
 
             Spacer(Modifier.height(spacing.md))

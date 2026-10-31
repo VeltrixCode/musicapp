@@ -6,6 +6,9 @@ import com.example.musicapp.model.Track
 
 interface PlayerEngine {
     fun load(path: String, onReady: (durationMs: Long) -> Unit, onFinished: () -> Unit)
+    fun load(path: String, onReady: (durationMs: Long) -> Unit, onFinished: () -> Unit, onError: ((errorMessage: String) -> Unit)?) {
+        load(path, onReady, onFinished)
+    }
     fun play()
     fun pause()
     fun seekTo(ms: Long)

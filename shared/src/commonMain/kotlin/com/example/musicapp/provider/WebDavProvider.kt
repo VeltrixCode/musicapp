@@ -147,21 +147,15 @@ class WebDavProvider(
     }
 
     fun parseWebDavXml(xml: String, baseUrl: String): List<RemoteTrack> {
-        val responseRegex = Regex("<(?:[a-zA-Z0-9]+:)?response[\\s>](.*?)</(?:[a-zA-Z0-9]+:)?response>", RegexOption.DOT_MATCHES_ALL)
-        val hrefRegex = Regex("<(?:[a-zA-Z0-9]+:)?href>(.*?)</(?:[a-zA-Z0-9]+:)?href>")
-        val contentTypeRegex = Regex("<(?:[a-zA-Z0-9]+:)?getcontenttype>(.*?)</(?:[a-zA-Z0-9]+:)?getcontenttype>")
-        val contentLengthRegex = Regex("<(?:[a-zA-Z0-9]+:)?getcontentlength>(.*?)</(?:[a-zA-Z0-9]+:)?getcontentlength>")
-        val displayNameRegex = Regex("<(?:[a-zA-Z0-9]+:)?displayname>(.*?)</(?:[a-zA-Z0-9]+:)?displayname>")
-
         val supportedAudioExtensions = setOf("mp3", "flac", "ogg", "m4a", "wav", "opus", "aac")
         val results = mutableListOf<RemoteTrack>()
+        val items = WebDavXmlParser.parse(xml)
 
-        for (match in responseRegex.findAll(xml)) {
-            val block = match.groupValues[1]
-            val href = hrefRegex.find(block)?.groupValues?.get(1)?.trim() ?: continue
-            val contentType = contentTypeRegex.find(block)?.groupValues?.get(1)?.trim() ?: ""
-            val contentLength = contentLengthRegex.find(block)?.groupValues?.get(1)?.trim()?.toLongOrNull()
-            val displayName = displayNameRegex.find(block)?.groupValues?.get(1)?.trim()
+        for (item in items) {
+            val href = item.href.trim()
+            val contentType = item.contentType ?: ""
+            val contentLength = item.contentLength
+            val displayName = item.displayName
 
             val fileName = displayName?.ifBlank { null }
                 ?: href.trimEnd('/').substringAfterLast('/')

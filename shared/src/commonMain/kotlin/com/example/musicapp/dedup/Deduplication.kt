@@ -22,6 +22,7 @@ enum class VersionMarker(val displayLabel: String) {
     ORIGINAL("Original");
 
     companion object {
+        private val ORIGINAL_REGEX = Regex("""(?i)\b(original(\s+mix)?)\b""")
         private val EXTENDED_REGEX = Regex("""(?i)\b(extended|extended mix|long version)\b""")
         private val RADIO_EDIT_REGEX = Regex("""(?i)\b(radio edit|single edit|clean)\b""")
         private val REMASTER_REGEX = Regex("""(?i)\b(remaster(ed)?|20\d\d remaster|digital remaster)\b""")
@@ -34,6 +35,7 @@ enum class VersionMarker(val displayLabel: String) {
         fun extract(title: String): VersionMarker {
             val lower = title.lowercase()
             return when {
+                ORIGINAL_REGEX.containsMatchIn(lower) -> ORIGINAL
                 EXTENDED_REGEX.containsMatchIn(lower) -> EXTENDED
                 RADIO_EDIT_REGEX.containsMatchIn(lower) -> RADIO_EDIT
                 REMASTER_REGEX.containsMatchIn(lower) -> REMASTER
@@ -76,28 +78,46 @@ data class Work(
 
 @Serializable
 data class DedupDecisions(
+    val version: Int = CURRENT_VERSION,
     val manualMerges: Map<String, String> = emptyMap(), // trackId -> workId
     val manualSplits: List<List<String>> = emptyList(), // pairs of trackIds that must not merge
     val preferredVariants: Map<String, String> = emptyMap(), // workId -> trackId
-)
+) {
+    companion object {
+        const val CURRENT_VERSION: Int = 1
+    }
+}
 
 object DeduplicationStore {
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private const val FILE_NAME = "dedup_decisions.json"
     private var cachedDecisions: DedupDecisions? = null
 
+    fun migrate(decisions: DedupDecisions): DedupDecisions {
+        if (decisions.version == DedupDecisions.CURRENT_VERSION) return decisions
+        var current = decisions
+        if (current.version < 1) {
+            current = current.copy(version = 1)
+        }
+        return current.copy(version = DedupDecisions.CURRENT_VERSION)
+    }
+
     fun load(): DedupDecisions {
         cachedDecisions?.let { return it }
         val raw = AppStorage.read(FILE_NAME) ?: return DedupDecisions()
-        val loaded = runCatching { json.decodeFromString<DedupDecisions>(raw) }.getOrDefault(DedupDecisions())
+        val loaded = runCatching {
+            val parsed = json.decodeFromString<DedupDecisions>(raw)
+            migrate(parsed)
+        }.getOrDefault(DedupDecisions())
         cachedDecisions = loaded
         return loaded
     }
 
     fun save(decisions: DedupDecisions) {
-        cachedDecisions = decisions
+        val versioned = if (decisions.version == DedupDecisions.CURRENT_VERSION) decisions else decisions.copy(version = DedupDecisions.CURRENT_VERSION)
+        cachedDecisions = versioned
         runCatching {
-            AppStorage.write(FILE_NAME, json.encodeToString(decisions))
+            AppStorage.write(FILE_NAME, json.encodeToString(versioned))
         }
     }
 
@@ -135,12 +155,56 @@ object DeduplicationStore {
 
 object DeduplicationService {
 
-    fun normalizeText(s: String): String =
-        s.lowercase()
-            .replace(Regex("""\([^)]*\)|\[[^\]]*\]"""), " ")
-            .replace(Regex("""[^a-z0-9а-яё\s]"""), " ")
-            .replace(Regex("""\s+"""), " ")
-            .trim()
+    /**
+     * Flag indicating if AcoustID fingerprint extraction (via fpcalc binary CLI) is implemented.
+     * Explicitly marked false until fpcalc CLI/binary is bundled and wired.
+     */
+    const val IS_ACOUSTID_IMPLEMENTED = false
+
+    private val COLLAB_PARENTHESES_REGEX = Regex(
+        """(?i)\s*[\(\[](?:feat\.?|ft\.?|featuring|при\s+уч(?:\.|\b)|при\s+участии|prod(?:\.|\b)(?:\s+by)?)\s+[^)\]]+[\)\]]"""
+    )
+    private val COLLAB_INLINE_REGEX = Regex(
+        """(?i)[\s\-]+(?:feat\.?|ft\.?|featuring|при\s+уч(?:\.|\b)|при\s+участии|prod(?:\.|\b)(?:\s+by)?)\b.*$"""
+    )
+    private val COLLAB_PREFIX_REGEX = Regex(
+        """^(?:feat\.?|ft\.?|featuring|при\s+уч(?:\.|\b)|при\s+участии|prod(?:\.|\b)(?:\s+by)?)\s+""",
+        RegexOption.IGNORE_CASE
+    )
+    private val ORIGINAL_STRIP_REGEX = Regex(
+        """(?i)[\s(\[-]+original(\s+mix)?[)\]\s]*"""
+    )
+    private val REMASTERED_STRIP_REGEX = Regex(
+        """(?i)[\s(\[-]+(?:remaster(?:ed)?|20\d\d\s+remaster(?:ed)?|digital\s+remaster(?:ed)?)[)\]\s]*"""
+    )
+
+    fun normalizeText(s: String): String {
+        var text = s.lowercase().replace('ё', 'е')
+
+        // 1. Strip collaboration markers in parentheses/brackets e.g. "(feat. Paul McCoy)"
+        text = COLLAB_PARENTHESES_REGEX.replace(text, " ")
+
+        // 2. Strip inline collaboration markers e.g. "feat. Paul McCoy", "при уч. Баста"
+        text = COLLAB_INLINE_REGEX.replace(text, "")
+
+        // 3. Strip prefix collaboration markers e.g. "feat. Баста" -> "Баста"
+        text = COLLAB_PREFIX_REGEX.replace(text, "")
+
+        // 4. Strip "(original)" and "(original mix)" tags
+        text = ORIGINAL_STRIP_REGEX.replace(text, " ")
+
+        // 5. Strip "remastered" / "remaster" markers
+        text = REMASTERED_STRIP_REGEX.replace(text, " ")
+
+        // 6. Strip remaining parentheses/brackets content if any
+        text = text.replace(Regex("""\([^)]*\)|\[[^\]]*\]"""), " ")
+
+        // 7. Clean punctuation, symbols (preserve letters and digits across alphabets)
+        text = text.replace(Regex("""[^\p{L}\p{N}\s]"""), " ")
+
+        // 8. Clean extra whitespace
+        return text.replace(Regex("""\s+"""), " ").trim()
+    }
 
     fun inferFormat(track: Track): String {
         track.format?.let { if (it.isNotBlank()) return it.lowercase() }
@@ -190,7 +254,7 @@ object DeduplicationService {
      * Checks whether two tracks can be automatically deduplicated into the same Work.
      * Order:
      * 1. MusicBrainz ID / ISRC match
-     * 2. AcoustID fingerprint match
+     * 2. AcoustID fingerprint match (disabled/experimental until fpcalc is implemented)
      * 3. Normalized artist + title + IDENTICAL VersionMarker + duration within ±3 seconds
      */
     fun canAutoMerge(t1: Track, t2: Track, manualSplits: List<List<String>> = emptyList()): Boolean {
@@ -218,7 +282,9 @@ object DeduplicationService {
         }
 
         // 2. AcoustID fingerprint match
-        if (!t1.audioFingerprint.isNullOrBlank() && !t2.audioFingerprint.isNullOrBlank()) {
+        // Explicitly marked experimental / not implemented (requires fpcalc binary).
+        // Does not pretend dummy fingerprint strings match until real fpcalc is wired.
+        if (IS_ACOUSTID_IMPLEMENTED && !t1.audioFingerprint.isNullOrBlank() && !t2.audioFingerprint.isNullOrBlank()) {
             if (t1.audioFingerprint == t2.audioFingerprint) {
                 return true
             }
@@ -249,6 +315,7 @@ object DeduplicationService {
 
     /**
      * Groups a collection of tracks into Work entities, respecting manual decisions.
+     * Uses fast index-based grouping (O(N) bucketing & DSU) rather than O(N^2) cartesian comparison.
      */
     fun groupTracksIntoWorks(
         tracks: List<Track>,
@@ -278,36 +345,105 @@ object DeduplicationService {
             groupTracks.forEach { processedTrackIds.add(it.id) }
         }
 
-        // 2. Process remaining tracks with automatic deduplication
+        // 2. Process remaining tracks with fast indexed automatic deduplication
         val remaining = tracks.filter { it.id !in processedTrackIds }
-        val autoGroups = mutableListOf<MutableList<Track>>()
+        if (remaining.isEmpty()) return works
 
-        for (track in remaining) {
-            var matchedGroup: MutableList<Track>? = null
-            for (group in autoGroups) {
-                if (canAutoMerge(group.first(), track, decisions.manualSplits)) {
-                    matchedGroup = group
-                    break
-                }
+        val n = remaining.size
+        val dsu = DisjointSetUnion(n)
+
+        // Lookup map for manual splits
+        val forbiddenMap = mutableMapOf<String, MutableSet<String>>()
+        for (splitPair in decisions.manualSplits) {
+            if (splitPair.size >= 2) {
+                forbiddenMap.getOrPut(splitPair[0]) { mutableSetOf() }.add(splitPair[1])
+                forbiddenMap.getOrPut(splitPair[1]) { mutableSetOf() }.add(splitPair[0])
             }
-            if (matchedGroup != null) {
-                matchedGroup.add(track)
-            } else {
-                autoGroups.add(mutableListOf(track))
+        }
+        fun areSplit(id1: String, id2: String): Boolean =
+            forbiddenMap[id1]?.contains(id2) == true
+
+        // 2a. Index by MusicBrainz recording ID (O(1) lookup merge)
+        val mbidIndex = mutableMapOf<String, Int>()
+        for (i in 0 until n) {
+            val mbid = remaining[i].musicBrainzId?.trim()
+            if (!mbid.isNullOrBlank()) {
+                val key = mbid.lowercase()
+                val existing = mbidIndex[key]
+                if (existing != null) {
+                    if (!areSplit(remaining[i].id, remaining[existing].id)) {
+                        dsu.union(i, existing)
+                    }
+                } else {
+                    mbidIndex[key] = i
+                }
             }
         }
 
-        // 3. Build Works from automatic groups
-        for (group in autoGroups) {
+        // 2b. Index by ISRC (O(1) lookup merge)
+        val isrcIndex = mutableMapOf<String, Int>()
+        for (i in 0 until n) {
+            val isrc = remaining[i].isrc?.trim()
+            if (!isrc.isNullOrBlank()) {
+                val key = isrc.uppercase()
+                val existing = isrcIndex[key]
+                if (existing != null) {
+                    if (!areSplit(remaining[i].id, remaining[existing].id)) {
+                        dsu.union(i, existing)
+                    }
+                } else {
+                    isrcIndex[key] = i
+                }
+            }
+        }
+
+        // 2c. Group tracks into buckets by index key: normalize(artist) + "|" + normalize(title) + "|" + versionMarker
+        // Duration matching is ONLY performed between tracks within the same bucket!
+        val bucketMap = mutableMapOf<String, MutableList<Int>>()
+        for (i in 0 until n) {
+            val t = remaining[i]
+            val normArtist = normalizeText(t.artist)
+            val normTitle = normalizeText(t.title)
+            if (normArtist.isNotBlank() && normTitle.isNotBlank()) {
+                val vm = VersionMarker.extract(t.title)
+                val bucketKey = "$normArtist|$normTitle|$vm"
+                bucketMap.getOrPut(bucketKey) { mutableListOf() }.add(i)
+            }
+        }
+
+        for (bucket in bucketMap.values) {
+            if (bucket.size <= 1) continue
+            val bSize = bucket.size
+            for (a in 0 until bSize) {
+                val i = bucket[a]
+                for (b in a + 1 until bSize) {
+                    val j = bucket[b]
+                    if (dsu.find(i) == dsu.find(j)) continue
+                    if (canAutoMerge(remaining[i], remaining[j], decisions.manualSplits)) {
+                        dsu.union(i, j)
+                    }
+                }
+            }
+        }
+
+        // 3. Build Works from grouped components
+        val components = mutableMapOf<Int, MutableList<Track>>()
+        for (i in 0 until n) {
+            val root = dsu.find(i)
+            components.getOrPut(root) { mutableListOf() }.add(remaining[i])
+        }
+
+        for (group in components.values) {
             val first = group.first()
-            val workId = "work_" + (normalizeText(first.artist) + "_" + normalizeText(first.title) + "_" + VersionMarker.extract(first.title).name).hashCode().toString(16)
+            val vm = VersionMarker.extract(first.title)
+            val workId = "work_" + (normalizeText(first.artist) + "_" + normalizeText(first.title) + "_" + vm.name).hashCode().toString(16)
             val variants = group.map { toVariant(it) }
             works.add(
                 Work(
                     id = workId,
                     title = first.title,
                     artist = first.artist,
-                    versionMarker = VersionMarker.extract(first.title),
+                    versionMarker = vm,
                     variants = variants,
                     preferredVariantId = decisions.preferredVariants[workId],
                     isManual = false
@@ -388,5 +524,39 @@ object DeduplicationService {
             val brB = b.bitrateKbps ?: 0
             brA.compareTo(brB)
         }
+    }
+}
+
+private class DisjointSetUnion(size: Int) {
+    private val parent = IntArray(size) { it }
+    private val rank = IntArray(size)
+
+    fun find(i: Int): Int {
+        var root = i
+        while (root != parent[root]) {
+            root = parent[root]
+        }
+        var curr = i
+        while (curr != root) {
+            val nxt = parent[curr]
+            parent[curr] = root
+            curr = nxt
+        }
+        return root
+    }
+
+    fun union(i: Int, j: Int): Boolean {
+        val rootI = find(i)
+        val rootJ = find(j)
+        if (rootI == rootJ) return false
+        if (rank[rootI] < rank[rootJ]) {
+            parent[rootI] = rootJ
+        } else if (rank[rootI] > rank[rootJ]) {
+            parent[rootJ] = rootI
+        } else {
+            parent[rootJ] = rootI
+            rank[rootI]++
+        }
+        return true
     }
 }

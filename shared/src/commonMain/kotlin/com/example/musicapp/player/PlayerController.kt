@@ -88,6 +88,9 @@ interface AudioPlayer {
     fun dismissFormatNotice()
     fun dismissError()
     fun downloadForOffline(track: Track)
+    fun downloadForOffline(track: Track, userConfirmed: Boolean) {
+        downloadForOffline(track)
+    }
     fun deleteOffline(trackId: String)
 
     fun play(track: Track, context: List<Track> = listOf(track))
@@ -182,8 +185,25 @@ class PlayerController(
         _appError.value = err
     }
 
+    fun isOfflineDownloadConfirmationRequired(track: Track): Boolean {
+        if (track.sourceProvider == com.example.musicapp.model.TrackSource.INTERNET_ARCHIVE) {
+            return com.example.musicapp.provider.InternetArchiveProvider.isLicenseRestrictedOrUnknown(track.license)
+        }
+        return false
+    }
+
     override fun downloadForOffline(track: Track) {
+        downloadForOffline(track, false)
+    }
+
+    override fun downloadForOffline(track: Track, userConfirmed: Boolean) {
         if (track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) return
+        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || track.durationMs <= 0L) {
+            return
+        }
+        if (isOfflineDownloadConfirmationRequired(track) && !userConfirmed) {
+            return
+        }
         scope.launch {
             val stream = providerRegistry.getStreamSource(track)
             if (stream != null) {
@@ -608,7 +628,8 @@ class PlayerController(
                     path = effectiveSource,
                     onReady = { authoritativeDur ->
                         runOnUiThread {
-                            if (authoritativeDur > 0) {
+                            val isLive = track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
+                            if (!isLive && authoritativeDur > 0) {
                                 durationMs = authoritativeDur
                                 if (current?.id == track.id) {
                                     current = track.copy(durationMs = authoritativeDur)
@@ -620,6 +641,37 @@ class PlayerController(
                     },
                     onFinished = {
                         runOnUiThread { onTrackFinished() }
+                    },
+                    onError = { errorMsg ->
+                        runOnUiThread {
+                            val isUnsupported = track.mimeType?.contains("flac") == true ||
+                                    track.mimeType?.contains("ogg") == true ||
+                                    track.source?.endsWith(".flac", ignoreCase = true) == true ||
+                                    track.source?.endsWith(".ogg", ignoreCase = true) == true ||
+                                    track.format?.equals("flac", ignoreCase = true) == true ||
+                                    track.format?.equals("ogg", ignoreCase = true) == true ||
+                                    errorMsg.contains("MEDIA_UNAVAILABLE", ignoreCase = true) ||
+                                    errorMsg.contains("UNSUPPORTED", ignoreCase = true)
+
+                            val userMsg = if (isUnsupported) {
+                                "Формат ${track.format?.uppercase() ?: "FLAC/OGG"} не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC."
+                            } else {
+                                "Ошибка воспроизведения «${track.title}»: $errorMsg"
+                            }
+                            unsupportedFormatNotice = userMsg
+                            postError(
+                                if (isUnsupported) com.example.musicapp.model.AppError.UnsupportedFormat(track.format?.uppercase() ?: "FLAC/OGG")
+                                else com.example.musicapp.model.AppError.Generic(userMsg)
+                            )
+
+                            // Transition to next track in queue
+                            if (_queue.size > 1) {
+                                advance(+1)
+                            } else {
+                                isPlaying = false
+                                syncState()
+                            }
+                        }
                     }
                 )
                 engine.setVolume(volume)
@@ -628,7 +680,7 @@ class PlayerController(
                 isPlaying = true
                 syncState()
 
-                // Preload next track in queue
+                // Preload next track in queue (only if not a live stream and supports range)
                 val nextIdx = if (shuffleState && shufflePointer in shuffledIndices.indices) {
                     val p = shufflePointer + 1
                     if (p in shuffledIndices.indices) shuffledIndices[p] else -1
@@ -637,9 +689,12 @@ class PlayerController(
                 }
                 if (nextIdx in _queue.indices) {
                     val nextTrack = _queue[nextIdx]
-                    if (nextTrack.sourceProvider != com.example.musicapp.model.TrackSource.LOCAL && !com.example.musicapp.cache.AudioOfflineCache.isCached(nextTrack.id)) {
+                    if (nextTrack.sourceProvider != com.example.musicapp.model.TrackSource.LOCAL &&
+                        !nextTrack.isLiveStream &&
+                        nextTrack.sourceProvider != com.example.musicapp.model.TrackSource.RADIO_BROWSER &&
+                        !com.example.musicapp.cache.AudioOfflineCache.isCached(nextTrack.id)) {
                         val nextStream = providerRegistry.getStreamSource(nextTrack)
-                        if (nextStream != null) {
+                        if (nextStream != null && nextStream.supportsRange && nextTrack.durationMs > 0L) {
                             com.example.musicapp.cache.AudioOfflineCache.preloadNextTrack(nextTrack, nextStream.url, nextStream.headers)
                         }
                     }

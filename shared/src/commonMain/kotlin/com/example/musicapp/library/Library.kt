@@ -213,7 +213,9 @@ class Library {
         if (sessionResolvedTrackDurations.contains(trackId)) return
         val idx = tracks.indexOfFirst { it.id == trackId }
         if (idx >= 0) {
-            val oldDuration = tracks[idx].durationMs
+            val track = tracks[idx]
+            if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER) return
+            val oldDuration = track.durationMs
             if (kotlin.math.abs(oldDuration - durationMs) >= 1000L) {
                 tracks[idx] = tracks[idx].copy(durationMs = durationMs)
                 sessionResolvedTrackDurations.add(trackId)

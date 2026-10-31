@@ -38,6 +38,7 @@ data class Track(
     val mimeType: String? = null,
     val isrc: String? = null,
     val musicBrainzId: String? = null,
+    /** AcoustID fingerprint (EXPERIMENTAL: Not implemented until fpcalc binary CLI is bundled and wired). */
     val audioFingerprint: String? = null,
     val bitrateKbps: Int? = null,
     val format: String? = null,
@@ -47,6 +48,7 @@ data class Track(
 ) {
     val playableUri: String? get() = cachedFilePath ?: source
     val isCloud: Boolean get() = sourceProvider != TrackSource.LOCAL
+    val isLiveStream: Boolean get() = sourceProvider == TrackSource.RADIO_BROWSER || (durationMs == 0L && source != null && (source.startsWith("http://") || source.startsWith("https://")))
 }
 
 @Serializable

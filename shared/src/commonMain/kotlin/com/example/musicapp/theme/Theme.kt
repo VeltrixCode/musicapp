@@ -44,6 +44,7 @@ object AppColors {
 
     val Error = Color(0xFFE91429)
     val ErrorHover = Color(0xFFFF3344)
+    val Warning = Color(0xFFFFB300)
 
     val WindowBar = Color(0xFF121212)
     val WindowButtonHover = Color(0xFF2A2A2A)

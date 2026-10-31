@@ -58,6 +58,7 @@ object CoverArtService {
 
     // Single source of truth for online covers / offline mode
     var settingsRepository: SettingsRepository = SettingsRepository()
+    var subsonicProvider: com.example.musicapp.provider.SubsonicProvider = com.example.musicapp.provider.SubsonicProvider()
 
     // Rate limiter mutexes: ensures at least 350ms between iTunes calls, 1000ms between MusicBrainz calls
     private val itunesRateLimiterMutex = Mutex()
@@ -206,6 +207,12 @@ object CoverArtService {
         if (src != null && track.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL) {
             val localBmp = loadArtwork(src)
             if (localBmp != null) return@withContext localBmp
+        }
+
+        // Subsonic provider-level cover loading (supports HTTP on LAN, size limit, non-leaking cache keys)
+        if (track.sourceProvider == com.example.musicapp.model.TrackSource.SUBSONIC) {
+            val subBmp = subsonicProvider.loadCoverArt(track)
+            if (subBmp != null) return@withContext subBmp
         }
 
         // 2. Direct artworkUrl provided by cloud providers (Audius 480x480, Jamendo image, etc.)
