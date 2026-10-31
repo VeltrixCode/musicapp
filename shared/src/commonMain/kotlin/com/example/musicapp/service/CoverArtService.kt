@@ -14,6 +14,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.http.HttpHeaders
+import io.ktor.http.contentLength
 import io.ktor.http.encodeURLQueryComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -21,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -128,6 +130,8 @@ object CoverArtService {
                 lower.endsWith(".aac")
     }
 
+    const val MAX_COVER_SIZE_BYTES = 5L * 1024L * 1024L // 5 MB limit
+
     suspend fun loadArtworkByUrl(
         url: String,
         client: HttpClient = appHttpClient
@@ -135,6 +139,8 @@ object CoverArtService {
         val settings = settingsRepository.load()
         if (settings.offlineMode || !settings.fetchOnlineCovers) return@withContext null
         if (url.isBlank()) return@withContext null
+        // Requirement 3: Only HTTPS allowed
+        if (!url.startsWith("https://", ignoreCase = true)) return@withContext null
 
         val diskKey = "cover_url_" + url.hashCode().toString(16) + ".jpg"
 
@@ -153,12 +159,26 @@ object CoverArtService {
             }
         }
 
-        // 3. Network fetch
-        runCatching {
-            val imageBytes = client.get(url) {
-                header(HttpHeaders.UserAgent, USER_AGENT)
-            }.bodyAsBytes()
-            if (imageBytes.isNotEmpty()) {
+        // 3. Network fetch with 10s timeout, content-type check, size limit, no Authorization header
+        withTimeoutOrNull(10000L) {
+            runCatching {
+                val response = client.get(url) {
+                    header(HttpHeaders.UserAgent, USER_AGENT)
+                    headers.remove(HttpHeaders.Authorization)
+                }
+                if (response.status.value !in 200..299) return@runCatching null
+
+                // Verify Content-Type is image/*
+                val contentType = response.headers[HttpHeaders.ContentType] ?: ""
+                if (!contentType.startsWith("image/", ignoreCase = true)) return@runCatching null
+
+                // Check advertised Content-Length if present
+                val declaredLength = response.contentLength() ?: 0L
+                if (declaredLength > MAX_COVER_SIZE_BYTES) return@runCatching null
+
+                val imageBytes = response.bodyAsBytes()
+                if (imageBytes.isEmpty() || imageBytes.size > MAX_COVER_SIZE_BYTES) return@runCatching null
+
                 AppStorage.writeBytes(diskKey, imageBytes)
                 val bmp = decodeImageBytes(imageBytes)
                 if (bmp != null) {
@@ -166,8 +186,15 @@ object CoverArtService {
                     ArtworkCache.computeAndStoreDominantColor(url, bmp)
                     bmp
                 } else null
-            } else null
-        }.getOrNull()
+            }.getOrNull()
+        }
+    }
+
+    fun clearCoverCache() {
+        ArtworkCache.clear()
+        runCatching {
+            AppStorage.deleteFilesWithPrefix("cover_")
+        }
     }
 
     suspend fun loadArtworkForTrack(

@@ -147,6 +147,24 @@ fun CloudSourcesScreen(
     var isLoadingFolders by remember { mutableStateOf(false) }
 
     // API Config State
+    val isSubsonicSignedIn by registry.subsonic.isSignedIn.collectAsState()
+    val isWebDavSignedIn by registry.webdav.isSignedIn.collectAsState()
+
+    var showSubsonicDialog by remember { mutableStateOf(false) }
+    var subsonicServerInput by remember { mutableStateOf(AppConfig.subsonicServer) }
+    var subsonicUserInput by remember { mutableStateOf(AppConfig.subsonicUser) }
+    var subsonicPasswordInput by remember { mutableStateOf(AppConfig.subsonicPassword) }
+    var showSubsonicPassword by remember { mutableStateOf(false) }
+
+    var showWebDavDialog by remember { mutableStateOf(false) }
+    var webDavServerInput by remember { mutableStateOf(AppConfig.webdavServer) }
+    var webDavUserInput by remember { mutableStateOf(AppConfig.webdavUser) }
+    var webDavPasswordInput by remember { mutableStateOf(AppConfig.webdavPassword) }
+    var webDavRootPathInput by remember { mutableStateOf(AppConfig.webdavRootPath) }
+    var showWebDavPassword by remember { mutableStateOf(false) }
+
+    var acoustIdApiKeyInput by remember { mutableStateOf(AppConfig.acoustIdApiKey) }
+
     var googleClientIdInput by remember { mutableStateOf(AppConfig.googleClientId) }
     var googleClientSecretInput by remember { mutableStateOf(AppConfig.googleClientSecret) }
     var showGoogleSecret by remember { mutableStateOf(false) }
@@ -356,6 +374,202 @@ fun CloudSourcesScreen(
 
         Spacer(Modifier.height(16.dp))
 
+        // Provider Card 3: Subsonic / Navidrome
+        CloudProviderItem(
+            name = "Subsonic / Navidrome",
+            description = if (isSubsonicSignedIn) "Сервер: ${AppConfig.subsonicServer} • Пользователь: ${AppConfig.subsonicUser}"
+                          else "Личный медиасервер Subsonic / Airsonic / Navidrome • Стриминг и каталоги",
+            isConnected = isSubsonicSignedIn,
+            accountEmail = if (isSubsonicSignedIn) AppConfig.subsonicUser else null,
+            onConnect = {
+                subsonicServerInput = AppConfig.subsonicServer
+                subsonicUserInput = AppConfig.subsonicUser
+                subsonicPasswordInput = AppConfig.subsonicPassword
+                showSubsonicDialog = true
+            },
+            onDisconnect = {
+                scope.launch {
+                    registry.subsonic.signOut()
+                    onShowMessage("Subsonic отключен, данные очищены")
+                }
+            }
+        )
+
+        if (showSubsonicDialog) {
+            AlertDialog(
+                onDismissRequest = { showSubsonicDialog = false },
+                title = { Text("Подключение Subsonic / Navidrome", color = AppColors.TextPrimary, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = subsonicServerInput,
+                            onValueChange = { subsonicServerInput = it },
+                            label = { Text("Адрес сервера (URL)") },
+                            placeholder = { Text("https://music.example.com", color = AppColors.TextMuted) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = subsonicUserInput,
+                            onValueChange = { subsonicUserInput = it },
+                            label = { Text("Имя пользователя") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = subsonicPasswordInput,
+                            onValueChange = { subsonicPasswordInput = it },
+                            label = { Text("Пароль") },
+                            singleLine = true,
+                            visualTransformation = if (showSubsonicPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showSubsonicPassword = !showSubsonicPassword }) {
+                                    Icon(
+                                        imageVector = if (showSubsonicPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                        contentDescription = null,
+                                        tint = AppColors.TextSecondary
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            AppConfig.subsonicServer = subsonicServerInput.trim()
+                            AppConfig.subsonicUser = subsonicUserInput.trim()
+                            AppConfig.subsonicPassword = subsonicPasswordInput
+                            scope.launch {
+                                try {
+                                    registry.subsonic.signIn()
+                                    showSubsonicDialog = false
+                                    onShowMessage("Subsonic успешно подключен!")
+                                } catch (e: Exception) {
+                                    onShowMessage("Ошибка подключения Subsonic: ${e.message}")
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                    ) {
+                        Text("Подключить", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showSubsonicDialog = false }) {
+                        Text("Отмена", color = AppColors.TextSecondary)
+                    }
+                },
+                containerColor = AppColors.SurfaceElevated
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Provider Card 4: WebDAV / Nextcloud
+        CloudProviderItem(
+            name = "WebDAV / Nextcloud",
+            description = if (isWebDavSignedIn) "Сервер: ${AppConfig.webdavServer} • Папка: ${AppConfig.webdavRootPath}"
+                          else "Облачное хранилище Nextcloud / ownCloud / WebDAV • Чтение audio/*",
+            isConnected = isWebDavSignedIn,
+            accountEmail = if (isWebDavSignedIn) AppConfig.webdavUser else null,
+            onConnect = {
+                webDavServerInput = AppConfig.webdavServer
+                webDavUserInput = AppConfig.webdavUser
+                webDavPasswordInput = AppConfig.webdavPassword
+                webDavRootPathInput = AppConfig.webdavRootPath
+                showWebDavDialog = true
+            },
+            onDisconnect = {
+                scope.launch {
+                    registry.webdav.signOut()
+                    onShowMessage("WebDAV отключен")
+                }
+            }
+        )
+
+        if (showWebDavDialog) {
+            AlertDialog(
+                onDismissRequest = { showWebDavDialog = false },
+                title = { Text("Подключение WebDAV / Nextcloud", color = AppColors.TextPrimary, fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = webDavServerInput,
+                            onValueChange = { webDavServerInput = it },
+                            label = { Text("Адрес сервера (URL)") },
+                            placeholder = { Text("https://cloud.example.com", color = AppColors.TextMuted) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = webDavUserInput,
+                            onValueChange = { webDavUserInput = it },
+                            label = { Text("Имя пользователя") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = webDavPasswordInput,
+                            onValueChange = { webDavPasswordInput = it },
+                            label = { Text("Пароль / Пароль приложения") },
+                            singleLine = true,
+                            visualTransformation = if (showWebDavPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showWebDavPassword = !showWebDavPassword }) {
+                                    Icon(
+                                        imageVector = if (showWebDavPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                        contentDescription = null,
+                                        tint = AppColors.TextSecondary
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        OutlinedTextField(
+                            value = webDavRootPathInput,
+                            onValueChange = { webDavRootPathInput = it },
+                            label = { Text("Корневой путь папки с музыкой") },
+                            placeholder = { Text("/Music или /remote.php/dav/files/user/Music", color = AppColors.TextMuted) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            AppConfig.webdavServer = webDavServerInput.trim()
+                            AppConfig.webdavUser = webDavUserInput.trim()
+                            AppConfig.webdavPassword = webDavPasswordInput
+                            AppConfig.webdavRootPath = webDavRootPathInput.trim()
+                            scope.launch {
+                                try {
+                                    registry.webdav.signIn()
+                                    showWebDavDialog = false
+                                    onShowMessage("WebDAV успешно подключен!")
+                                } catch (e: Exception) {
+                                    onShowMessage("Ошибка подключения WebDAV: ${e.message}")
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                    ) {
+                        Text("Подключить", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showWebDavDialog = false }) {
+                        Text("Отмена", color = AppColors.TextSecondary)
+                    }
+                },
+                containerColor = AppColors.SurfaceElevated
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+
         // Catalog 1: Audius
         CloudProviderItem(
             name = "Audius",
@@ -385,6 +599,30 @@ fun CloudSourcesScreen(
                 AppConfig.jamendoClientId = ""
                 onShowMessage("Jamendo Client ID удален")
             }
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        // Catalog 3: Internet Archive
+        CloudProviderItem(
+            name = "Internet Archive",
+            description = "Публичный архив CC и открытого аудио (archive.org) • Метаданные и страницы лицензий • Всегда активен",
+            isConnected = true,
+            isAlwaysActive = true,
+            onConnect = {},
+            onDisconnect = {}
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        // Catalog 4: Radio Browser
+        CloudProviderItem(
+            name = "Radio Browser",
+            description = "Открытый каталог интернет-радиостанций (radio-browser.info) • Прямой эфир без перемотки • Всегда активен",
+            isConnected = true,
+            isAlwaysActive = true,
+            onConnect = {},
+            onDisconnect = {}
         )
 
         Spacer(Modifier.height(28.dp))
@@ -556,6 +794,36 @@ fun CloudSourcesScreen(
                         colors = appSwitchColors
                     )
                 }
+
+                Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+
+                // Detailed Network & Privacy Disclosure Table/List
+                Text(
+                    text = "Использование сети и внешние сервисы:",
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                val services = listOf(
+                    "Jamendo (api.jamendo.com)" to "Поисковый запрос трека, Client ID. Загрузка аудио/обложек по прямым ссылкам.",
+                    "Audius (api.audius.co)" to "Поисковые запросы к открытым нодам сети Audius. IP-адрес виден ноде сети.",
+                    "Internet Archive (archive.org)" to "Расширенный поиск в коллекции audio (advancedsearch.php) и метаданные трека.",
+                    "Radio Browser (*.api.radio-browser.info)" to "Каталог интернет-радиостанций по тегам и странам. Прямой стриминг потока.",
+                    "LRCLIB (lrclib.net)" to "Только исполнитель, альбом, трек и длительность. Передаются исключительно при включенном поиске текстов.",
+                    "Обложки (iTunes / MusicBrainz)" to "Исполнитель и альбом. Только при включенной загрузке обложек. Лимит 5 МБ, HTTPS, без токенов.",
+                    "Subsonic / WebDAV" to "Только на указанный вами сервер. Учетные данные хранятся локально в SecureStorage."
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    services.forEach { (srv, desc) ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Text("• ", color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                            Text("$srv: ", fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, style = MaterialTheme.typography.bodySmall)
+                            Text(desc, color = AppColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
         }
 
@@ -637,6 +905,14 @@ fun CloudSourcesScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                OutlinedTextField(
+                    value = acoustIdApiKeyInput,
+                    onValueChange = { acoustIdApiKeyInput = it },
+                    label = { Text("AcoustID API Key (дедупликация отпечатков)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 Spacer(Modifier.height(6.dp))
 
                 Row(
@@ -651,6 +927,7 @@ fun CloudSourcesScreen(
                             AppConfig.yandexClientId = yandexClientIdInput.trim()
                             AppConfig.jamendoClientId = jamendoClientIdInput.trim()
                             AppConfig.audiusAppName = audiusAppNameInput.trim()
+                            AppConfig.acoustIdApiKey = acoustIdApiKeyInput.trim()
                             onShowMessage("Ключи успешно сохранены в SecureStorage!")
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
@@ -670,14 +947,20 @@ fun CloudSourcesScreen(
                                     val jamendoOk = if (AppConfig.jamendoClientId.isNotBlank()) {
                                         registry.jamendo.listTracks().items.isNotEmpty()
                                     } else false
+                                    val archiveOk = registry.archive.search("audio").isNotEmpty()
+                                    val radioOk = registry.radio.listTracks().items.isNotEmpty()
 
                                     val parts = mutableListOf<String>()
                                     parts.add("Audius: ${if (audiusOk) "OK" else "Нет ответа"}")
                                     if (AppConfig.jamendoClientId.isNotBlank()) {
                                         parts.add("Jamendo: ${if (jamendoOk) "OK" else "Ошибка/Не авторизован"}")
                                     }
+                                    parts.add("Internet Archive: ${if (archiveOk) "OK" else "Ошибка"}")
+                                    parts.add("Radio Browser: ${if (radioOk) "OK" else "Ошибка"}")
                                     if (isGDriveSignedIn) parts.add("Google Drive: Подключен")
                                     if (isYandexSignedIn) parts.add("Яндекс Диск: Подключен")
+                                    if (isSubsonicSignedIn) parts.add("Subsonic: Подключен")
+                                    if (isWebDavSignedIn) parts.add("WebDAV: Подключен")
 
                                     testConnectionResult = parts.joinToString(" • ")
                                 } catch (e: Exception) {
@@ -794,6 +1077,36 @@ fun CloudSourcesScreen(
                             inactiveTrackColor = AppColors.SurfaceElevated
                         )
                     )
+                }
+
+                Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+
+                // Detailed Network & Privacy Disclosure Table/List
+                Text(
+                    text = "Использование сети и внешние сервисы:",
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.TextPrimary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                val services = listOf(
+                    "Jamendo (api.jamendo.com)" to "Поисковый запрос трека, Client ID. Загрузка аудио/обложек по прямым ссылкам.",
+                    "Audius (api.audius.co)" to "Поисковые запросы к открытым нодам сети Audius. IP-адрес виден ноде сети.",
+                    "Internet Archive (archive.org)" to "Расширенный поиск в коллекции audio (advancedsearch.php) и метаданные трека.",
+                    "Radio Browser (*.api.radio-browser.info)" to "Каталог интернет-радиостанций по тегам и странам. Прямой стриминг потока.",
+                    "LRCLIB (lrclib.net)" to "Только исполнитель, альбом, трек и длительность. Передаются исключительно при включенном поиске текстов.",
+                    "Обложки (iTunes / MusicBrainz)" to "Исполнитель и альбом. Только при включенной загрузке обложек. Лимит 5 МБ, HTTPS, без токенов.",
+                    "Subsonic / WebDAV" to "Только на указанный вами сервер. Учетные данные хранятся локально в SecureStorage."
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    services.forEach { (srv, desc) ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            Text("• ", color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                            Text("$srv: ", fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary, style = MaterialTheme.typography.bodySmall)
+                            Text(desc, color = AppColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
         }

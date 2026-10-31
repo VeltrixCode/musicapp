@@ -13,7 +13,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class ProviderRegistry(
@@ -25,10 +24,16 @@ class ProviderRegistry(
     val yandex: YandexDiskProvider = YandexDiskProvider(),
     val jamendo: JamendoProvider = JamendoProvider(),
     val audius: AudiusProvider = AudiusProvider(),
+    val archive: InternetArchiveProvider = InternetArchiveProvider(),
+    val subsonic: SubsonicProvider = SubsonicProvider(),
+    val webdav: WebDavProvider = WebDavProvider(),
+    val radio: RadioBrowserProvider = RadioBrowserProvider(),
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val allProviders: List<MusicProvider> = listOf(gdrive, yandex, jamendo, audius)
+    val allProviders: List<MusicProvider> = listOf(
+        gdrive, yandex, jamendo, audius, archive, subsonic, webdav, radio
+    )
 
     private val _syncedCloudTracks = MutableStateFlow<List<Track>>(emptyList())
     val syncedCloudTracks: StateFlow<List<Track>> = _syncedCloudTracks.asStateFlow()
@@ -42,6 +47,10 @@ class ProviderRegistry(
             TrackSource.YANDEX_DISK -> yandex
             TrackSource.JAMENDO -> jamendo
             TrackSource.AUDIUS -> audius
+            TrackSource.INTERNET_ARCHIVE -> archive
+            TrackSource.SUBSONIC -> subsonic
+            TrackSource.WEBDAV -> webdav
+            TrackSource.RADIO_BROWSER -> radio
             else -> null
         }
     }
@@ -55,8 +64,16 @@ class ProviderRegistry(
             album = track.album,
             durationMs = track.durationMs,
             streamUrl = track.source,
+            artworkUrl = track.artworkUrl,
+            license = track.license,
             source = track.sourceProvider,
-            mimeType = track.mimeType
+            mimeType = track.mimeType,
+            isrc = track.isrc,
+            musicBrainzId = track.musicBrainzId,
+            bitrateKbps = track.bitrateKbps,
+            format = track.format,
+            isLossless = track.isLossless,
+            webPageUrl = track.webPageUrl
         )
         return provider.getStream(remoteTrack)
     }
@@ -92,7 +109,8 @@ class ProviderRegistry(
             val newlyDiscovered = mutableListOf<Track>()
             val seenKeys = existingTracks.map { TrackDeduplicator.computeKey(it.title, it.artist, it.durationMs) }.toMutableSet()
 
-            for (provider in listOf(gdrive, yandex)) {
+            val personalCloudProviders = listOf(gdrive, yandex, subsonic, webdav)
+            for (provider in personalCloudProviders) {
                 if (provider.isSignedIn.value) {
                     try {
                         val page = provider.listTracks()

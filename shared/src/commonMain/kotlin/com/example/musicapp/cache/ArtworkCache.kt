@@ -26,6 +26,12 @@ object ArtworkCache {
 
     fun getDominantColor(path: String): Color? = dominantColorMap[path]
 
+    fun clear() {
+        map.clear()
+        accessOrder.clear()
+        dominantColorMap.clear()
+    }
+
     fun computeAndStoreDominantColor(path: String, bitmap: ImageBitmap): Color {
         val existing = dominantColorMap[path]
         if (existing != null) return existing

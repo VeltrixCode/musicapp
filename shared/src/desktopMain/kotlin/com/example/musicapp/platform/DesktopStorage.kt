@@ -46,6 +46,10 @@ actual object AppStorage {
         File(absolutePath).delete()
     }
 
+    actual fun deleteFilesWithPrefix(prefix: String) {
+        dir.listFiles()?.filter { it.name.startsWith(prefix) }?.forEach { it.delete() }
+    }
+
     actual fun getCacheDir(): String =
         File(dir, "cache/audio").apply { mkdirs() }.absolutePath
 }

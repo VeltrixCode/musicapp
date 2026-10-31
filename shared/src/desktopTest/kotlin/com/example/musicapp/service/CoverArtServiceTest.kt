@@ -31,6 +31,7 @@ class CoverArtServiceTest {
     @BeforeTest
     fun setup() {
         CoverArtService.clearNegativeCacheBlocking()
+        CoverArtService.clearCoverCache()
         CoverArtService.settingsRepository.save(
             CoverArtService.settingsRepository.load().copy(
                 offlineMode = false,
@@ -190,5 +191,74 @@ class CoverArtServiceTest {
         val result2 = CoverArtService.getOrFetchOnlineCover("UnknownArtist999", "NonexistentSong999", client)
         assertNull(result2)
         assertEquals(initialCalls, itunesCalls, "Second query must hit negative cache and not call network")
+    }
+
+    @Test
+    fun testLoadArtworkByUrlRejectsHttp(): Unit = runBlocking {
+        var networkCalled = false
+        val mockEngine = MockEngine {
+            networkCalled = true
+            respond(samplePngBytes, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "image/png"))
+        }
+        val client = HttpClient(mockEngine)
+        val result = CoverArtService.loadArtworkByUrl("http://example.com/cover.png", client)
+        assertNull(result, "Insecure HTTP URL must be rejected")
+        assertFalse(networkCalled, "Network should not be touched for HTTP URL")
+    }
+
+    @Test
+    fun testLoadArtworkByUrlRejectsNonImageContentType(): Unit = runBlocking {
+        val mockEngine = MockEngine {
+            respond(
+                content = "<html>Not an image</html>",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "text/html")
+            )
+        }
+        val client = HttpClient(mockEngine)
+        val result = CoverArtService.loadArtworkByUrl("https://example.com/not_image.html", client)
+        assertNull(result, "Non-image Content-Type must be rejected")
+    }
+
+    @Test
+    fun testLoadArtworkByUrlRejectsOversizedContent(): Unit = runBlocking {
+        val mockEngine = MockEngine {
+            respond(
+                content = ByteArray(6 * 1024 * 1024), // 6 MB
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "image/jpeg")
+            )
+        }
+        val client = HttpClient(mockEngine)
+        val result = CoverArtService.loadArtworkByUrl("https://example.com/oversized.jpg", client)
+        assertNull(result, "Payload over 5 MB must be rejected")
+    }
+
+    @Test
+    fun testLoadArtworkByUrlStripsAuthorizationHeader(): Unit = runBlocking {
+        var capturedAuthHeader: String? = "preset"
+        val mockEngine = MockEngine { request ->
+            capturedAuthHeader = request.headers[HttpHeaders.Authorization]
+            respond(samplePngBytes, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "image/png"))
+        }
+        val client = HttpClient(mockEngine)
+        CoverArtService.loadArtworkByUrl("https://example.com/auth_strip_check.png", client)
+        assertNull(capturedAuthHeader, "Authorization header must be removed from image requests")
+    }
+
+    @Test
+    fun testLoadArtworkByUrlDisabledInSettings(): Unit = runBlocking {
+        CoverArtService.settingsRepository.save(
+            CoverArtService.settingsRepository.load().copy(fetchOnlineCovers = false)
+        )
+        var networkCalled = false
+        val mockEngine = MockEngine {
+            networkCalled = true
+            respond(samplePngBytes, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "image/png"))
+        }
+        val client = HttpClient(mockEngine)
+        val result = CoverArtService.loadArtworkByUrl("https://example.com/cover.png", client)
+        assertNull(result, "Must return null when fetchOnlineCovers is false")
+        assertFalse(networkCalled, "Network should not be called when fetchOnlineCovers is disabled")
     }
 }

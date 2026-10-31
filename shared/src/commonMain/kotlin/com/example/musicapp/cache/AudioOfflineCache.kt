@@ -146,6 +146,7 @@ object AudioOfflineCache {
 
     fun clearCache() {
         cacheDir.listFiles()?.forEach { it.delete() }
+        com.example.musicapp.service.CoverArtService.clearCoverCache()
     }
 
     fun getUsedSizeBytes(): Long {

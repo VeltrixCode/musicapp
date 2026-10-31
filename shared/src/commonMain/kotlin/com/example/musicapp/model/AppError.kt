@@ -1,10 +1,10 @@
 package com.example.musicapp.model
 
 sealed class AppError(
-    open val message: String,
+    override val message: String,
     open val actionLabel: String? = null,
     open val onAction: (() -> Unit)? = null,
-) {
+) : Exception(message) {
     data class NoNetwork(
         override val onAction: (() -> Unit)? = null
     ) : AppError(
@@ -45,6 +45,23 @@ sealed class AppError(
         actionLabel = null,
         onAction = null
     )
+
+    data class OfflineModeError(
+        override val message: String = "Приложение находится в офлайн-режиме"
+    ) : AppError(message)
+
+    data class AuthError(
+        override val message: String
+    ) : AppError(message)
+
+    data class NetworkError(
+        override val message: String,
+        override val cause: Throwable? = null
+    ) : AppError(message)
+
+    data class ProviderError(
+        override val message: String
+    ) : AppError(message)
 
     data class Generic(
         override val message: String,

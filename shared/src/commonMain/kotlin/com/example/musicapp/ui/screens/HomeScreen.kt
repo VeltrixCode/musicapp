@@ -58,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -110,7 +111,8 @@ fun HomeScreen(
         }
     }
 
-    val hasJamendoKey = remember { com.example.musicapp.config.AppConfig.jamendoClientId.isNotBlank() }
+    val jamendoKey by com.example.musicapp.config.AppConfig.jamendoClientIdFlow.collectAsState()
+    val hasJamendoKey = jamendoKey.isNotBlank()
 
     var jamendoPopular by remember { mutableStateOf<List<RemoteTrack>>(emptyList()) }
     var audiusTrending by remember { mutableStateOf<List<RemoteTrack>>(emptyList()) }

@@ -3,13 +3,17 @@ package com.example.musicapp.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class TrackSource {
-    LOCAL,
-    GOOGLE_DRIVE,
-    YANDEX_DISK,
-    JAMENDO,
-    AUDIUS,
-    WEBDAV,
+enum class TrackSource(val displayName: String) {
+    LOCAL("Локальный"),
+    GOOGLE_DRIVE("Google Drive"),
+    YANDEX_DISK("Яндекс Диск"),
+    JAMENDO("Jamendo"),
+    AUDIUS("Audius"),
+    WEBDAV("WebDAV / Nextcloud"),
+    INTERNET_ARCHIVE("Internet Archive"),
+    SUBSONIC("Subsonic / Navidrome"),
+    RADIO_BROWSER("Radio Browser"),
+    JELLYFIN("Jellyfin");
 }
 
 @Serializable
@@ -32,6 +36,14 @@ data class Track(
     val cachedFilePath: String? = null,
     val license: String? = null,
     val mimeType: String? = null,
+    val isrc: String? = null,
+    val musicBrainzId: String? = null,
+    val audioFingerprint: String? = null,
+    val bitrateKbps: Int? = null,
+    val format: String? = null,
+    val isLossless: Boolean = false,
+    val webPageUrl: String? = null,
+    val workId: String? = null,
 ) {
     val playableUri: String? get() = cachedFilePath ?: source
     val isCloud: Boolean get() = sourceProvider != TrackSource.LOCAL
@@ -50,6 +62,12 @@ data class RemoteTrack(
     val sizeBytes: Long? = null,
     val source: TrackSource = TrackSource.LOCAL,
     val mimeType: String? = null,
+    val isrc: String? = null,
+    val musicBrainzId: String? = null,
+    val bitrateKbps: Int? = null,
+    val format: String? = null,
+    val isLossless: Boolean = false,
+    val webPageUrl: String? = null,
 ) {
     fun toTrack(): Track = Track(
         id = id,
@@ -63,6 +81,12 @@ data class RemoteTrack(
         artworkUrl = artworkUrl,
         license = license,
         mimeType = mimeType,
+        isrc = isrc,
+        musicBrainzId = musicBrainzId,
+        bitrateKbps = bitrateKbps,
+        format = format,
+        isLossless = isLossless,
+        webPageUrl = webPageUrl,
     )
 }
 
