@@ -21,6 +21,7 @@ import kotlin.random.Random
 
 private const val LIBRARY_FILE = "library.json"
 const val FAVORITES_PLAYLIST_ID = "p_favorites"
+const val DEBUG_DEMO_TRACKS = false
 
 private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
 
@@ -58,8 +59,10 @@ class Library {
             recentlyPlayedIds.addAll(saved.recentlyPlayedIds)
         } else {
             if (raw != null) AppStorage.write("$LIBRARY_FILE.bak", raw)
-            tracks.addAll(sampleTracks)
-            playlists.addAll(samplePlaylists)
+            if (DEBUG_DEMO_TRACKS) {
+                tracks.addAll(sampleTracks)
+                playlists.addAll(samplePlaylists)
+            }
             save()
         }
 

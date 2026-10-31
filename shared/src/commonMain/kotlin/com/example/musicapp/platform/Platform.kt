@@ -43,6 +43,9 @@ expect suspend fun readTrackInfoAsync(path: String): TrackInfo?
 /** Reads embedded artwork from an audio file asynchronously on IO dispatcher. Null if absent. */
 expect suspend fun loadArtwork(source: String): ImageBitmap?
 
+/** Decodes raw image bytes (JPEG, PNG, WebP) into an ImageBitmap. Null if unreadable. */
+expect fun decodeImageBytes(bytes: ByteArray): ImageBitmap?
+
 /** Reads text of .lrc file if present alongside audio file (e.g. song.lrc). Null if absent. */
 expect fun readLrcContent(audioPath: String): String?
 

@@ -25,14 +25,22 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.example.musicapp.service.CoverArtService
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -375,15 +383,20 @@ fun CloudSourcesScreen(
 
         Spacer(Modifier.height(28.dp))
 
-        // Section: Offline Cache Management
+        // Section: Offline Cache & Media Settings
         Text(
-            text = "Управление офлайн-кэшем",
+            text = "Управление офлайн-кэшем и медиа",
             style = MaterialTheme.typography.titleLarge.copy(
                 fontWeight = FontWeight.Bold,
                 color = AppColors.TextPrimary
             )
         )
         Spacer(Modifier.height(12.dp))
+
+        var showClearCacheConfirm by remember { mutableStateOf(false) }
+        var cacheLimitMb by remember {
+            mutableStateOf((AudioOfflineCache.maxSizeBytes / (1024L * 1024L)).toFloat())
+        }
 
         Box(
             modifier = Modifier
@@ -392,29 +405,116 @@ fun CloudSourcesScreen(
                 .background(AppColors.Surface)
                 .padding(16.dp)
         ) {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("Использовано памяти кэша: $usedCacheMb МБ", fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
-                        Text("Лимит кэша: 2 048 МБ (LRU)", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Использовано: $usedCacheMb МБ из ${cacheLimitMb.toInt()} МБ",
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        )
+                        Text(
+                            "Автоматическое LRU-вытеснение защищает играющие и добавленные в очередь треки",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppColors.TextSecondary
+                        )
                     }
                     Button(
-                        onClick = {
-                            AudioOfflineCache.clearCache()
-                            onShowMessage("Офлайн-кэш очищен")
-                        },
+                        onClick = { showClearCacheConfirm = true },
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceElevated)
                     ) {
                         Icon(Icons.Rounded.Delete, contentDescription = null, tint = AppColors.Error, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("Очистить кэш", color = Color.White)
+                        Text("Очистить кэш", color = Color.White, maxLines = 1, softWrap = false)
                     }
                 }
+
+                // Cache usage progress bar
+                val progressFrac = (usedCacheMb.toFloat() / cacheLimitMb.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                LinearProgressIndicator(
+                    progress = { progressFrac },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                    color = if (progressFrac > 0.85f) Color(0xFFFFA000) else AppColors.Accent,
+                    trackColor = AppColors.SurfaceElevated
+                )
+
+                // Cache limit slider (512 MB to 20 GB)
+                Column {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Лимит размера кэша", fontSize = 12.sp, color = AppColors.TextSecondary)
+                        Text("${cacheLimitMb.toInt()} МБ (${(cacheLimitMb / 1024f).let { if (it >= 1f) "${(it * 10).toInt() / 10f} ГБ" else "${it.toInt()} МБ" }})", fontSize = 12.sp, color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(
+                        value = cacheLimitMb,
+                        onValueChange = {
+                            cacheLimitMb = it
+                            AudioOfflineCache.maxSizeBytes = it.toLong() * 1024L * 1024L
+                        },
+                        valueRange = 512f..20480f,
+                        steps = 38,
+                        colors = SliderDefaults.colors(
+                            thumbColor = AppColors.Accent,
+                            activeTrackColor = AppColors.Accent,
+                            inactiveTrackColor = AppColors.SurfaceElevated
+                        )
+                    )
+                }
+
+                Spacer(Modifier.height(4.dp))
+
+                // Setting: Load online cover art (iTunes Search API)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Загружать обложки из интернета", fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
+                        Text("Поиск высокого разрешения через iTunes Search API при отсутствии локальных тегов", style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                    }
+                    Switch(
+                        checked = CoverArtService.loadOnlineCovers,
+                        onCheckedChange = { CoverArtService.loadOnlineCovers = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = AppColors.Accent,
+                            uncheckedThumbColor = AppColors.TextMuted,
+                            uncheckedTrackColor = AppColors.SurfaceElevated
+                        )
+                    )
+                }
             }
+        }
+
+        if (showClearCacheConfirm) {
+            AlertDialog(
+                onDismissRequest = { showClearCacheConfirm = false },
+                title = { Text("Очистить офлайн-кэш?", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text("Все временно загруженные треки ($usedCacheMb МБ) будут удалены из локального хранилища. Локальные файлы и плейлисты не будут затронуты.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            AudioOfflineCache.clearCache()
+                            showClearCacheConfirm = false
+                            onShowMessage("Офлайн-кэш успешно очищен")
+                        }
+                    ) {
+                        Text("Очистить", color = AppColors.Error, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearCacheConfirm = false }) {
+                        Text("Отмена", color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
+                    }
+                },
+                containerColor = AppColors.SurfaceElevated
+            )
         }
     }
 }

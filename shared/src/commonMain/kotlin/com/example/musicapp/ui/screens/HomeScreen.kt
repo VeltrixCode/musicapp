@@ -1,7 +1,16 @@
 package com.example.musicapp.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +38,7 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Icon
@@ -45,10 +55,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.musicapp.library.FAVORITES_PLAYLIST_ID
@@ -59,6 +71,7 @@ import com.example.musicapp.model.TrackSource
 import com.example.musicapp.player.AudioPlayer
 import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.fallbackGradientFor
+import com.example.musicapp.ui.components.FavoritesCoverBox
 import com.example.musicapp.ui.components.SpotifyContentCard
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -142,11 +155,15 @@ fun HomeScreen(
                 ) {
                     for (colIndex in 0 until columns) {
                         val card = quickCards[rowIndex * columns + colIndex]
+                        val isCardPlaying = player.isPlaying && card.tracks.any { it.id == player.current?.id }
                         QuickGridCard(
                             data = card,
+                            isPlaying = isCardPlaying,
                             modifier = Modifier.weight(1f),
                             onPlay = {
-                                if (card.tracks.isNotEmpty()) {
+                                if (isCardPlaying) {
+                                    player.pause()
+                                } else if (card.tracks.isNotEmpty()) {
                                     player.play(card.tracks.first(), card.tracks)
                                 }
                             },
@@ -177,16 +194,17 @@ fun HomeScreen(
             Spacer(Modifier.height(28.dp))
         }
 
-        // Shelf 2: "Ваши миксы"
-        SpotifyMixesShelf(
-            mixOfDay = mixOfDay,
-            recentTracks = recentlyAdded,
-            frequentTracks = frequentlyPlayed,
-            player = player,
-            onSelectMix = { onNavigateSmartMix(it) }
-        )
-
-        Spacer(Modifier.height(28.dp))
+        // Shelf 2: "Ваши миксы" (shown only when library has real tracks)
+        if (mixOfDay.isNotEmpty() || recentlyAdded.isNotEmpty() || frequentlyPlayed.isNotEmpty()) {
+            SpotifyMixesShelf(
+                mixOfDay = mixOfDay,
+                recentTracks = recentlyAdded,
+                frequentTracks = frequentlyPlayed,
+                player = player,
+                onSelectMix = { onNavigateSmartMix(it) }
+            )
+            Spacer(Modifier.height(28.dp))
+        }
 
         // Shelf 3: "Новое в облаке"
         if (cloudTracks.isNotEmpty()) {
@@ -236,58 +254,78 @@ private data class QuickCardData(
 @Composable
 private fun QuickGridCard(
     data: QuickCardData,
+    isPlaying: Boolean,
     modifier: Modifier = Modifier,
     onPlay: () -> Unit,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
     Box(
         modifier = modifier
             .height(56.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(AppColors.Surface)
+            .hoverable(interactionSource)
+            .background(if (isHovered) AppColors.CardHover else AppColors.Surface)
             .clickable { onClick() }
     ) {
         Row(
             modifier = Modifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .background(Brush.linearGradient(listOf(data.color, data.color.copy(alpha = 0.6f)))),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = data.icon,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
+            if (data.title == "Любимые треки") {
+                FavoritesCoverBox(
+                    modifier = Modifier.size(56.dp),
+                    iconSize = 24.dp,
+                    shape = RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp)
                 )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .background(Brush.linearGradient(listOf(data.color, data.color.copy(alpha = 0.6f)))),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = data.icon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             Text(
                 text = data.title,
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
+                    color = if (isPlaying) AppColors.Accent else AppColors.TextPrimary
                 ),
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(
-                onClick = onPlay,
+
+            // Play button appears on hover (fade + slide 200ms) or is always visible if playing
+            AnimatedVisibility(
+                visible = isHovered || isPlaying,
+                enter = fadeIn(tween(200)) + slideInHorizontally(tween(200)) { 20 },
+                exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { 20 },
                 modifier = Modifier.padding(end = 8.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .size(34.dp)
+                        .shadow(4.dp, CircleShape)
                         .clip(CircleShape)
-                        .background(AppColors.Accent),
+                        .background(AppColors.Accent)
+                        .clickable { onPlay() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = "Слушать",
+                        imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (isPlaying) "Пауза" else "Слушать",
                         tint = Color.Black,
                         modifier = Modifier.size(20.dp)
                     )

@@ -12,6 +12,15 @@ actual object AppStorage {
         File(dir, name).writeText(text)
     }
 
+    actual fun readBytes(name: String): ByteArray? =
+        File(dir, name).takeIf { it.exists() }?.readBytes()
+
+    actual fun writeBytes(name: String, bytes: ByteArray) {
+        val f = File(dir, name)
+        f.parentFile?.mkdirs()
+        f.writeBytes(bytes)
+    }
+
     actual fun deleteFile(absolutePath: String) {
         File(absolutePath).delete()
     }

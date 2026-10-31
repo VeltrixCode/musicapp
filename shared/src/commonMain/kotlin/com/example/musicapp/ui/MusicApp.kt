@@ -23,7 +23,12 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.mutableStateListOf
+import com.example.musicapp.ui.components.FavoritesCoverBox
+import com.example.musicapp.ui.components.RightNowPlayingDrawer
 import com.example.musicapp.ui.components.TrackActionMenu
+import com.example.musicapp.service.CoverArtService
+import com.example.musicapp.util.formatTrackDuration
+import com.example.musicapp.util.getEffectiveDurationMs
 import com.example.musicapp.ui.screens.CloudSourcesScreen
 import com.example.musicapp.ui.screens.HomeScreen
 import com.example.musicapp.ui.screens.SearchScreen
@@ -38,9 +43,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.hoverable
@@ -86,6 +93,7 @@ import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
@@ -306,9 +314,7 @@ fun MusicApp(
                         ) {
                             Column(
                                 modifier = Modifier
-                                    .fillMaxHeight()
-                                    .widthIn(max = 1400.dp)
-                                    .fillMaxWidth()
+                                    .fillMaxSize()
                             ) {
                                 // Top Action Bar with History Back/Forward
                                 SpotifyTopBar(
@@ -445,6 +451,8 @@ fun MusicApp(
                                                 SearchScreen(
                                                     library = library,
                                                     player = player,
+                                                    searchQuery = searchQuery,
+                                                    onSearchQueryChange = { searchQuery = it },
                                                     onTrackClick = { t -> player.play(t, listOf(t)) },
                                                     isCompact = isCompact
                                                 )
@@ -528,14 +536,15 @@ fun MusicApp(
                             }
                         }
 
-                        // Right Queue Drawer
+                        // Right Drawer ("Сейчас играет" / Очередь / Синхронизированный текст)
                         AnimatedVisibility(
                             visible = showQueueDrawer,
-                            enter = fadeIn(),
-                            exit = fadeOut()
+                            enter = fadeIn(tween(200)) + slideInHorizontally(tween(200)) { it },
+                            exit = fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { it }
                         ) {
-                            QueueDrawer(
+                            RightNowPlayingDrawer(
                                 player = player,
+                                library = library,
                                 onClose = { showQueueDrawer = false }
                             )
                         }
@@ -891,11 +900,13 @@ private fun SpotifySidebar(
                 .background(Color.Black)
                 .padding(vertical = spacing.md, horizontal = if (isCompact) spacing.xs else spacing.sm)
         ) {
-            // App Logo
+            // App Logo & Sidebar Collapse Toggle (no duplicate app title)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = spacing.md, start = if (isCompact) 0.dp else spacing.xs),
-                horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = spacing.md, start = if (isCompact) 0.dp else spacing.xs),
+                horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.SpaceBetween
             ) {
                 Box(
                     modifier = Modifier
@@ -906,20 +917,23 @@ private fun SpotifySidebar(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.MusicNote,
-                        contentDescription = null,
+                        contentDescription = "JVXMusic",
                         tint = Color.Black,
                         modifier = Modifier.size(20.dp)
                     )
                 }
                 if (!isCompact) {
-                    Spacer(Modifier.width(spacing.xs))
-                    Text(
-                        "JVXMusic",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Black,
-                            color = AppColors.TextPrimary
+                    IconButton(
+                        onClick = { onWidthChange(if (sidebarWidth <= 80.dp) 240.dp else 72.dp) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (sidebarWidth <= 80.dp) Icons.AutoMirrored.Rounded.ArrowForward else Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Свернуть/Развернуть",
+                            tint = AppColors.TextSecondary,
+                            modifier = Modifier.size(16.dp)
                         )
-                    )
+                    }
                 }
             }
 
@@ -1007,33 +1021,47 @@ private fun SpotifySidebar(
                 itemsIndexed(library.playlists, key = { _, p -> p.id }) { _, p ->
                     val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
                     val isFav = p.id == FAVORITES_PLAYLIST_ID
+                    val itemInteraction = remember { MutableInteractionSource() }
+                    val isItemHovered by itemInteraction.collectIsHoveredAsState()
 
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) AppColors.SurfaceElevated else Color.Transparent)
+                            .hoverable(itemInteraction)
+                            .background(
+                                when {
+                                    isSelected -> AppColors.SurfaceElevated
+                                    isItemHovered -> AppColors.CardHover
+                                    else -> Color.Transparent
+                                }
+                            )
                             .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
                             .padding(horizontal = if (isCompact) spacing.xxs else spacing.xs, vertical = spacing.xs),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(
-                                    if (isFav) Brush.linearGradient(listOf(Color(0xFF450AF5), Color(0xFF8E8EE5)))
-                                    else fallbackGradientFor(p.name)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isFav) Icons.Rounded.Favorite else Icons.Rounded.QueueMusic,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
+                        if (isFav) {
+                            FavoritesCoverBox(
+                                modifier = Modifier.size(32.dp),
+                                iconSize = 16.dp,
+                                shape = RoundedCornerShape(6.dp)
                             )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(fallbackGradientFor(p.name)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.QueueMusic,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                         if (!isCompact) {
                             Spacer(Modifier.width(spacing.xs))
@@ -1041,7 +1069,7 @@ private fun SpotifySidebar(
                                 Text(
                                     p.name,
                                     style = MaterialTheme.typography.bodyMedium.copy(
-                                        color = if (isSelected) AppColors.Accent else AppColors.TextPrimary,
+                                        color = if (isSelected) AppColors.Accent else if (isItemHovered) AppColors.TextPrimary else AppColors.TextSecondary,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                     ),
                                     maxLines = 1,
@@ -1137,6 +1165,7 @@ private fun HeroBanner(
     coverSource: String?,
     canPlay: Boolean,
     isPlaying: Boolean,
+    isFavorites: Boolean = false,
     onPlayAll: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
@@ -1152,8 +1181,10 @@ private fun HeroBanner(
         value = if (coverSource != null) loadArtwork(coverSource) else null
     }
 
-    val dominantColor = remember(coverSource, coverBitmap) {
-        if (coverSource != null && coverBitmap != null) {
+    val dominantColor = remember(coverSource, coverBitmap, isFavorites) {
+        if (isFavorites) {
+            Color(0xFF450AF5)
+        } else if (coverSource != null && coverBitmap != null) {
             ArtworkCache.getDominantColor(coverSource) ?: ArtworkCache.computeAndStoreDominantColor(coverSource, coverBitmap!!)
         } else {
             Color(0xFF282828)
@@ -1174,30 +1205,41 @@ private fun HeroBanner(
             .padding(spacing.md),
         verticalAlignment = Alignment.Bottom
     ) {
-        // Large 232dp (or 160dp on smaller screens) Cover Art with soft shadow
+        // Large 180dp Cover Art with soft shadow
         Box(
             modifier = Modifier
                 .size(180.dp)
                 .shadow(16.dp, RoundedCornerShape(8.dp))
                 .clip(RoundedCornerShape(8.dp))
-                .background(fallbackGradientFor(title)),
+                .let {
+                    if (isFavorites) it.background(Color.Transparent)
+                    else it.background(fallbackGradientFor(title))
+                },
             contentAlignment = Alignment.Center
         ) {
-            Crossfade(targetState = coverBitmap) { bmp ->
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp,
-                        contentDescription = "Обложка $title",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Rounded.LibraryMusic,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(64.dp)
-                    )
+            if (isFavorites) {
+                FavoritesCoverBox(
+                    modifier = Modifier.fillMaxSize(),
+                    iconSize = 72.dp,
+                    shape = RoundedCornerShape(8.dp)
+                )
+            } else {
+                Crossfade(targetState = coverBitmap) { bmp ->
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp,
+                            contentDescription = "Обложка $title",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.LibraryMusic,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(64.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1339,13 +1381,8 @@ private fun TableHeader(
             }
         }
 
-        // Action column: 96dp
-        Box(
-            modifier = Modifier.width(96.dp),
-            contentAlignment = Alignment.CenterEnd
-        ) {
-            Text("ДЕЙСТВИЯ", style = MaterialTheme.typography.labelSmall.copy(color = AppColors.TextMuted))
-        }
+        // Action spacer: 96dp matching row actions width (no collision with duration)
+        Spacer(Modifier.width(96.dp))
     }
 
     Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
@@ -1355,6 +1392,7 @@ private fun TableHeader(
 // ==========================================
 // Track Row Item with Context Menu & Equalizer
 // ==========================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TrackRowItem(
     index: Int,
@@ -1364,6 +1402,7 @@ private fun TrackRowItem(
     searchQuery: String,
     isCompact: Boolean,
     playlists: List<Playlist>,
+    durationText: String = "",
     onPlay: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
@@ -1380,10 +1419,9 @@ private fun TrackRowItem(
     val rowInteraction = remember { MutableInteractionSource() }
     val isRowHovered by rowInteraction.collectIsHoveredAsState()
 
-    // Artwork with memory cache
-    val artworkBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = track.source) {
-        val src = track.source
-        value = if (src != null) loadArtwork(src) else null
+    // Artwork with multi-tier cache & online cover lookup
+    val artworkBitmap by produceState<ImageBitmap?>(initialValue = null, key1 = track.id) {
+        value = CoverArtService.loadArtworkForTrack(track)
     }
 
     Box(
@@ -1398,17 +1436,10 @@ private fun TrackRowItem(
                 }
             )
             .hoverable(rowInteraction)
-            .pointerInput(track.id) {
-                // Secondary click (right click) context menu
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    // If secondary mouse button clicked:
-                    // In Compose Desktop secondary button is down
-                    val event = awaitPointerEvent()
-                    // Detect right-click
-                }
-            }
-            .clickable { onPlay() }
+            .combinedClickable(
+                onClick = { onPlay() },
+                onDoubleClick = { onPlay() }
+            )
             .padding(horizontal = spacing.sm, vertical = spacing.xs)
     ) {
         Row(
@@ -1515,10 +1546,10 @@ private fun TrackRowItem(
                 }
             }
 
-            // Duration: 80dp
+            // Duration: 80dp (Unified source of duration)
             if (!isCompact) {
                 Text(
-                    text = if (track.durationMs > 0) formatTime(track.durationMs) else "--:--",
+                    text = if (durationText.isNotBlank()) durationText else (if (track.durationMs > 0) formatTime(track.durationMs) else "--:--"),
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = AppColors.TextSecondary,
                         textAlign = TextAlign.End
@@ -1811,6 +1842,7 @@ private fun LibraryView(
                         searchQuery = searchQuery,
                         isCompact = isCompact,
                         playlists = library.playlists,
+                        durationText = formatTrackDuration(track, player),
                         onPlay = { player.play(track, sorted) },
                         onPlayNext = { player.playNext(track) },
                         onAddToQueue = { player.addToQueue(track) },
@@ -1869,12 +1901,8 @@ private fun PlaylistDetailView(
     var pendingDeletePlaylist by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) {
-                Text("← Назад к медиатеке", color = AppColors.TextSecondary, fontSize = 13.sp)
-            }
-            Spacer(Modifier.weight(1f))
-            if (!playlist.isSystem) {
+        if (!playlist.isSystem) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { pendingDeletePlaylist = true }) {
                     Icon(
                         imageVector = Icons.Rounded.Delete,
@@ -1896,6 +1924,7 @@ private fun PlaylistDetailView(
             coverSource = tracks.firstOrNull { it.source != null }?.source,
             canPlay = tracks.any { it.source != null },
             isPlaying = player.isPlaying && tracks.any { it.id == player.current?.id },
+            isFavorites = playlist.id == FAVORITES_PLAYLIST_ID,
             onPlayAll = {
                 tracks.firstOrNull { it.source != null }?.let { player.play(it, tracks) }
             }
@@ -1928,6 +1957,7 @@ private fun PlaylistDetailView(
                         searchQuery = "",
                         isCompact = isCompact,
                         playlists = library.playlists,
+                        durationText = formatTrackDuration(track, player),
                         onPlay = { player.play(track, tracks) },
                         onPlayNext = { player.playNext(track) },
                         onAddToQueue = { player.addToQueue(track) },
@@ -2024,6 +2054,7 @@ private fun SmartMixDetailView(
                     searchQuery = "",
                     isCompact = isCompact,
                     playlists = library.playlists,
+                    durationText = formatTrackDuration(track, player),
                     onPlay = { player.play(track, tracks) },
                     onPlayNext = { player.playNext(track) },
                     onAddToQueue = { player.addToQueue(track) },
@@ -2058,13 +2089,13 @@ private fun SpotifyNowPlayingBar(
     val sleepSec by player.sleepTimerRemainingSec.collectAsState()
 
     var draggingFraction by remember { mutableStateOf<Float?>(null) }
-    val duration = playbackState.durationMs.coerceAtLeast(1L)
+    val effectiveTotalDuration = if (playbackState.durationMs > 0L) playbackState.durationMs else (track?.durationMs ?: 0L)
+    val duration = effectiveTotalDuration.coerceAtLeast(1L)
     val fraction = draggingFraction ?: (playbackState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
-    // Load active artwork
-    val activeArtwork by produceState<ImageBitmap?>(initialValue = null, key1 = track?.source) {
-        val src = track?.source
-        value = if (src != null) loadArtwork(src) else null
+    // Load active artwork (with online cover search fallback)
+    val activeArtwork by produceState<ImageBitmap?>(initialValue = null, key1 = track?.id) {
+        value = if (track != null) CoverArtService.loadArtworkForTrack(track) else null
     }
 
     Surface(
@@ -2282,7 +2313,7 @@ private fun SpotifyNowPlayingBar(
                     Spacer(Modifier.width(spacing.xs))
 
                     Text(
-                        formatTime(playbackState.durationMs),
+                        formatTime(effectiveTotalDuration),
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = AppColors.TextMuted,
                             fontSize = 11.5.sp,
@@ -2293,73 +2324,27 @@ private fun SpotifyNowPlayingBar(
                 }
             }
 
-            // Right Column: Tools (Spectrum, Equalizer, Timer, Speed, Queue, Volume, Fullscreen)
+            // Right Column: Tools (Queue/NowPlaying, Volume, Fullscreen, More Menu ⋯)
             if (!isCompact) {
+                var moreMenuExpanded by remember { mutableStateOf(false) }
+
                 Row(
                     modifier = Modifier
-                        .width(320.dp)
+                        .width(280.dp)
                         .padding(end = spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End
                 ) {
-                    // Spectrum Mini Visualizer (Canvas)
-                    if (player.isPlaying) {
-                        SpectrumCanvas(
-                            spectrum = spectrum,
-                            modifier = Modifier.width(42.dp).height(20.dp)
-                        )
-                        Spacer(Modifier.width(spacing.xs))
-                    }
-
-                    // Equalizer Button
-                    IconButton(
-                        onClick = onOpenEqualizer,
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Equalizer,
-                            contentDescription = "Эквалайзер",
-                            tint = AppColors.TextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Sleep Timer
-                    IconButton(
-                        onClick = onOpenSleepTimer,
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Bedtime,
-                            contentDescription = "Таймер сна",
-                            tint = if (sleepSec != null) AppColors.Accent else AppColors.TextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Speed
-                    IconButton(
-                        onClick = onOpenSpeed,
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Speed,
-                            contentDescription = "Скорость воспроизведения",
-                            tint = if (player.speed != 1.0f) AppColors.Accent else AppColors.TextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Queue Drawer Button
+                    // Queue / Now Playing Drawer Button
                     IconButton(
                         onClick = onToggleQueue,
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.QueueMusic,
-                            contentDescription = "Очередь воспроизведения",
+                            contentDescription = "Очередь и текст",
                             tint = AppColors.TextSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -2389,20 +2374,101 @@ private fun SpotifyNowPlayingBar(
                     VolumeScrubBar(
                         volume = vol,
                         onVolumeChange = { player.updateVolume(it) },
-                        modifier = Modifier.width(84.dp)
+                        modifier = Modifier.width(88.dp)
                     )
+
+                    Spacer(Modifier.width(spacing.xxs))
 
                     // Fullscreen Button
                     IconButton(
                         onClick = onOpenFullscreen,
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Fullscreen,
                             contentDescription = "Полноэкранный режим",
                             tint = AppColors.TextSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
+                    }
+
+                    Spacer(Modifier.width(spacing.xxs))
+
+                    // More Options Dropdown Menu Button (⋯)
+                    Box {
+                        IconButton(
+                            onClick = { moreMenuExpanded = true },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreHoriz,
+                                contentDescription = "Дополнительно",
+                                tint = AppColors.TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = moreMenuExpanded,
+                            onDismissRequest = { moreMenuExpanded = false },
+                            modifier = Modifier.background(AppColors.SurfaceElevated)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Эквалайзер") },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = AppColors.Accent)
+                                },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenEqualizer()
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Таймер сна")
+                                        if (sleepSec != null) {
+                                            Text("${sleepSec!! / 60} мин", color = AppColors.Accent, fontSize = 12.sp)
+                                        }
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Bedtime, contentDescription = null, tint = if (sleepSec != null) AppColors.Accent else AppColors.TextSecondary)
+                                },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenSleepTimer()
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Скорость воспроизведения")
+                                        Text("${player.speed}x", color = if (player.speed != 1.0f) AppColors.Accent else AppColors.TextMuted, fontSize = 12.sp)
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Speed, contentDescription = null, tint = if (player.speed != 1.0f) AppColors.Accent else AppColors.TextSecondary)
+                                },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenSpeed()
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Полноэкранный режим") },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Fullscreen, contentDescription = null, tint = AppColors.TextSecondary)
+                                },
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenFullscreen()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -2829,14 +2895,14 @@ private fun FullscreenNowPlayingView(
     val spectrum by player.spectrumState.collectAsState()
     var showLyrics by remember { mutableStateOf(false) }
 
-    val activeArtwork by produceState<ImageBitmap?>(initialValue = null, key1 = track?.source) {
-        val src = track?.source
-        value = if (src != null) loadArtwork(src) else null
+    val activeArtwork by produceState<ImageBitmap?>(initialValue = null, key1 = track?.id) {
+        value = if (track != null) CoverArtService.loadArtworkForTrack(track) else null
     }
 
-    val dominantColor = remember(track?.source, activeArtwork) {
-        if (track?.source != null && activeArtwork != null) {
-            ArtworkCache.getDominantColor(track.source) ?: ArtworkCache.computeAndStoreDominantColor(track.source, activeArtwork!!)
+    val dominantColor = remember(track?.id, activeArtwork) {
+        val src = track?.source ?: track?.id
+        if (src != null && activeArtwork != null) {
+            ArtworkCache.getDominantColor(src) ?: ArtworkCache.computeAndStoreDominantColor(src, activeArtwork!!)
         } else Color(0xFF1E3264)
     }
 
@@ -2945,8 +3011,9 @@ private fun FullscreenNowPlayingView(
 
             Spacer(Modifier.height(spacing.lg))
 
-            // Progress Slider
-            val duration = playbackState.durationMs.coerceAtLeast(1L)
+            // Progress Slider (unified authoritative duration)
+            val effectiveDuration = if (playbackState.durationMs > 0L) playbackState.durationMs else (track?.durationMs ?: 0L)
+            val duration = effectiveDuration.coerceAtLeast(1L)
             val fraction = (playbackState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
             Row(
@@ -2963,7 +3030,7 @@ private fun FullscreenNowPlayingView(
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(spacing.sm))
-                Text(formatTime(playbackState.durationMs), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                Text(formatTime(effectiveDuration), color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
             }
 
             Spacer(Modifier.height(spacing.md))

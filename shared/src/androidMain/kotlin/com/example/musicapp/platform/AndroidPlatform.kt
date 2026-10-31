@@ -80,6 +80,10 @@ actual suspend fun loadArtwork(source: String): ImageBitmap? = withContext(Dispa
     }.getOrNull()
 }
 
+actual fun decodeImageBytes(bytes: ByteArray): ImageBitmap? = runCatching {
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+}.getOrNull()
+
 actual fun readLrcContent(audioPath: String): String? {
     val dot = audioPath.lastIndexOf('.')
     if (dot <= 0) return null
