@@ -33,6 +33,7 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+            implementation("io.ktor:ktor-client-mock:$ktorVersion")
         }
         val desktopMain by getting {
             dependencies {
@@ -44,10 +45,18 @@ kotlin {
                 implementation("org.openjfx:javafx-media:$fx:win")
                 // ID3 / audio tag reading on desktop
                 implementation("net.jthink:jaudiotagger:3.0.1")
+                // Native System Keyring & Windows DPAPI for SecureStorage
+                implementation("net.java.dev.jna:jna:5.14.0")
+                implementation("net.java.dev.jna:jna-platform:5.14.0")
                 // Ktor client & embedded streaming proxy for Desktop JavaFX Media
                 implementation("io.ktor:ktor-client-cio:$ktorVersion")
                 implementation("io.ktor:ktor-server-core:$ktorVersion")
                 implementation("io.ktor:ktor-server-cio:$ktorVersion")
+            }
+        }
+        val desktopTest by getting {
+            dependencies {
+                implementation("io.ktor:ktor-server-test-host:$ktorVersion")
             }
         }
         val androidMain by getting {

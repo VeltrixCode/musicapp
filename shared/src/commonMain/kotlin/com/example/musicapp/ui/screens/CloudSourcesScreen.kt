@@ -16,11 +16,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.NetworkCheck
+import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.musicapp.cache.AudioOfflineCache
+import com.example.musicapp.config.AppConfig
 import com.example.musicapp.library.Library
 import com.example.musicapp.player.AudioPlayer
 import com.example.musicapp.theme.AppColors
@@ -68,6 +72,16 @@ fun CloudSourcesScreen(
     var yandexTokenInput by remember { mutableStateOf("") }
     var showGDriveTokenDialog by remember { mutableStateOf(false) }
     var showYandexTokenDialog by remember { mutableStateOf(false) }
+
+    // API Config State
+    var googleClientIdInput by remember { mutableStateOf(AppConfig.googleClientId) }
+    var googleClientSecretInput by remember { mutableStateOf(AppConfig.googleClientSecret) }
+    var yandexClientIdInput by remember { mutableStateOf(AppConfig.yandexClientId) }
+    var jamendoClientIdInput by remember { mutableStateOf(AppConfig.jamendoClientId) }
+    var audiusAppNameInput by remember { mutableStateOf(AppConfig.audiusAppName) }
+
+    var isTestingConnection by remember { mutableStateOf(false) }
+    var testConnectionResult by remember { mutableStateOf<String?>(null) }
 
     val usedCacheMb = remember(AudioOfflineCache.getUsedSizeBytes()) {
         AudioOfflineCache.getUsedSizeBytes() / (1024L * 1024L)
@@ -168,6 +182,148 @@ fun CloudSourcesScreen(
             onConnect = {},
             onDisconnect = {}
         )
+
+        Spacer(Modifier.height(28.dp))
+
+        // SECTION: API Credentials & Keys (SecureStorage)
+        Text(
+            text = "Настройки API и Ключи сервисов",
+            style = MaterialTheme.typography.titleLarge.copy(
+                fontWeight = FontWeight.Bold,
+                color = AppColors.TextPrimary
+            )
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Ключи сохраняются в системное зашифрованное хранилище SecureStorage (Windows DPAPI / Android Keystore).",
+            style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary)
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(AppColors.Surface)
+                .padding(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = googleClientIdInput,
+                    onValueChange = { googleClientIdInput = it },
+                    label = { Text("Google Client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = googleClientSecretInput,
+                    onValueChange = { googleClientSecretInput = it },
+                    label = { Text("Google Client Secret") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = yandexClientIdInput,
+                    onValueChange = { yandexClientIdInput = it },
+                    label = { Text("Яндекс Client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = jamendoClientIdInput,
+                    onValueChange = { jamendoClientIdInput = it },
+                    label = { Text("Jamendo Client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = audiusAppNameInput,
+                    onValueChange = { audiusAppNameInput = it },
+                    label = { Text("Audius App Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(
+                        onClick = {
+                            AppConfig.googleClientId = googleClientIdInput.trim()
+                            AppConfig.googleClientSecret = googleClientSecretInput.trim()
+                            AppConfig.yandexClientId = yandexClientIdInput.trim()
+                            AppConfig.jamendoClientId = jamendoClientIdInput.trim()
+                            AppConfig.audiusAppName = audiusAppNameInput.trim()
+                            onShowMessage("Ключи успешно сохранены в SecureStorage!")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                    ) {
+                        Icon(Icons.Rounded.Save, contentDescription = null, tint = Color.Black)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Сохранить в SecureStorage", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            isTestingConnection = true
+                            testConnectionResult = null
+                            scope.launch {
+                                try {
+                                    val audiusOk = registry.audius.listTracks().items.isNotEmpty()
+                                    val jamendoOk = if (AppConfig.jamendoClientId.isNotBlank()) {
+                                        registry.jamendo.listTracks().items.isNotEmpty()
+                                    } else false
+
+                                    val parts = mutableListOf<String>()
+                                    parts.add("Audius: ${if (audiusOk) "OK" else "Нет ответа"}")
+                                    if (AppConfig.jamendoClientId.isNotBlank()) {
+                                        parts.add("Jamendo: ${if (jamendoOk) "OK" else "Ошибка/Не авторизован"}")
+                                    }
+                                    if (isGDriveSignedIn) parts.add("Google Drive: Подключен")
+                                    if (isYandexSignedIn) parts.add("Яндекс Диск: Подключен")
+
+                                    testConnectionResult = parts.joinToString(" • ")
+                                } catch (e: Exception) {
+                                    testConnectionResult = "Сбой проверки: ${e.message}"
+                                } finally {
+                                    isTestingConnection = false
+                                }
+                            }
+                        },
+                        enabled = !isTestingConnection
+                    ) {
+                        if (isTestingConnection) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(6.dp))
+                        } else {
+                            Icon(Icons.Rounded.NetworkCheck, contentDescription = null, tint = Color.White)
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text("Проверить подключение", color = Color.White)
+                    }
+                }
+
+                testConnectionResult?.let { result ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(AppColors.SurfaceElevated)
+                            .padding(10.dp)
+                    ) {
+                        Text(result, color = AppColors.Accent, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
 
         Spacer(Modifier.height(28.dp))
 

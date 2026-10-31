@@ -1,17 +1,23 @@
 package com.example.musicapp.security
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 import java.io.File
+import java.io.StringReader
+import java.io.StringWriter
 import java.nio.charset.StandardCharsets
-import java.security.SecureRandom
+import java.security.KeyStore
 import java.util.Properties
 import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
-import javax.crypto.spec.SecretKeySpec
 
 actual object SecureStorage {
+    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    private const val KEY_ALIAS = "JVXMusicMasterKey"
+
     private var appContext: Context? = null
     private val cachedProperties = Properties()
     private var isLoaded = false
@@ -21,34 +27,52 @@ actual object SecureStorage {
         appContext = context.applicationContext
     }
 
+    private fun getOrCreateMasterKey(): SecretKey {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (!keyStore.containsAlias(KEY_ALIAS)) {
+            val keyGenerator = KeyGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_AES,
+                ANDROID_KEYSTORE
+            )
+            val spec = KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .setUserAuthenticationRequired(false)
+                .build()
+            keyGenerator.init(spec)
+            return keyGenerator.generateKey()
+        }
+        val entry = keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry
+        return entry.secretKey
+    }
+
+    fun encryptBytes(data: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateMasterKey())
+        val iv = cipher.iv
+        val cipherText = cipher.doFinal(data)
+        val output = ByteArray(iv.size + cipherText.size)
+        System.arraycopy(iv, 0, output, 0, iv.size)
+        System.arraycopy(cipherText, 0, output, iv.size, cipherText.size)
+        return output
+    }
+
+    fun decryptBytes(encrypted: ByteArray): ByteArray {
+        val iv = encrypted.copyOfRange(0, 12)
+        val cipherText = encrypted.copyOfRange(12, encrypted.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val spec = GCMParameterSpec(128, iv)
+        cipher.init(Cipher.DECRYPT_MODE, getOrCreateMasterKey(), spec)
+        return cipher.doFinal(cipherText)
+    }
+
     private fun getVaultFile(): File? {
         val ctx = appContext ?: return null
-        return File(ctx.filesDir, "vault.enc")
-    }
-
-    private fun getSaltFile(): File? {
-        val ctx = appContext ?: return null
-        return File(ctx.filesDir, "vault.salt")
-    }
-
-    private fun getOrCreateSalt(): ByteArray {
-        val saltFile = getSaltFile() ?: return ByteArray(16)
-        if (!saltFile.exists() || saltFile.length() < 16) {
-            val salt = ByteArray(16)
-            SecureRandom().nextBytes(salt)
-            saltFile.writeBytes(salt)
-            return salt
-        }
-        return saltFile.readBytes()
-    }
-
-    private fun deriveKey(): SecretKeySpec {
-        val salt = getOrCreateSalt()
-        val pkg = appContext?.packageName ?: "com.example.musicapp"
-        val spec = PBEKeySpec(pkg.toCharArray(), salt, 10000, 256)
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val keyBytes = factory.generateSecret(spec).encoded
-        return SecretKeySpec(keyBytes, "AES")
+        return File(ctx.filesDir, "vault.keystore.enc")
     }
 
     private fun loadVault() {
@@ -59,16 +83,9 @@ actual object SecureStorage {
             if (file != null && file.exists() && file.length() > 28) {
                 try {
                     val raw = file.readBytes()
-                    val iv = raw.copyOfRange(0, 12)
-                    val cipherText = raw.copyOfRange(12, raw.size)
-
-                    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                    val spec = GCMParameterSpec(128, iv)
-                    cipher.init(Cipher.DECRYPT_MODE, deriveKey(), spec)
-                    val decrypted = cipher.doFinal(cipherText)
-
+                    val decrypted = decryptBytes(raw)
                     val text = String(decrypted, StandardCharsets.UTF_8)
-                    cachedProperties.load(text.reader())
+                    cachedProperties.load(StringReader(text))
                 } catch (_: Exception) {
                     cachedProperties.clear()
                 }
@@ -81,24 +98,13 @@ actual object SecureStorage {
         val file = getVaultFile() ?: return
         synchronized(lock) {
             try {
-                val sw = java.io.StringWriter()
-                cachedProperties.store(sw, "JVXMusic Encrypted Vault")
+                val sw = StringWriter()
+                cachedProperties.store(sw, "JVXMusic Android Keystore Vault")
                 val plainBytes = sw.toString().toByteArray(StandardCharsets.UTF_8)
-
-                val iv = ByteArray(12)
-                SecureRandom().nextBytes(iv)
-
-                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                val spec = GCMParameterSpec(128, iv)
-                cipher.init(Cipher.ENCRYPT_MODE, deriveKey(), spec)
-                val cipherText = cipher.doFinal(plainBytes)
-
-                val output = ByteArray(iv.size + cipherText.size)
-                System.arraycopy(iv, 0, output, 0, iv.size)
-                System.arraycopy(cipherText, 0, output, iv.size, cipherText.size)
+                val encrypted = encryptBytes(plainBytes)
 
                 val tmp = File(file.parentFile, "vault.tmp")
-                tmp.writeBytes(output)
+                tmp.writeBytes(encrypted)
                 tmp.renameTo(file)
             } catch (_: Exception) {}
         }

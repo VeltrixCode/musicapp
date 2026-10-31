@@ -82,9 +82,11 @@ interface AudioPlayer {
     val lyrics: List<LrcLine>
     val queue: List<Track>
     val unsupportedFormatNotice: String?
+    val appError: StateFlow<com.example.musicapp.model.AppError?>
     val providerRegistry: com.example.musicapp.provider.ProviderRegistry
 
     fun dismissFormatNotice()
+    fun dismissError()
     fun downloadForOffline(track: Track)
     fun deleteOffline(trackId: String)
 
@@ -162,10 +164,21 @@ class PlayerController(
     override var unsupportedFormatNotice by mutableStateOf<String?>(null)
         private set
 
+    private val _appError = MutableStateFlow<com.example.musicapp.model.AppError?>(null)
+    override val appError: StateFlow<com.example.musicapp.model.AppError?> = _appError.asStateFlow()
+
     override val providerRegistry = com.example.musicapp.provider.ProviderRegistry()
 
     override fun dismissFormatNotice() {
         unsupportedFormatNotice = null
+    }
+
+    override fun dismissError() {
+        _appError.value = null
+    }
+
+    fun postError(err: com.example.musicapp.model.AppError) {
+        _appError.value = err
     }
 
     override fun downloadForOffline(track: Track) {

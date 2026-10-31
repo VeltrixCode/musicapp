@@ -2,12 +2,13 @@ package com.example.musicapp.proxy
 
 import com.example.musicapp.model.StreamSource
 import com.example.musicapp.provider.appHttpClient
-import io.ktor.client.plugins.onDownload
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.Application
 import io.ktor.server.cio.CIO
 import io.ktor.server.cio.CIOApplicationEngine
 import io.ktor.server.engine.EmbeddedServer
@@ -21,6 +22,7 @@ import io.ktor.server.routing.head
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.jvm.javaio.copyTo
 import java.net.ServerSocket
+import java.net.URI
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -30,10 +32,13 @@ data class ProxySession(
     @Volatile var streamSource: StreamSource,
     val onRefreshNeeded: (suspend () -> StreamSource?)? = null,
     val createdAtMs: Long = System.currentTimeMillis(),
-)
+    val ttlMs: Long = 30 * 60 * 1000L, // 30 minutes session TTL
+) {
+    fun isExpired(): Boolean = System.currentTimeMillis() - createdAtMs > ttlMs
+}
 
 object LocalStreamingProxy {
-    private val sessions = ConcurrentHashMap<String, ProxySession>()
+    val sessions = ConcurrentHashMap<String, ProxySession>()
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     var serverPort: Int = 0
         private set
@@ -59,115 +64,55 @@ object LocalStreamingProxy {
 
         // Listen STRICTLY on 127.0.0.1 (Loopback only)
         server = embeddedServer(CIO, port = port, host = "127.0.0.1") {
-            routing {
-                head("/stream/{token}") {
-                    val host = call.request.headers[HttpHeaders.Host]
-                    if (!isValidHost(host)) {
-                        call.respond(HttpStatusCode.Forbidden, "Invalid Host header")
-                        return@head
-                    }
-
-                    val token = call.parameters["token"]
-                    val session = token?.let { sessions[it] }
-                    if (session == null) {
-                        call.respond(HttpStatusCode.NotFound)
-                        return@head
-                    }
-
-                    try {
-                        val upstream = appHttpClient.get(session.streamSource.url) {
-                            session.streamSource.headers.forEach { (k, v) -> header(k, v) }
-                            header(HttpHeaders.Range, "bytes=0-0")
-                        }
-
-                        val contentType = upstream.headers[HttpHeaders.ContentType] ?: "audio/mpeg"
-                        val contentRange = upstream.headers[HttpHeaders.ContentRange]
-                        val totalLength = contentRange?.substringAfterLast('/')?.toLongOrNull()
-                            ?: upstream.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-
-                        call.response.header(HttpHeaders.ContentType, contentType)
-                        call.response.header(HttpHeaders.AcceptRanges, "bytes")
-                        if (totalLength != null && totalLength > 0) {
-                            call.response.header(HttpHeaders.ContentLength, totalLength.toString())
-                        }
-                        call.respond(HttpStatusCode.OK)
-                    } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadGateway)
-                    }
-                }
-
-                get("/stream/{token}") {
-                    val host = call.request.headers[HttpHeaders.Host]
-                    if (!isValidHost(host)) {
-                        call.respond(HttpStatusCode.Forbidden, "Invalid Host header")
-                        return@get
-                    }
-
-                    val token = call.parameters["token"]
-                    val session = token?.let { sessions[it] }
-                    if (session == null) {
-                        call.respondText("Stream session not found or expired", status = HttpStatusCode.NotFound)
-                        return@get
-                    }
-
-                    val incomingRange = call.request.headers[HttpHeaders.Range]
-
-                    try {
-                        var streamSource = session.streamSource
-                        var upstreamResponse = fetchUpstream(streamSource, incomingRange)
-
-                        // Requirement 4: If Yandex Disk / cloud link expired (401, 403, 410), refresh link without stopping playback
-                        if (upstreamResponse.status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone)) {
-                            val refreshed = session.onRefreshNeeded?.invoke()
-                            if (refreshed != null) {
-                                session.streamSource = refreshed
-                                streamSource = refreshed
-                                upstreamResponse = fetchUpstream(streamSource, incomingRange)
-                            }
-                        }
-
-                        if (upstreamResponse.status == HttpStatusCode.RequestedRangeNotSatisfiable) {
-                            upstreamResponse.headers[HttpHeaders.ContentRange]?.let {
-                                call.response.header(HttpHeaders.ContentRange, it)
-                            }
-                            call.respond(HttpStatusCode.RequestedRangeNotSatisfiable)
-                            return@get
-                        }
-
-                        // Forward headers
-                        upstreamResponse.headers[HttpHeaders.ContentType]?.let {
-                            call.response.header(HttpHeaders.ContentType, it)
-                        } ?: call.response.header(HttpHeaders.ContentType, "audio/mpeg")
-
-                        upstreamResponse.headers[HttpHeaders.ContentLength]?.let {
-                            call.response.header(HttpHeaders.ContentLength, it)
-                        }
-                        upstreamResponse.headers[HttpHeaders.ContentRange]?.let {
-                            call.response.header(HttpHeaders.ContentRange, it)
-                        }
-                        call.response.header(HttpHeaders.AcceptRanges, "bytes")
-
-                        val status = upstreamResponse.status
-                        val channel = upstreamResponse.bodyAsChannel()
-                        call.respondOutputStream(status = status) {
-                            channel.copyTo(this)
-                        }
-                    } catch (e: Exception) {
-                        call.respondText("Stream error", status = HttpStatusCode.BadGateway)
-                    }
-                }
-            }
+            configureStreamingProxyRoutes(this, sessions) { host -> isValidHost(host) }
         }.start(wait = false)
     }
 
-    private suspend fun fetchUpstream(streamSource: StreamSource, rangeHeader: String?) =
-        appHttpClient.get(streamSource.url) {
+    suspend fun fetchUpstream(streamSource: StreamSource, rangeHeader: String?): HttpResponse {
+        val initialUri = runCatching { URI(streamSource.url) }.getOrNull()
+        val initialHost = initialUri?.host
+
+        val initialResponse = appHttpClient.get(streamSource.url) {
             header(HttpHeaders.UserAgent, "JVXMusic/1.0 (Desktop Player)")
             streamSource.headers.forEach { (k, v) -> header(k, v) }
             if (rangeHeader != null) {
                 header(HttpHeaders.Range, rangeHeader)
             }
         }
+
+        // Cross-host redirect security: do NOT forward Authorization header to a different host
+        val status = initialResponse.status
+        if (status in listOf(
+                HttpStatusCode.MovedPermanently,
+                HttpStatusCode.Found,
+                HttpStatusCode.SeeOther,
+                HttpStatusCode.TemporaryRedirect,
+                HttpStatusCode.PermanentRedirect
+            )
+        ) {
+            val location = initialResponse.headers[HttpHeaders.Location]
+            if (!location.isNullOrBlank()) {
+                val targetUri = runCatching { URI(location) }.getOrNull()
+                val targetHost = targetUri?.host
+                val isSameHost = targetHost.isNullOrBlank() || targetHost.equals(initialHost, ignoreCase = true)
+
+                return appHttpClient.get(location) {
+                    header(HttpHeaders.UserAgent, "JVXMusic/1.0 (Desktop Player)")
+                    streamSource.headers.forEach { (k, v) ->
+                        // Strip Authorization if redirecting to a foreign host (e.g. cloud storage CDN)
+                        if (isSameHost || !k.equals(HttpHeaders.Authorization, ignoreCase = true)) {
+                            header(k, v)
+                        }
+                    }
+                    if (rangeHeader != null) {
+                        header(HttpHeaders.Range, rangeHeader)
+                    }
+                }
+            }
+        }
+
+        return initialResponse
+    }
 
     fun isValidHost(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
@@ -179,8 +124,7 @@ object LocalStreamingProxy {
     }
 
     /**
-     * Registers a new playback session with a cryptographically random single-use token.
-     * Does NOT expose track ID or credentials in URL.
+     * Registers a new playback session with a random single-use token and TTL.
      */
     fun registerStream(
         trackId: String,
@@ -188,6 +132,8 @@ object LocalStreamingProxy {
         onRefreshNeeded: (suspend () -> StreamSource?)? = null,
     ): String {
         if (server == null) start()
+        cleanupExpiredSessions()
+
         val sessionToken = UUID.randomUUID().toString().replace("-", "")
         sessions[sessionToken] = ProxySession(
             token = sessionToken,
@@ -198,12 +144,16 @@ object LocalStreamingProxy {
         return "http://127.0.0.1:$serverPort/stream/$sessionToken"
     }
 
-    fun unregisterSession(token: String) {
+    fun invalidateSession(token: String) {
         sessions.remove(token)
     }
 
-    fun clearSessionsForTrack(trackId: String) {
+    fun invalidateSessionsForTrack(trackId: String) {
         sessions.entries.removeIf { it.value.trackId == trackId }
+    }
+
+    fun cleanupExpiredSessions() {
+        sessions.entries.removeIf { it.value.isExpired() }
     }
 
     @Synchronized
@@ -213,5 +163,112 @@ object LocalStreamingProxy {
             server = null
             sessions.clear()
         } catch (_: Exception) {}
+    }
+}
+
+/**
+ * Route configuration shared between the live server and Ktor testApplication.
+ */
+fun configureStreamingProxyRoutes(
+    application: Application,
+    sessionsMap: ConcurrentHashMap<String, ProxySession>,
+    hostValidator: (String?) -> Boolean = { host ->
+        host?.startsWith("127.0.0.1") == true || host?.startsWith("localhost") == true
+    }
+) {
+    application.routing {
+        head("/stream/{token}") {
+            val host = call.request.headers[HttpHeaders.Host]
+            if (!hostValidator(host)) {
+                call.respond(HttpStatusCode.Forbidden, "Invalid Host header")
+                return@head
+            }
+
+            val token = call.parameters["token"]
+            val session = token?.let { sessionsMap[it] }?.takeIf { !it.isExpired() }
+            if (session == null) {
+                if (token != null) sessionsMap.remove(token)
+                call.respond(HttpStatusCode.NotFound)
+                return@head
+            }
+
+            try {
+                val upstream = LocalStreamingProxy.fetchUpstream(session.streamSource, "bytes=0-0")
+                val contentType = upstream.headers[HttpHeaders.ContentType] ?: "audio/mpeg"
+                val contentRange = upstream.headers[HttpHeaders.ContentRange]
+                val totalLength = contentRange?.substringAfterLast('/')?.toLongOrNull()
+                    ?: upstream.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+
+                call.response.header(HttpHeaders.ContentType, contentType)
+                call.response.header(HttpHeaders.AcceptRanges, "bytes")
+                if (totalLength != null && totalLength > 0) {
+                    call.response.header(HttpHeaders.ContentLength, totalLength.toString())
+                }
+                call.respond(HttpStatusCode.OK)
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.BadGateway)
+            }
+        }
+
+        get("/stream/{token}") {
+            val host = call.request.headers[HttpHeaders.Host]
+            if (!hostValidator(host)) {
+                call.respond(HttpStatusCode.Forbidden, "Invalid Host header")
+                return@get
+            }
+
+            val token = call.parameters["token"]
+            val session = token?.let { sessionsMap[it] }?.takeIf { !it.isExpired() }
+            if (session == null) {
+                if (token != null) sessionsMap.remove(token)
+                call.respondText("Stream session not found or expired", status = HttpStatusCode.NotFound)
+                return@get
+            }
+
+            val incomingRange = call.request.headers[HttpHeaders.Range]
+
+            try {
+                var streamSource = session.streamSource
+                var upstreamResponse = LocalStreamingProxy.fetchUpstream(streamSource, incomingRange)
+
+                // Item 4: Upstream 401/403/410 link refresh & retry
+                if (upstreamResponse.status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone)) {
+                    val refreshed = session.onRefreshNeeded?.invoke()
+                    if (refreshed != null) {
+                        session.streamSource = refreshed
+                        streamSource = refreshed
+                        upstreamResponse = LocalStreamingProxy.fetchUpstream(streamSource, incomingRange)
+                    }
+                }
+
+                if (upstreamResponse.status == HttpStatusCode.RequestedRangeNotSatisfiable) {
+                    upstreamResponse.headers[HttpHeaders.ContentRange]?.let {
+                        call.response.header(HttpHeaders.ContentRange, it)
+                    }
+                    call.respond(HttpStatusCode.RequestedRangeNotSatisfiable)
+                    return@get
+                }
+
+                upstreamResponse.headers[HttpHeaders.ContentType]?.let {
+                    call.response.header(HttpHeaders.ContentType, it)
+                } ?: call.response.header(HttpHeaders.ContentType, "audio/mpeg")
+
+                upstreamResponse.headers[HttpHeaders.ContentLength]?.let {
+                    call.response.header(HttpHeaders.ContentLength, it)
+                }
+                upstreamResponse.headers[HttpHeaders.ContentRange]?.let {
+                    call.response.header(HttpHeaders.ContentRange, it)
+                }
+                call.response.header(HttpHeaders.AcceptRanges, "bytes")
+
+                val status = upstreamResponse.status
+                val channel = upstreamResponse.bodyAsChannel()
+                call.respondOutputStream(status = status) {
+                    channel.copyTo(this)
+                }
+            } catch (e: Exception) {
+                call.respondText("Stream error", status = HttpStatusCode.BadGateway)
+            }
+        }
     }
 }

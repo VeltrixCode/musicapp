@@ -343,6 +343,48 @@ fun MusicApp(
                                     isCompact = isCompact,
                                 )
 
+                                // Unified AppError Banner / Snackbar
+                                val currentAppError by player.appError.collectAsState()
+                                currentAppError?.let { err ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = spacing.md, vertical = spacing.xxs)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(AppColors.Error.copy(alpha = 0.25f))
+                                            .padding(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                Icon(Icons.Rounded.Info, contentDescription = null, tint = AppColors.Error, modifier = Modifier.size(20.dp))
+                                                Spacer(Modifier.width(10.dp))
+                                                Text(err.message, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (err.actionLabel != null && err.onAction != null) {
+                                                    androidx.compose.material3.TextButton(
+                                                        onClick = {
+                                                            val action = err.onAction
+                                                            player.dismissError()
+                                                            action?.invoke()
+                                                        }
+                                                    ) {
+                                                        Text(err.actionLabel!!, color = AppColors.Accent, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                                    }
+                                                    Spacer(Modifier.width(8.dp))
+                                                }
+                                                IconButton(onClick = { player.dismissError() }, modifier = Modifier.size(24.dp)) {
+                                                    Icon(Icons.Rounded.Close, contentDescription = "Закрыть", tint = Color.White, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Format unsupported warning banner if needed
                                 player.unsupportedFormatNotice?.let { notice ->
                                     Box(
