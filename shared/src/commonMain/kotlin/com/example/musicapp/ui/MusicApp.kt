@@ -1312,7 +1312,6 @@ private fun AppSidebar(
                                                 else -> Color.Transparent
                                             }
                                         )
-                                        .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
                                         .pointerInput(p.id, sortOrder) {
                                             if (!p.isSystem && sortOrder == "Пользовательский") {
                                                 detectDragGesturesAfterLongPress(
@@ -1343,6 +1342,7 @@ private fun AppSidebar(
                                                 )
                                             }
                                         }
+                                        .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
                                         .padding(horizontal = if (isCompact) spacing.xxs else spacing.xs, vertical = spacing.xs),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
