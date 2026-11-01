@@ -10,7 +10,11 @@ class EqualizerControllerTest {
 
     private class MockEqualizerEngine : PlayerEngine {
         var isEnabled = true
+        var preamp = 0f
         val bandGains = FloatArray(10) { 0f }
+
+        override val supportsSpectrum: Boolean = false
+        override val supportsPreamp: Boolean = true
 
         override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit) {}
         override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit, onError: ((String) -> Unit)?) {}
@@ -27,6 +31,10 @@ class EqualizerControllerTest {
         override fun setEqualizerEnabled(enabled: Boolean) {
             isEnabled = enabled
         }
+        override fun setEqualizerPreamp(gainDb: Float) {
+            preamp = gainDb.coerceIn(-20f, 20f)
+        }
+        override fun getEqualizerPreamp(): Float = preamp
         override fun getEqualizerBandCount(): Int = 10
         override fun getEqualizerGainRange(): ClosedFloatingPointRange<Float> = -20f..20f
         override fun getEqualizerBandFrequencies(): List<Int> = listOf(60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000)
@@ -34,6 +42,55 @@ class EqualizerControllerTest {
         override fun positionMs(): Long = 0L
         override fun durationMs(): Long = 0L
         override fun release() {}
+    }
+
+    private class MockJavaFxStyleEngine : PlayerEngine {
+        override val supportsSpectrum: Boolean = true
+        override val supportsPreamp: Boolean = false
+
+        override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit) {}
+        override fun play() {}
+        override fun pause() {}
+        override fun seekTo(ms: Long) {}
+        override fun setVolume(volume: Float) {}
+        override fun setPlaybackSpeed(speed: Float) {}
+        override fun setEqualizerBand(bandIndex: Int, gainDb: Float) {}
+        override fun getEqualizerBandCount(): Int = 10
+        override fun getEqualizerGainRange(): ClosedFloatingPointRange<Float> = -24f..12f
+        override fun getEqualizerBandFrequencies(): List<Int> = listOf(32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
+        override fun setSpectrumListener(listener: ((FloatArray) -> Unit)?) {}
+        override fun positionMs(): Long = 0L
+        override fun durationMs(): Long = 0L
+        override fun release() {}
+    }
+
+    @Test
+    fun testDynamicEngineEqualizerAndPreampReconfiguration() {
+        val vlcEngine = MockEqualizerEngine()
+        val vlcController = PlayerController(customEngine = vlcEngine)
+        try {
+            assertFalse(vlcController.supportsSpectrum)
+            assertTrue(vlcController.supportsPreamp)
+            assertEquals(-20f..20f, vlcController.getEqualizerGainRange())
+            assertEquals(listOf(60, 170, 310, 600, 1000, 3000, 6000, 12000, 14000, 16000), vlcController.getEqualizerBandFrequencies())
+
+            vlcController.setEqualizerPreamp(5.5f)
+            assertEquals(5.5f, vlcController.equalizerPreamp)
+            assertEquals(5.5f, vlcEngine.preamp)
+        } finally {
+            vlcController.release()
+        }
+
+        val fxEngine = MockJavaFxStyleEngine()
+        val fxController = PlayerController(customEngine = fxEngine)
+        try {
+            assertTrue(fxController.supportsSpectrum)
+            assertFalse(fxController.supportsPreamp)
+            assertEquals(-24f..12f, fxController.getEqualizerGainRange())
+            assertEquals(listOf(32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000), fxController.getEqualizerBandFrequencies())
+        } finally {
+            fxController.release()
+        }
     }
 
     @Test

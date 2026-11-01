@@ -1210,13 +1210,14 @@ internal fun FullscreenNowPlayingView(
                 }
             }
 
-            Spacer(Modifier.height(spacing.lg))
-
-            SpectrumCanvas(
-                spectrum = spectrum,
-                barColor = AppColors.Accent,
-                modifier = Modifier.fillMaxWidth(0.6f).height(36.dp)
-            )
+            if (player.supportsSpectrum) {
+                Spacer(Modifier.height(spacing.lg))
+                SpectrumCanvas(
+                    spectrum = spectrum,
+                    barColor = AppColors.Accent,
+                    modifier = Modifier.fillMaxWidth(0.6f).height(36.dp)
+                )
+            }
 
             Spacer(Modifier.height(spacing.md))
 
@@ -1481,6 +1482,37 @@ internal fun EqualizerDialog(
                             Text(p.title, fontSize = 10.sp, maxLines = 1, softWrap = false)
                         }
                     }
+                }
+
+                if (player.supportsPreamp) {
+                    Spacer(Modifier.height(spacing.sm))
+                    var currentPreamp by remember { mutableStateOf(player.equalizerPreamp) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Предусилитель", style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            "${if (currentPreamp > 0) "+" else ""}${currentPreamp.toInt()} dB",
+                            fontSize = 11.sp,
+                            color = AppColors.TextSecondary
+                        )
+                    }
+                    Slider(
+                        value = currentPreamp,
+                        onValueChange = {
+                            currentPreamp = it
+                            player.setEqualizerPreamp(it)
+                        },
+                        valueRange = gainRange,
+                        enabled = player.isEqualizerEnabled,
+                        colors = SliderDefaults.colors(
+                            thumbColor = AppColors.Accent,
+                            activeTrackColor = AppColors.Accent
+                        ),
+                        modifier = Modifier.fillMaxWidth().height(28.dp)
+                    )
                 }
 
                 Spacer(Modifier.height(spacing.md))
