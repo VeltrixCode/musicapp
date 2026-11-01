@@ -11,7 +11,7 @@
 * **Исходный код:** [https://github.com/caprica/vlcj](https://github.com/caprica/vlcj)
 
 ### 2. VideoLAN VLC Media Player / libVLC
-* **Версия в дистрибутиве:** 3.0.24 (Windows x86_64)
+* **Версия в дистрибутиве:** 3.0.21 (Windows x86_64, официальный релиз VideoLAN)
 * **Лицензия:** GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later) / GNU General Public License v2.0 or later (GPL-2.0-or-later)
 * **Автор / Правообладатель:** VideoLAN non-profit organization & VideoLAN Authors
 * **Назначение:** Высокопроизводительный нативный движок декодирования и вывода аудио (`libvlc.dll`, `libvlccore.dll`, аудио-плагины и алгоритм сохранения высоты тона `scaletempo`).
