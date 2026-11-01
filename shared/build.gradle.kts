@@ -66,6 +66,7 @@ kotlin {
             dependencies {
                 implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
                 implementation("androidx.media3:media3-exoplayer:$media3Version")
+                implementation("androidx.media3:media3-session:$media3Version")
                 implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
                 implementation("androidx.media3:media3-common:$media3Version")
                 implementation("androidx.documentfile:documentfile:1.0.1")

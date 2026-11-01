@@ -81,6 +81,13 @@ expect fun onPlaybackTrackChanged(previousTrackId: String?, newTrackId: String?)
 /** Notifies the platform streaming layer that playback has released/stopped. */
 expect fun onPlaybackReleased()
 
+/** Registers platform callbacks for system controls (e.g. lock screen, notification, media buttons). */
+expect fun registerPlatformPlayerCallbacks(
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    currentTrack: () -> Track?
+)
+
 expect fun getEnv(name: String): String?
 
 /** Checks whether local or content URI file is currently accessible on the device/filesystem. */

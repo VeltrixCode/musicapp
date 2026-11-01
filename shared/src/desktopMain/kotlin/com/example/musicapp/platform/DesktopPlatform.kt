@@ -348,6 +348,14 @@ actual fun isFileAvailable(source: String?): Boolean {
     }.getOrDefault(false)
 }
 
+actual fun registerPlatformPlayerCallbacks(
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    currentTrack: () -> Track?
+) {
+    // Desktop platform does not use Android MediaSession
+}
+
 actual inline fun <R> synchronizedPlatform(lock: Any, block: () -> R): R = synchronized(lock) { block() }
 
 

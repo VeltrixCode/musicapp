@@ -1,10 +1,12 @@
 package com.example.musicapp
 
+import android.Manifest
 import android.content.Intent
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,8 +17,20 @@ import com.example.musicapp.ui.MusicApp
 class MainActivity : ComponentActivity() {
     private var pendingAudio: ((Uri?) -> Unit)? = null
     private var pendingFolder: ((Uri?) -> Unit)? = null
-    private var mediaSession: MediaSession? = null
-    private val player = PlayerController()
+
+    private val player: PlayerController get() = getPlayerController()
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            Toast.makeText(
+                this,
+                "Разрешение на уведомления отклонено. Управление на экране блокировки и в шторке недоступно.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     private val audioPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -53,29 +67,10 @@ class MainActivity : ComponentActivity() {
             player.pause()
         }
 
-        // Android MediaSession integration with seek support
-        mediaSession = MediaSession(this, "MusicAppMediaSession").apply {
-            setCallback(object : MediaSession.Callback() {
-                override fun onPlay() { player.resume() }
-                override fun onPause() { player.pause() }
-                override fun onSkipToNext() { player.next() }
-                override fun onSkipToPrevious() { player.previous() }
-                override fun onSeekTo(pos: Long) { player.seekTo(pos) }
-                override fun onStop() { player.pause() }
-            })
-            setPlaybackState(
-                PlaybackState.Builder()
-                    .setActions(
-                        PlaybackState.ACTION_PLAY or
-                        PlaybackState.ACTION_PAUSE or
-                        PlaybackState.ACTION_PLAY_PAUSE or
-                        PlaybackState.ACTION_SKIP_TO_NEXT or
-                        PlaybackState.ACTION_SKIP_TO_PREVIOUS or
-                        PlaybackState.ACTION_SEEK_TO
-                    )
-                    .build()
-            )
-            isActive = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
 
         setContent {
@@ -85,8 +80,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        mediaSession?.release()
-        mediaSession = null
-        player.release()
+        // Do not release player on Activity destruction if playback is ongoing in foreground service
+        if (isFinishing && !player.isPlaying) {
+            player.release()
+            singletonPlayer = null
+        }
+    }
+
+    companion object {
+        private var singletonPlayer: PlayerController? = null
+
+        fun getPlayerController(): PlayerController {
+            return singletonPlayer ?: PlayerController().also { singletonPlayer = it }
+        }
     }
 }

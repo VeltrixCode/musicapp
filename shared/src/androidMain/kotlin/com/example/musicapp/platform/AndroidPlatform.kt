@@ -45,6 +45,19 @@ object AndroidBridge {
     var pickAudio: (((Uri?) -> Unit) -> Unit)? = null
     var pickFolder: (((Uri?) -> Unit) -> Unit)? = null
     var onHeadphonesUnplugged: (() -> Unit)? = null
+    var onNextTrackRequested: (() -> Unit)? = null
+    var onPreviousTrackRequested: (() -> Unit)? = null
+    var currentTrackSupplier: (() -> Track?)? = null
+}
+
+actual fun registerPlatformPlayerCallbacks(
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    currentTrack: () -> Track?
+) {
+    AndroidBridge.onNextTrackRequested = onNext
+    AndroidBridge.onPreviousTrackRequested = onPrevious
+    AndroidBridge.currentTrackSupplier = currentTrack
 }
 
 private val mainHandler = Handler(Looper.getMainLooper())
@@ -261,7 +274,7 @@ private fun importFromUri(uri: Uri, onImported: (Track) -> Unit) {
     onImported(track)
 }
 
-private val streamingOkHttpClient: OkHttpClient by lazy {
+internal val streamingOkHttpClient: OkHttpClient by lazy {
     OkHttpClient.Builder()
         .addInterceptor { chain ->
             val original = chain.request()
@@ -327,6 +340,7 @@ private val streamingOkHttpClient: OkHttpClient by lazy {
 internal class AndroidPlayerEngine : PlayerEngine {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var exoPlayer: ExoPlayer? = null
+    private var playerListener: Player.Listener? = null
     private var equalizer: Equalizer? = null
 
     @Volatile private var cachedPositionMs: Long = 0L
@@ -376,9 +390,6 @@ internal class AndroidPlayerEngine : PlayerEngine {
                 mainHandler.removeCallbacks(progressUpdater)
                 equalizer?.release()
                 equalizer = null
-                exoPlayer?.stop()
-                exoPlayer?.release()
-                exoPlayer = null
 
                 val ctx = AndroidBridge.appContextOrNull
                 if (ctx == null) {
@@ -386,25 +397,13 @@ internal class AndroidPlayerEngine : PlayerEngine {
                     return@postOnMain
                 }
 
-                val httpDataSourceFactory = OkHttpDataSource.Factory(streamingOkHttpClient)
-                val dataSourceFactory = DefaultDataSource.Factory(ctx, httpDataSourceFactory)
-                val mediaSourceFactory = DefaultMediaSourceFactory(ctx)
-                    .setDataSourceFactory(dataSourceFactory)
+                val player = AndroidPlaybackManager.getOrCreatePlayer(ctx)
+                AndroidPlaybackManager.getOrCreateMediaSession(ctx)
 
-                val media3AudioAttributes = Media3AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build()
+                playerListener?.let { player.removeListener(it) }
+                player.stop()
 
-                val renderersFactory = DefaultRenderersFactory(ctx)
-                    .setEnableAudioTrackPlaybackParams(false)
-
-                val player = ExoPlayer.Builder(ctx, renderersFactory)
-                    .setMediaSourceFactory(mediaSourceFactory)
-                    .setAudioAttributes(media3AudioAttributes, true)
-                    .build()
-
-                player.addListener(object : Player.Listener {
+                val listener = object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
                             Player.STATE_READY -> {
@@ -448,7 +447,9 @@ internal class AndroidPlayerEngine : PlayerEngine {
                         val errString = error.message ?: "Playback error"
                         onErrorCallback?.invoke(errString)
                     }
-                })
+                }
+                player.addListener(listener)
+                playerListener = listener
 
                 player.volume = currentVolume
                 // Pitch is strictly preserved at 1.0f to engage SonicAudioProcessor time-stretching without chipmunk effect
@@ -460,7 +461,46 @@ internal class AndroidPlayerEngine : PlayerEngine {
                     Uri.fromFile(File(path))
                 }
 
-                player.setMediaItem(MediaItem.fromUri(uri))
+                val currentTrack = AndroidBridge.currentTrackSupplier?.invoke()?.takeIf { it.source == path }
+                val title = currentTrack?.title ?: runCatching {
+                    val r = MediaMetadataRetriever()
+                    try { setMetadataDataSource(r, path); r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) } finally { runCatching { r.release() } }
+                }.getOrNull() ?: path.substringAfterLast('/').substringBeforeLast('.')
+
+                val artist = currentTrack?.artist ?: runCatching {
+                    val r = MediaMetadataRetriever()
+                    try { setMetadataDataSource(r, path); r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) } finally { runCatching { r.release() } }
+                }.getOrNull() ?: "Неизвестный исполнитель"
+
+                val album = currentTrack?.album ?: runCatching {
+                    val r = MediaMetadataRetriever()
+                    try { setMetadataDataSource(r, path); r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) } finally { runCatching { r.release() } }
+                }.getOrNull()
+
+                val artworkData: ByteArray? = runCatching {
+                    val r = MediaMetadataRetriever()
+                    try {
+                        setMetadataDataSource(r, path)
+                        r.embeddedPicture
+                    } finally {
+                        runCatching { r.release() }
+                    }
+                }.getOrNull()
+
+                val mediaMetadataBuilder = androidx.media3.common.MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .setAlbumTitle(album)
+                if (artworkData != null && artworkData.isNotEmpty()) {
+                    mediaMetadataBuilder.setArtworkData(artworkData, androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                }
+
+                val mediaItem = MediaItem.Builder()
+                    .setUri(uri)
+                    .setMediaMetadata(mediaMetadataBuilder.build())
+                    .build()
+
+                player.setMediaItem(mediaItem)
                 player.prepare()
                 exoPlayer = player
             }.onFailure { err ->
@@ -482,6 +522,10 @@ internal class AndroidPlayerEngine : PlayerEngine {
     }
 
     override fun play() {
+        val ctx = AndroidBridge.appContextOrNull
+        if (ctx != null) {
+            AndroidPlaybackManager.ensureServiceStarted(ctx)
+        }
         postOnMain { player ->
             player?.play()
             cachedIsPlaying = true
@@ -564,22 +608,41 @@ internal class AndroidPlayerEngine : PlayerEngine {
 
     override fun setSpectrumListener(listener: ((FloatArray) -> Unit)?) {}
 
-    override fun positionMs(): Long = cachedPositionMs
+    override fun positionMs(): Long {
+        val p = exoPlayer
+        if (p != null && Looper.myLooper() == Looper.getMainLooper()) {
+            return p.currentPosition.coerceAtLeast(0L)
+        }
+        return cachedPositionMs
+    }
 
-    override fun durationMs(): Long = cachedDurationMs
+    override fun durationMs(): Long {
+        val p = exoPlayer
+        if (p != null && Looper.myLooper() == Looper.getMainLooper()) {
+            val d = p.duration
+            if (d > 0) return d
+        }
+        return cachedDurationMs
+    }
 
-    override fun isPlaying(): Boolean = cachedIsPlaying
+    override fun isPlaying(): Boolean {
+        val p = exoPlayer
+        if (p != null && Looper.myLooper() == Looper.getMainLooper()) {
+            return p.isPlaying
+        }
+        return cachedIsPlaying
+    }
 
     override fun release() {
         cachedIsPlaying = false
-        postOnMain { _ ->
+        postOnMain { player ->
             runCatching {
                 mainHandler.removeCallbacks(progressUpdater)
                 equalizer?.release()
                 equalizer = null
-                exoPlayer?.stop()
-                exoPlayer?.release()
-                exoPlayer = null
+                playerListener?.let { player?.removeListener(it) }
+                playerListener = null
+                player?.stop()
             }
         }
         pendingSeekMs = null

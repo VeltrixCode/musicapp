@@ -394,6 +394,12 @@ class PlayerController(
             _spectrumState.value = target
         }
 
+        com.example.musicapp.platform.registerPlatformPlayerCallbacks(
+            onNext = { next() },
+            onPrevious = { previous() },
+            currentTrack = { current }
+        )
+
         syncState()
 
         // Background progress ticker
@@ -663,6 +669,11 @@ class PlayerController(
         if (current == null) return
         val engPos = engine.positionMs()
         val engDur = engine.durationMs()
+        val engPlaying = engine.isPlaying()
+
+        if (engPlaying != isPlaying) {
+            isPlaying = engPlaying
+        }
 
         if (engDur > 0) {
             durationMs = engDur
