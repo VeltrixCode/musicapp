@@ -19,6 +19,9 @@ class VlcPlayerEngineTest {
         val engine = createPlayerEngine()
         assertNotNull(engine)
         assertTrue(engine is VlcPlayerEngine, "Expected VlcPlayerEngine when bundled VLC is available")
+        assertEquals("VLC", engine.engineName)
+        assertEquals("Движок: VLC", engine.engineStatusText)
+        assertEquals(false, engine.isFallback)
 
         // Test equalizer band count and gain range
         assertEquals(10, engine.getEqualizerBandCount())
@@ -85,6 +88,19 @@ class VlcPlayerEngineTest {
         val javaFxEngine = JavaFxPlayerEngine()
         assertNotNull(javaFxEngine)
         assertEquals(10, javaFxEngine.getEqualizerBandCount())
+        assertEquals("JavaFX", javaFxEngine.engineName)
+        assertTrue(javaFxEngine.engineStatusText.startsWith("Движок: JavaFX"))
+        assertEquals(true, javaFxEngine.isFallback)
         javaFxEngine.release()
+    }
+
+    @Test
+    fun testEngineLogCreated() {
+        VlcBridge.initVlc()
+        val userHome = System.getProperty("user.home")
+        val logFile = File(userHome, "JVXMusic/logs/engine.log")
+        assertTrue(logFile.exists(), "engine.log should be created in %USERPROFILE%/JVXMusic/logs")
+        val content = logFile.readText()
+        assertTrue(content.contains("JVXMusic Audio Engine Event"), "Log should contain engine event header")
     }
 }
