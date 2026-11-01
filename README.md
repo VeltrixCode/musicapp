@@ -42,17 +42,29 @@
 
 ### Desktop (Windows)
 ```bash
-# Запуск приложения
+# Запуск приложения в режиме разработки
 .\gradlew.bat :desktopApp:run
 
 # Сборка автономного дистрибутива
 .\gradlew.bat :desktopApp:createDistributable
+
+# Сборка инсталлеров MSI и EXE
+.\gradlew.bat :desktopApp:packageMsi :desktopApp:packageExe
 ```
-Запуск через скрипт `Run_VibeMusic.bat`.
+
+#### Воспроизводимая сборка нативных библиотек VLC:
+Задача `:desktopApp:prepareVlcNatives` обеспечивает полностью детерминированную и воспроизводимую сборку:
+1. Автоматически скачивает официальный 64-битный релизный архив VLC (версия `vlc.version` из `gradle.properties`) с официальных серверов VideoLAN.
+2. Проверяет контрольную сумму архива по SHA-256 (`vlc.win64.sha256` из `gradle.properties`).
+3. Извлекает `libvlc.dll`, `libvlccore.dll` и каталог `plugins`.
+4. Удаляет неиспользуемые модули видео/3D/GUI для минимизации размера (экономия более 50 МБ).
+5. Пересоздаёт оптимизированный `plugins/plugins.dat` через `vlc-cache-gen.exe`.
+6. Лицензии `LICENSE` (GPLv3) и `THIRD_PARTY_LICENSES.md` автоматически упаковываются в корневой каталог дистрибутива инсталлера.
 
 ### Android
 ```bash
-# Сборка debug APK
-.\gradlew.bat :androidApp:assembleDebug
+# Сборка релизного подписанного APK
+.\gradlew.bat :androidApp:assembleRelease
 ```
-Готовый APK появится в `androidApp/build/outputs/apk/debug/androidApp-debug.apk`.
+Готовый подписанный APK появится в `androidApp/build/outputs/apk/release/androidApp-release.apk` (параметры подписи подтягиваются из локального `local.properties` или переменных окружения).
+

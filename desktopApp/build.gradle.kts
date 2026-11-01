@@ -1,4 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.net.URL
+import java.net.HttpURLConnection
+import java.security.MessageDigest
 
 plugins {
     kotlin("jvm")
@@ -22,6 +25,7 @@ compose.desktop {
         nativeDistributions {
             appResourcesRootDir.set(project.layout.projectDirectory.dir("resources"))
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            licenseFile.set(rootProject.file("LICENSE"))
             packageName = "JVXMusic"
             packageVersion = "1.0.0"
             description = "JVXMusic Cloud Player"
@@ -61,42 +65,121 @@ tasks.withType<Test>().configureEach {
     systemProperty("jvx.test.isolation", "true")
 }
 
+val copyLicensesToAppResources by tasks.registering {
+    val resDir = project.layout.projectDirectory.dir("resources").asFile
+    outputs.files(File(resDir, "LICENSE"), File(resDir, "THIRD_PARTY_LICENSES.md"))
+    doLast {
+        resDir.mkdirs()
+        rootProject.file("LICENSE").copyTo(File(resDir, "LICENSE"), overwrite = true)
+        rootProject.file("THIRD_PARTY_LICENSES.md").copyTo(File(resDir, "THIRD_PARTY_LICENSES.md"), overwrite = true)
+    }
+}
+
 val prepareVlcNatives by tasks.registering {
     val vlcDir = project.layout.projectDirectory.dir("resources/vlc").asFile
     val libvlcDll = File(vlcDir, "libvlc.dll")
-    outputs.file(libvlcDll)
+    val pluginsDat = File(vlcDir, "plugins/plugins.dat")
+    outputs.files(libvlcDll, pluginsDat)
+
     doLast {
-        if (!libvlcDll.exists()) {
-            val systemVlc = File("C:/Program Files/VideoLAN/VLC")
-            if (systemVlc.exists() && File(systemVlc, "libvlc.dll").exists()) {
-                logger.lifecycle("Подготовка нативных библиотек VLC из системного каталога...")
-                vlcDir.mkdirs()
-                File(systemVlc, "libvlc.dll").copyTo(File(vlcDir, "libvlc.dll"), overwrite = true)
-                File(systemVlc, "libvlccore.dll").copyTo(File(vlcDir, "libvlccore.dll"), overwrite = true)
-                val pluginsSrc = File(systemVlc, "plugins")
-                val pluginsDest = File(vlcDir, "plugins")
-                pluginsSrc.copyRecursively(pluginsDest, overwrite = true)
+        if (!libvlcDll.exists() || !pluginsDat.exists()) {
+            val vlcVersion = project.findProperty("vlc.version")?.toString() ?: "3.0.21"
+            val vlcUrl = project.findProperty("vlc.win64.url")?.toString()
+                ?: "https://download.videolan.org/pub/videolan/vlc/$vlcVersion/win64/vlc-$vlcVersion-win64.zip"
+            val expectedSha256 = project.findProperty("vlc.win64.sha256")?.toString()
+                ?: "a0b7ec02b50adf6417eed014fb8df50af39690505a4225b85b3dc2ed17d14843"
 
-                // Удаляем неиспользуемые видео и GUI модули для оптимизации размера
-                val unneeded = listOf("gui", "video_output", "video_filter", "video_chroma", "video_splitter", "d3d11", "d3d9", "spu", "text_renderer", "lua", "stream_out", "services_discovery", "visualization", "control", "access_output", "mux")
-                for (dirName in unneeded) {
-                    File(pluginsDest, dirName).deleteRecursively()
-                }
+            val downloadDir = layout.buildDirectory.dir("vlc-download").get().asFile
+            downloadDir.mkdirs()
+            val archiveFile = File(downloadDir, "vlc-$vlcVersion-win64.zip")
 
-                val cacheGen = File(systemVlc, "vlc-cache-gen.exe")
-                if (cacheGen.exists()) {
-                    project.exec {
-                        commandLine(cacheGen.absolutePath, pluginsDest.absolutePath)
+            if (!archiveFile.exists() || archiveFile.length() == 0L) {
+                logger.lifecycle("Загрузка официального архива VLC $vlcVersion с $vlcUrl...")
+                val connection = URL(vlcUrl).openConnection() as HttpURLConnection
+                connection.instanceFollowRedirects = true
+                connection.connect()
+                connection.inputStream.use { input ->
+                    archiveFile.outputStream().use { output ->
+                        input.copyTo(output)
                     }
                 }
-            } else {
-                logger.warn("Внимание: Нативные библиотеки VLC не найдены в $systemVlc. Приложение при запуске использует откат на JavaFX.")
             }
+
+            // Проверка SHA-256 хеша
+            logger.lifecycle("Проверка SHA-256 хеша для ${archiveFile.name}...")
+            val digest = MessageDigest.getInstance("SHA-256")
+            val computedHash = archiveFile.inputStream().use { input ->
+                val buffer = ByteArray(65536)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+                digest.digest().joinToString("") { b -> String.format("%02x", b) }
+            }
+
+            if (!computedHash.equals(expectedSha256, ignoreCase = true)) {
+                archiveFile.delete()
+                throw GradleException("Контрольная сумма SHA-256 для архива VLC не совпала!\nОжидалось: $expectedSha256\nПолучено:   $computedHash")
+            }
+            logger.lifecycle("Контрольная сумма SHA-256 подтверждена: $computedHash")
+
+            // Распаковка нужных файлов
+            logger.lifecycle("Распаковка нативных библиотек VLC...")
+            val extractDir = File(downloadDir, "extracted")
+            extractDir.deleteRecursively()
+            extractDir.mkdirs()
+
+            project.copy {
+                from(project.zipTree(archiveFile))
+                into(extractDir)
+            }
+
+            val rootVlcDir = extractDir.listFiles()?.firstOrNull { it.isDirectory && it.name.startsWith("vlc-") } ?: extractDir
+
+            vlcDir.mkdirs()
+            File(rootVlcDir, "libvlc.dll").copyTo(File(vlcDir, "libvlc.dll"), overwrite = true)
+            File(rootVlcDir, "libvlccore.dll").copyTo(File(vlcDir, "libvlccore.dll"), overwrite = true)
+
+            val pluginsDest = File(vlcDir, "plugins")
+            pluginsDest.deleteRecursively()
+            File(rootVlcDir, "plugins").copyRecursively(pluginsDest, overwrite = true)
+
+            // Удаляем неиспользуемые видео, 3D и GUI модули для оптимизации размера
+            val unneeded = listOf(
+                "gui", "video_output", "video_filter", "video_chroma", "video_splitter",
+                "d3d11", "d3d9", "spu", "text_renderer", "lua", "stream_out",
+                "services_discovery", "visualization", "control", "access_output", "mux"
+            )
+            for (dirName in unneeded) {
+                File(pluginsDest, dirName).deleteRecursively()
+            }
+
+            val cacheGen = File(rootVlcDir, "vlc-cache-gen.exe")
+            if (cacheGen.exists()) {
+                logger.lifecycle("Генерация оптимизированного кэша plugins.dat...")
+                project.exec {
+                    commandLine(cacheGen.absolutePath, pluginsDest.absolutePath)
+                }
+            }
+
+            extractDir.deleteRecursively()
+            logger.lifecycle("Нативные библиотеки VLC успешно подготовлены в ${vlcDir.absolutePath}.")
         }
     }
 }
 
 tasks.matching { it.name in listOf("prepareAppResources", "createDistributable", "packageMsi", "packageExe") }.configureEach {
     dependsOn(prepareVlcNatives)
+    dependsOn(copyLicensesToAppResources)
+}
+
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    doLast {
+        val appRoot = layout.buildDirectory.dir("compose/binaries/main/app/JVXMusic").get().asFile
+        if (appRoot.exists()) {
+            rootProject.file("LICENSE").copyTo(File(appRoot, "LICENSE"), overwrite = true)
+            rootProject.file("THIRD_PARTY_LICENSES.md").copyTo(File(appRoot, "THIRD_PARTY_LICENSES.md"), overwrite = true)
+        }
+    }
 }
 
