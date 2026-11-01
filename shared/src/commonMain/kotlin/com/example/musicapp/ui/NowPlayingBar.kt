@@ -68,6 +68,8 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
 import androidx.compose.material.icons.automirrored.rounded.VolumeMute
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -659,6 +661,27 @@ internal fun NowPlayingBar(
                             onDismissRequest = { moreMenuExpanded = false },
                             modifier = Modifier.background(AppColors.SurfaceElevated)
                         ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        player.engineStatusText,
+                                        color = if (player.isEngineFallback) AppColors.Warning else AppColors.TextSecondary,
+                                        fontSize = 11.5.sp,
+                                        lineHeight = 14.sp
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (player.isEngineFallback) Icons.Rounded.Warning else Icons.Rounded.GraphicEq,
+                                        contentDescription = null,
+                                        tint = if (player.isEngineFallback) AppColors.Warning else AppColors.Accent
+                                    )
+                                },
+                                onClick = { /* Informational status */ }
+                            )
+
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider.copy(alpha = 0.5f)))
+
                             DropdownMenuItem(
                                 text = { Text("Эквалайзер") },
                                 leadingIcon = {

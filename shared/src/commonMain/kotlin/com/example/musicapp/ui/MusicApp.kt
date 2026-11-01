@@ -145,6 +145,7 @@ import androidx.compose.material.icons.rounded.VolumeDown
 import androidx.compose.material.icons.rounded.VolumeMute
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -427,6 +428,35 @@ fun MusicApp(
                                     isSyncing = (player as? PlayerController)?.providerRegistry?.isSyncing?.collectAsState()?.value ?: false,
                                     isOffline = settingsRepo.settings.collectAsState().value.offlineMode,
                                 )
+
+                                // Fallback warning banner if VLC is unavailable (shown once per session, dismissible)
+                                val fallbackNotice by player.fallbackWarningNotice.collectAsState()
+                                fallbackNotice?.let { notice ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = spacing.md, vertical = spacing.xxs)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(AppColors.Warning.copy(alpha = 0.2f))
+                                            .border(1.dp, AppColors.Warning.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                            .padding(12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                                Icon(Icons.Rounded.Warning, contentDescription = null, tint = AppColors.Warning, modifier = Modifier.size(20.dp))
+                                                Spacer(Modifier.width(10.dp))
+                                                Text(notice, color = AppColors.TextPrimary, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                            IconButton(onClick = { player.dismissFallbackWarning() }, modifier = Modifier.size(24.dp)) {
+                                                Icon(Icons.Rounded.Close, contentDescription = "Закрыть", tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
 
                                 // Format unsupported warning banner if needed
                                 player.unsupportedFormatNotice?.let { notice ->

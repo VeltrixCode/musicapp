@@ -102,6 +102,10 @@ interface AudioPlayer {
     val supportsPreamp: Boolean get() = false
     val equalizerPreamp: Float get() = 0f
     fun setEqualizerPreamp(gainDb: Float) {}
+    val engineStatusText: String get() = "Движок: Активен"
+    val isEngineFallback: Boolean get() = false
+    val fallbackWarningNotice: StateFlow<String?>
+    fun dismissFallbackWarning() {}
     val lyrics: List<LrcLine>
     val queue: List<Track>
     val unsupportedFormatNotice: String?
@@ -203,6 +207,15 @@ class PlayerController(
     override val supportsSpectrum: Boolean get() = engine.supportsSpectrum
     override val supportsPreamp: Boolean get() = engine.supportsPreamp
     override val equalizerPreamp: Float get() = engine.getEqualizerPreamp()
+    override val engineStatusText: String get() = engine.engineStatusText
+    override val isEngineFallback: Boolean get() = engine.isFallback
+
+    private val _fallbackWarningNotice = MutableStateFlow<String?>(null)
+    override val fallbackWarningNotice: StateFlow<String?> = _fallbackWarningNotice.asStateFlow()
+
+    override fun dismissFallbackWarning() {
+        _fallbackWarningNotice.value = null
+    }
 
     override fun setEqualizerPreamp(gainDb: Float) {
         engine.setEqualizerPreamp(gainDb)
@@ -344,6 +357,9 @@ class PlayerController(
     private var sleepTimerJob: Job? = null
 
     init {
+        if (engine.isFallback) {
+            _fallbackWarningNotice.value = "Внимание: Движок VLC не активен (${engine.engineStatusText}). Тон при изменении скорости не сохраняется."
+        }
         // Load persisted settings
         val settings = settingsRepository.load()
         volume = settings.volume
