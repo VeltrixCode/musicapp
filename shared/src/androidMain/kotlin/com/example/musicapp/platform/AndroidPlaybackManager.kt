@@ -38,6 +38,9 @@ class JvxForwardingPlayer(player: Player) : ForwardingPlayer(player) {
         }
     }
 
+    override fun hasNextMediaItem(): Boolean = true
+    override fun hasPreviousMediaItem(): Boolean = true
+
     override fun seekToNext() {
         AndroidBridge.onNextTrackRequested?.invoke()
     }
@@ -119,11 +122,8 @@ object AndroidPlaybackManager {
     fun ensureServiceStarted(ctx: Context) {
         runCatching {
             val serviceIntent = Intent().setClassName(ctx.packageName, "com.example.musicapp.playback.PlaybackService")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ctx.startForegroundService(serviceIntent)
-            } else {
-                ctx.startService(serviceIntent)
-            }
+            // Use standard startService. MediaSessionService automatically handles foreground transition when playback starts.
+            ctx.startService(serviceIntent)
         }
     }
 
@@ -136,6 +136,7 @@ object AndroidPlaybackManager {
             ).apply {
                 description = "Управление воспроизведением и экран блокировки"
                 setShowBadge(false)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
             val nm = ctx.getSystemService(NotificationManager::class.java)
             nm?.createNotificationChannel(channel)

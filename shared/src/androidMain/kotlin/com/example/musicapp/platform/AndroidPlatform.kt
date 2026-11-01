@@ -337,6 +337,24 @@ internal val streamingOkHttpClient: OkHttpClient by lazy {
  * All ExoPlayer mutations occur on Main Looper.
  * State getters (positionMs, durationMs, isPlaying) read thread-safe cached volatile fields.
  */
+private fun safeArtworkData(rawBytes: ByteArray?): ByteArray? {
+    if (rawBytes == null || rawBytes.isEmpty()) return null
+    if (rawBytes.size <= 80 * 1024) return rawBytes
+    return runCatching {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
+        var sampleSize = 1
+        while (options.outWidth / sampleSize > 512 || options.outHeight / sampleSize > 512) {
+            sampleSize *= 2
+        }
+        val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val bitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOptions) ?: return rawBytes
+        val stream = java.io.ByteArrayOutputStream()
+        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, stream)
+        stream.toByteArray()
+    }.getOrDefault(rawBytes)
+}
+
 internal class AndroidPlayerEngine : PlayerEngine {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var exoPlayer: ExoPlayer? = null
@@ -462,34 +480,35 @@ internal class AndroidPlayerEngine : PlayerEngine {
                 }
 
                 val currentTrack = AndroidBridge.currentTrackSupplier?.invoke()?.takeIf { it.source == path }
-                val title = currentTrack?.title ?: runCatching {
-                    val r = MediaMetadataRetriever()
-                    try { setMetadataDataSource(r, path); r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE) } finally { runCatching { r.release() } }
-                }.getOrNull() ?: path.substringAfterLast('/').substringBeforeLast('.')
+                val isRemote = path.startsWith("http://", ignoreCase = true) || path.startsWith("https://", ignoreCase = true)
 
-                val artist = currentTrack?.artist ?: runCatching {
-                    val r = MediaMetadataRetriever()
-                    try { setMetadataDataSource(r, path); r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) } finally { runCatching { r.release() } }
-                }.getOrNull() ?: "Неизвестный исполнитель"
+                var title = currentTrack?.title
+                var artist = currentTrack?.artist
+                var album = currentTrack?.album
+                var rawArtwork: ByteArray? = null
 
-                val album = currentTrack?.album ?: runCatching {
-                    val r = MediaMetadataRetriever()
-                    try { setMetadataDataSource(r, path); r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM) } finally { runCatching { r.release() } }
-                }.getOrNull()
-
-                val artworkData: ByteArray? = runCatching {
-                    val r = MediaMetadataRetriever()
-                    try {
-                        setMetadataDataSource(r, path)
-                        r.embeddedPicture
-                    } finally {
-                        runCatching { r.release() }
+                if (!isRemote) {
+                    runCatching {
+                        val r = MediaMetadataRetriever()
+                        try {
+                            setMetadataDataSource(r, path)
+                            if (title == null) title = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.trim()?.takeIf { it.isNotBlank() }
+                            if (artist == null) artist = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.trim()?.takeIf { it.isNotBlank() }
+                            if (album == null) album = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.trim()?.takeIf { it.isNotBlank() }
+                            rawArtwork = r.embeddedPicture
+                        } finally {
+                            runCatching { r.release() }
+                        }
                     }
-                }.getOrNull()
+                }
+
+                val finalTitle = title ?: path.substringAfterLast('/').substringBeforeLast('.')
+                val finalArtist = artist ?: "Неизвестный исполнитель"
+                val artworkData = safeArtworkData(rawArtwork)
 
                 val mediaMetadataBuilder = androidx.media3.common.MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setArtist(artist)
+                    .setTitle(finalTitle)
+                    .setArtist(finalArtist)
                     .setAlbumTitle(album)
                 if (artworkData != null && artworkData.isNotEmpty()) {
                     mediaMetadataBuilder.setArtworkData(artworkData, androidx.media3.common.MediaMetadata.PICTURE_TYPE_FRONT_COVER)
@@ -512,13 +531,16 @@ internal class AndroidPlayerEngine : PlayerEngine {
 
     private fun setupEqualizer(audioSessionId: Int) {
         try {
-            if (audioSessionId != C.AUDIO_SESSION_ID_UNSET) {
+            if (audioSessionId != C.AUDIO_SESSION_ID_UNSET && audioSessionId > 0) {
                 equalizer?.release()
+                equalizer = null
                 equalizer = Equalizer(0, audioSessionId).apply {
                     enabled = true
                 }
             }
-        } catch (_: Exception) {}
+        } catch (_: Throwable) {
+            equalizer = null
+        }
     }
 
     override fun play() {
@@ -580,7 +602,7 @@ internal class AndroidPlayerEngine : PlayerEngine {
                     val level = (gainDb * 100).toInt().coerceIn(minLevel.toInt(), maxLevel.toInt()).toShort()
                     eq.setBandLevel(bandIndex.toShort(), level)
                 }
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
         }
     }
 
@@ -588,7 +610,7 @@ internal class AndroidPlayerEngine : PlayerEngine {
         postOnMain { _ ->
             try {
                 equalizer?.enabled = enabled
-            } catch (_: Exception) {}
+            } catch (_: Throwable) {}
         }
     }
 

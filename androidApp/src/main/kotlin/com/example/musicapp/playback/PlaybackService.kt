@@ -16,6 +16,9 @@ class PlaybackService : MediaSessionService() {
             .setChannelId(AndroidPlaybackManager.CHANNEL_ID)
             .build()
         setMediaNotificationProvider(notificationProvider)
+
+        val session = AndroidPlaybackManager.getOrCreateMediaSession(this)
+        addSession(session)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -27,6 +30,7 @@ class PlaybackService : MediaSessionService() {
         if (!player.playWhenReady || player.mediaItemCount == 0 || player.playbackState == Player.STATE_ENDED) {
             stopSelf()
         }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {

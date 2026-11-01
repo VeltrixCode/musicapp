@@ -19,6 +19,7 @@ class MainActivity : ComponentActivity() {
     private var pendingFolder: ((Uri?) -> Unit)? = null
 
     private val player: PlayerController get() = getPlayerController()
+    private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<androidx.media3.session.MediaController>? = null
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -76,6 +77,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             MusicApp(player = player)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        runCatching {
+            val sessionToken = androidx.media3.session.SessionToken(
+                this,
+                android.content.ComponentName(this, com.example.musicapp.playback.PlaybackService::class.java)
+            )
+            controllerFuture = androidx.media3.session.MediaController.Builder(this, sessionToken).buildAsync()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        controllerFuture?.let { androidx.media3.session.MediaController.releaseFuture(it) }
+        controllerFuture = null
     }
 
     override fun onDestroy() {
