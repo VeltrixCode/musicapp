@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,6 +43,7 @@ import androidx.compose.material3.SwitchDefaults
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -267,29 +269,17 @@ internal fun NowPlayingBar(
                         }
                     }
 
-                    // Mobile Controls: Favorite, Play/Pause, Next (All with 48x48dp touch targets)
+                    // Mobile Controls: Play/Pause, Next, More Menu
                     if (track != null) {
-                        IconButton(
-                            onClick = { library.toggleFavorite(track) },
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (track.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                contentDescription = if (track.isFavorite) "В избранном" else "Добавить в избранное",
-                                tint = if (track.isFavorite) AppColors.Accent else AppColors.TextSecondary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(44.dp)
                                 .clickable(enabled = hasTrack && track.source != null) { player.toggle() },
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .size(36.dp)
                                     .clip(CircleShape)
                                     .background(AppColors.TextPrimary),
                                 contentAlignment = Alignment.Center
@@ -298,7 +288,7 @@ internal fun NowPlayingBar(
                                     imageVector = if (player.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                     contentDescription = if (player.isPlaying) "Пауза" else "Воспроизведение",
                                     tint = Color.Black,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
@@ -306,14 +296,88 @@ internal fun NowPlayingBar(
                         IconButton(
                             onClick = { player.next() },
                             enabled = hasTrack,
-                            modifier = Modifier.size(48.dp)
+                            modifier = Modifier.size(44.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.SkipNext,
                                 contentDescription = "Следующий",
                                 tint = AppColors.TextPrimary,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
+                        }
+
+                        var mobileMenuExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(
+                                onClick = { mobileMenuExpanded = true },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.MoreHoriz,
+                                    contentDescription = "Меню плеера",
+                                    tint = AppColors.TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = mobileMenuExpanded,
+                                onDismissRequest = { mobileMenuExpanded = false },
+                                modifier = Modifier.background(AppColors.SurfaceElevated)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Развернуть плеер") },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Fullscreen, contentDescription = null, tint = AppColors.Accent)
+                                    },
+                                    onClick = {
+                                        mobileMenuExpanded = false
+                                        onOpenFullscreen()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Эквалайзер") },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = AppColors.Accent)
+                                    },
+                                    onClick = {
+                                        mobileMenuExpanded = false
+                                        onOpenEqualizer()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Скорость воспроизведения")
+                                            Text("${player.speed}x", color = if (player.speed != 1.0f) AppColors.Accent else AppColors.TextMuted, fontSize = 12.sp)
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Speed, contentDescription = null, tint = if (player.speed != 1.0f) AppColors.Accent else AppColors.TextSecondary)
+                                    },
+                                    onClick = {
+                                        mobileMenuExpanded = false
+                                        onOpenSpeed()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text("Таймер сна")
+                                            if (sleepSec != null) {
+                                                Text("${sleepSec!! / 60} мин", color = AppColors.Accent, fontSize = 12.sp)
+                                            }
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.Bedtime, contentDescription = null, tint = if (sleepSec != null) AppColors.Accent else AppColors.TextSecondary)
+                                    },
+                                    onClick = {
+                                        mobileMenuExpanded = false
+                                        onOpenSleepTimer()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1139,12 +1203,16 @@ internal fun QueueDrawer(
 internal fun FullscreenNowPlayingView(
     player: AudioPlayer,
     library: Library,
+    onOpenEqualizer: () -> Unit = {},
+    onOpenSpeed: () -> Unit = {},
+    onOpenSleepTimer: () -> Unit = {},
     onClose: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
     val track = player.current
     val playbackState by player.playbackState.collectAsState()
     val spectrum by player.spectrumState.collectAsState()
+    val sleepSec by player.sleepTimerRemainingSec.collectAsState()
     var showLyrics by remember { mutableStateOf(false) }
 
     val activeArtwork by produceState<ImageBitmap?>(initialValue = null, key1 = track?.id) {
@@ -1166,35 +1234,42 @@ internal fun FullscreenNowPlayingView(
                     listOf(dominantColor.copy(alpha = 0.85f), Color.Black)
                 )
             )
-            .padding(spacing.lg)
+            .padding(spacing.md)
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Top Bar
+            // Top Bar: Close, Title, Lyrics & Equalizer
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 IconButton(onClick = onClose) {
-                    Icon(imageVector = Icons.Rounded.FullscreenExit, contentDescription = "Свернуть", tint = Color.White)
+                    Icon(imageVector = Icons.Rounded.Close, contentDescription = "Свернуть", tint = Color.White)
                 }
                 Text(
                     "СЕЙЧАС ИГРАЕТ",
-                    style = MaterialTheme.typography.labelSmall.copy(color = Color.White.copy(alpha = 0.7f))
+                    style = MaterialTheme.typography.labelSmall.copy(color = Color.White.copy(alpha = 0.7f), letterSpacing = 1.sp)
                 )
-                if (player.lyrics.isNotEmpty()) {
-                    IconButton(onClick = { showLyrics = !showLyrics }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (player.lyrics.isNotEmpty()) {
+                        IconButton(onClick = { showLyrics = !showLyrics }) {
+                            Icon(
+                                imageVector = Icons.Rounded.Lyrics,
+                                contentDescription = "Текст песни",
+                                tint = if (showLyrics) AppColors.Accent else Color.White
+                            )
+                        }
+                    }
+                    IconButton(onClick = onOpenEqualizer) {
                         Icon(
-                            imageVector = Icons.Rounded.Lyrics,
-                            contentDescription = "Текст песни",
-                            tint = if (showLyrics) AppColors.Accent else Color.White
+                            imageVector = Icons.Rounded.Equalizer,
+                            contentDescription = "Эквалайзер",
+                            tint = if (player.isEqualizerEnabled) AppColors.Accent else Color.White
                         )
                     }
-                } else {
-                    Spacer(Modifier.size(48.dp))
                 }
             }
 
@@ -1204,12 +1279,13 @@ internal fun FullscreenNowPlayingView(
                 LyricsView(
                     lyrics = player.lyrics,
                     positionMs = playbackState.positionMs,
-                    modifier = Modifier.weight(0.8f).fillMaxWidth(0.8f)
+                    modifier = Modifier.weight(0.8f).fillMaxWidth(0.9f)
                 )
             } else {
                 Box(
                     modifier = Modifier
-                        .size(280.dp)
+                        .sizeIn(maxWidth = 280.dp, maxHeight = 280.dp)
+                        .aspectRatio(1f)
                         .shadow(24.dp, RoundedCornerShape(12.dp))
                         .clip(RoundedCornerShape(12.dp))
                         .background(fallbackGradientFor(track?.title ?: "Vibe Music")),
@@ -1234,7 +1310,7 @@ internal fun FullscreenNowPlayingView(
             }
 
             if (player.supportsSpectrum) {
-                Spacer(Modifier.height(spacing.lg))
+                Spacer(Modifier.height(spacing.md))
                 SpectrumCanvas(
                     spectrum = spectrum,
                     barColor = AppColors.Accent,
@@ -1246,19 +1322,23 @@ internal fun FullscreenNowPlayingView(
 
             Text(
                 track?.title ?: "Не выбрано",
-                style = MaterialTheme.typography.headlineMedium.copy(color = Color.White, fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.headlineSmall.copy(color = Color.White, fontWeight = FontWeight.Bold),
                 textAlign = TextAlign.Center,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = spacing.md)
             )
             Spacer(Modifier.height(spacing.xxs))
             Text(
                 track?.artist ?: "",
-                style = MaterialTheme.typography.bodyLarge.copy(color = Color.White.copy(alpha = 0.7f)),
-                textAlign = TextAlign.Center
+                style = MaterialTheme.typography.bodyMedium.copy(color = Color.White.copy(alpha = 0.7f)),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = spacing.md)
             )
 
-            Spacer(Modifier.height(spacing.lg))
+            Spacer(Modifier.height(spacing.md))
 
             val effectiveDuration = if (playbackState.durationMs > 0L) playbackState.durationMs else (track?.durationMs ?: 0L)
             val duration = effectiveDuration.coerceAtLeast(1L)
@@ -1266,7 +1346,7 @@ internal fun FullscreenNowPlayingView(
 
             val isFullscreenLive = track?.isLiveStream == true || track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
             Row(
-                modifier = Modifier.fillMaxWidth(0.7f),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.sm),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (isFullscreenLive) {
@@ -1291,21 +1371,22 @@ internal fun FullscreenNowPlayingView(
                 }
             }
 
-            Spacer(Modifier.height(spacing.md))
+            Spacer(Modifier.height(spacing.sm))
 
+            // Playback controls row: Shuffle, Prev, Play/Pause, Next, Repeat
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(spacing.lg)
             ) {
                 IconButton(onClick = { player.setShuffle(!player.shuffle) }) {
-                    Icon(imageVector = Icons.Rounded.Shuffle, contentDescription = null, tint = if (player.shuffle) AppColors.Accent else Color.White)
+                    Icon(imageVector = Icons.Rounded.Shuffle, contentDescription = "Перемешать", tint = if (player.shuffle) AppColors.Accent else Color.White)
                 }
                 IconButton(onClick = { player.previous() }) {
-                    Icon(imageVector = Icons.Rounded.SkipPrevious, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    Icon(imageVector = Icons.Rounded.SkipPrevious, contentDescription = "Предыдущий", tint = Color.White, modifier = Modifier.size(36.dp))
                 }
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
+                        .size(64.dp)
                         .clip(CircleShape)
                         .background(Color.White)
                         .clickable { player.toggle() },
@@ -1313,20 +1394,67 @@ internal fun FullscreenNowPlayingView(
                 ) {
                     Icon(
                         imageVector = if (player.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = null,
+                        contentDescription = if (player.isPlaying) "Пауза" else "Воспроизведение",
                         tint = Color.Black,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(36.dp)
                     )
                 }
                 IconButton(onClick = { player.next() }) {
-                    Icon(imageVector = Icons.Rounded.SkipNext, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+                    Icon(imageVector = Icons.Rounded.SkipNext, contentDescription = "Следующий", tint = Color.White, modifier = Modifier.size(36.dp))
                 }
                 IconButton(onClick = { player.cycleRepeat() }) {
                     Icon(
                         imageVector = if (player.repeat == RepeatMode.One) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                        contentDescription = null,
+                        contentDescription = "Режим повтора",
                         tint = if (player.repeat != RepeatMode.Off) AppColors.Accent else Color.White
                     )
+                }
+            }
+
+            Spacer(Modifier.height(spacing.md))
+
+            // Bottom quick tools row: Speed, Equalizer, Sleep Timer, Favorite
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                TextButton(
+                    onClick = onOpenSpeed,
+                    colors = ButtonDefaults.textButtonColors(contentColor = if (player.speed != 1.0f) AppColors.Accent else Color.White)
+                ) {
+                    Icon(Icons.Rounded.Speed, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("${player.speed}x", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                TextButton(
+                    onClick = onOpenEqualizer,
+                    colors = ButtonDefaults.textButtonColors(contentColor = if (player.isEqualizerEnabled) AppColors.Accent else Color.White)
+                ) {
+                    Icon(Icons.Rounded.Equalizer, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("EQ", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                TextButton(
+                    onClick = onOpenSleepTimer,
+                    colors = ButtonDefaults.textButtonColors(contentColor = if (sleepSec != null) AppColors.Accent else Color.White)
+                ) {
+                    Icon(Icons.Rounded.Bedtime, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (sleepSec != null) "${sleepSec!! / 60}м" else "Таймер", fontSize = 13.sp)
+                }
+
+                if (track != null) {
+                    IconButton(onClick = { library.toggleFavorite(track) }) {
+                        Icon(
+                            imageVector = if (track.isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                            contentDescription = if (track.isFavorite) "В избранном" else "Добавить в избранное",
+                            tint = if (track.isFavorite) AppColors.Accent else Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
             }
 

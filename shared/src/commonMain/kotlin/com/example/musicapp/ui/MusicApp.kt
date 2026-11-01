@@ -774,6 +774,9 @@ fun MusicApp(
                     FullscreenNowPlayingView(
                         player = player,
                         library = library,
+                        onOpenEqualizer = { showEqualizerDialog = true },
+                        onOpenSpeed = { showSpeedDialog = true },
+                        onOpenSleepTimer = { showSleepTimerDialog = true },
                         onClose = { isFullscreenNowPlaying = false }
                     )
                 }
