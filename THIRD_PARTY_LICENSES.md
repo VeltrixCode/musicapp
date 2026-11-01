@@ -31,7 +31,7 @@
 * **Исходный код:** [https://github.com/java-native-access/jna](https://github.com/java-native-access/jna)
 
 ### 5. jaudiotagger
-* **Лицензия:** GNU Lesser General Public License v3.0 or later (LGPL-3.0-or-later)
+* **Лицензия:** GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later)
 * **Автор / Правообладатель:** Paul Taylor
 * **Назначение:** Чтение и парсинг аудиотегов ID3v1/ID3v2, FLAC, Vorbis Comment, MP4/M4A на Desktop.
 * **Исходный код:** [https://www.jthink.net/jaudiotagger/](https://www.jthink.net/jaudiotagger/) и [https://bitbucket.org/ijabz/jaudiotagger](https://bitbucket.org/ijabz/jaudiotagger)
