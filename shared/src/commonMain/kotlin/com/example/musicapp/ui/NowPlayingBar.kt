@@ -1778,6 +1778,26 @@ internal fun SpeedDialog(
         title = { Text("Скорость воспроизведения", fontWeight = FontWeight.Bold) },
         text = {
             Column {
+                if (player.isEngineFallback) {
+                    Surface(
+                        color = AppColors.Warning.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.Warning, contentDescription = null, tint = AppColors.Warning, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "JavaFX Media: тональность звука изменяется пропорционально скорости (сохранение тона доступно только в VLC).",
+                                style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary, fontSize = 11.5.sp)
+                            )
+                        }
+                    }
+                }
+
                 speeds.forEach { s ->
                     val isCur = player.speed == s
                     TextButton(

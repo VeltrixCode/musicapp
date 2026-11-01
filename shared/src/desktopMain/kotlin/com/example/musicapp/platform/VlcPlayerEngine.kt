@@ -233,6 +233,8 @@ class VlcPlayerEngine : PlayerEngine {
                 override fun mediaPlayerReady(mediaPlayer: MediaPlayer) {
                     // Dispatch away from JNA native thread before invoking application callbacks
                     eventDispatcher.execute {
+                        // Re-apply speed rate: libVLC resets rate to 1.0f on loading new media
+                        mediaPlayer.controls().setRate(currentRate)
                         val len = mediaPlayer.status().length().coerceAtLeast(0L)
                         if (len > 0L) cachedDurationMs = len
                         pendingSeekMs?.let { ms ->
@@ -246,6 +248,8 @@ class VlcPlayerEngine : PlayerEngine {
                 override fun playing(mediaPlayer: MediaPlayer) {
                     eventDispatcher.execute {
                         isPlayingState = true
+                        // Ensure active rate with WSOLA scaletempo time-stretch is enforced
+                        mediaPlayer.controls().setRate(currentRate)
                         val len = mediaPlayer.status().length().coerceAtLeast(0L)
                         if (len > 0L) cachedDurationMs = len
                         pendingSeekMs?.let { ms ->
@@ -342,6 +346,7 @@ class VlcPlayerEngine : PlayerEngine {
         playerLock.withLock {
             isPlayingState = true
             mediaPlayer?.controls()?.play()
+            mediaPlayer?.controls()?.setRate(currentRate)
         }
     }
 
