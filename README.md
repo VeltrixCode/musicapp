@@ -23,9 +23,18 @@
 * **Kotlin Multiplatform 2.1.0**
 * **Compose Multiplatform 1.7.3**
 * **Material 3**
-* **JavaFX Media & jaudiotagger** (Desktop)
-* **Android MediaPlayer & MediaMetadataRetriever** (Android)
+* **VLC / libVLC & vlcj** (Основной движок воспроизведения Desktop с поддержкой pitch-preservation `scaletempo`, FLAC, OGG, Opus, MP3, WAV; автоматический fallback на JavaFX Media)
+* **Android Media3 ExoPlayer & MediaMetadataRetriever** (Android)
 * **Kotlinx Serialization & Coroutines**
+
+---
+
+## 📄 Лицензии
+
+Проект **JVXMusic** распространяется на условиях лицензии **[GNU General Public License v3.0 or later (GPL-3.0-or-later)](LICENSE)**, поскольку включает и компонуется с библиотекой `vlcj` (GPL v3).
+
+* **Встроенный VLC**: Установщик для Windows содержит автономные бинарные модули libVLC 3.0.24 (распространяются на условиях LGPL-2.1-or-later / GPL-2.0-or-later).
+* Полный перечень сторонних компонентов, лицензий и ссылок на их исходный код приведён в документе **[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)**.
 
 ---
 
