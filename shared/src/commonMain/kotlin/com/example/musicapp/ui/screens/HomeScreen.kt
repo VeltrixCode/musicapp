@@ -259,7 +259,15 @@ fun HomeScreen(
         }
 
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val columns = (maxWidth / 220.dp).toInt().coerceIn(2, 6)
+            val totalCards = quickCards.size
+            val maxColsPossible = (maxWidth / 220.dp).toInt().coerceIn(2, 6)
+            val columns = when {
+                totalCards <= 2 -> 2
+                totalCards <= maxColsPossible -> totalCards
+                totalCards == 4 && maxColsPossible in 2..3 -> 2
+                totalCards == 4 && maxColsPossible >= 4 -> 4
+                else -> (maxColsPossible downTo 2).firstOrNull { totalCards % it == 0 } ?: maxColsPossible
+            }
             val chunks = quickCards.chunked(columns)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 chunks.forEach { rowCards ->
@@ -296,9 +304,6 @@ fun HomeScreen(
                                     }
                                 }
                             )
-                        }
-                        for (i in 0 until (columns - rowCards.size)) {
-                            Spacer(Modifier.weight(1f))
                         }
                     }
                 }
@@ -505,7 +510,7 @@ private fun QuickGridCard(
                     fontWeight = FontWeight.Bold,
                     color = if (isPlaying) AppColors.Accent else AppColors.TextPrimary
                 ),
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )

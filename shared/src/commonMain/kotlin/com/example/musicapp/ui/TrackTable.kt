@@ -41,12 +41,16 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -243,10 +247,12 @@ internal fun TrackRowItem(
     onRename: () -> Unit,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
+    onRelocateFile: (() -> Unit)? = null,
 ) {
     val spacing = LocalSpacing.current
     var menuOpen by remember { mutableStateOf(false) }
     var contextMenuOpen by remember { mutableStateOf(false) }
+    var showMissingFileDialog by remember { mutableStateOf(false) }
 
     val rowInteraction = remember { MutableInteractionSource() }
     val isRowHovered by rowInteraction.collectIsHoveredAsState()
@@ -269,6 +275,9 @@ internal fun TrackRowItem(
                     else -> Color.Transparent
                 }
             )
+            .graphicsLayer {
+                if (track.isMissing) alpha = 0.45f
+            }
             .focusable(interactionSource = rowInteraction)
             .border(
                 width = if (isRowFocused) 1.5.dp else 0.dp,
@@ -277,8 +286,20 @@ internal fun TrackRowItem(
             )
             .hoverable(rowInteraction)
             .combinedClickable(
-                onClick = { onPlay() },
-                onDoubleClick = { onPlay() }
+                onClick = {
+                    if (track.isMissing) {
+                        showMissingFileDialog = true
+                    } else {
+                        onPlay()
+                    }
+                },
+                onDoubleClick = {
+                    if (track.isMissing) {
+                        showMissingFileDialog = true
+                    } else {
+                        onPlay()
+                    }
+                }
             )
             .padding(horizontal = spacing.sm, vertical = spacing.xs)
     ) {
@@ -354,6 +375,22 @@ internal fun TrackRowItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (track.isMissing) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(AppColors.Error.copy(alpha = 0.2f))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text(
+                                "Файл не найден",
+                                color = AppColors.Error,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
                     if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled && (track.isOfflineAvailable || track.cachedFilePath != null)) {
                         Icon(
                             imageVector = Icons.Rounded.CheckCircle,
@@ -415,13 +452,26 @@ internal fun TrackRowItem(
 
             // Extended Columns when screen > 1100dp: Album & Date Added
             if (showExtendedColumns) {
-                Text(
-                    text = if (track.album.isNotBlank() && track.album != "Неизвестный альбом") track.album else "—",
-                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(0.8f).padding(end = 8.dp)
-                )
+                if (track.album.isNotBlank() && track.album != "Неизвестный альбом") {
+                    Text(
+                        text = track.album,
+                        style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(0.8f).padding(end = 8.dp)
+                    )
+                } else {
+                    Text(
+                        text = "Неизвестный альбом",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = AppColors.TextMuted,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(0.8f).padding(end = 8.dp)
+                    )
+                }
                 Text(
                     text = com.example.musicapp.util.formatAddedDate(track.addedAt),
                     style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
@@ -454,15 +504,29 @@ internal fun TrackRowItem(
                         Spacer(Modifier.width(28.dp))
                     }
 
-                    Text(
-                        text = if (durationText.isNotBlank()) durationText else (if (track.durationMs > 0) formatTime(track.durationMs) else "--:--"),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            color = AppColors.TextSecondary,
-                            textAlign = TextAlign.End
-                        ),
-                        modifier = Modifier.width(60.dp),
-                        maxLines = 1
-                    )
+                    if (track.isMissing) {
+                        Box(
+                            modifier = Modifier.width(60.dp),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Warning,
+                                contentDescription = "Файл не найден",
+                                tint = AppColors.Error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = if (durationText.isNotBlank()) durationText else (if (track.durationMs > 0) formatTime(track.durationMs) else "--:--"),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = AppColors.TextSecondary,
+                                textAlign = TextAlign.End
+                            ),
+                            modifier = Modifier.width(60.dp),
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
@@ -593,6 +657,41 @@ internal fun TrackRowItem(
                 Spacer(Modifier.size(28.dp))
             }
         }
+    }
+
+    if (showMissingFileDialog) {
+        AlertDialog(
+            onDismissRequest = { showMissingFileDialog = false },
+            title = { Text("Файл не найден") },
+            text = {
+                Text("Файл «${track.title}» не найден на диске. Вы можете указать новое расположение файла или удалить его из медиатеки.")
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showMissingFileDialog = false
+                            onRelocateFile?.invoke()
+                        }
+                    ) {
+                        Text("Указать файл", color = AppColors.Accent, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = {
+                            showMissingFileDialog = false
+                            onDelete?.invoke()
+                        }
+                    ) {
+                        Text("Удалить из библиотеки", color = AppColors.Error)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMissingFileDialog = false }) {
+                    Text("Отмена", color = AppColors.TextMuted)
+                }
+            }
+        )
     }
 }
 }

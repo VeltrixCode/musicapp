@@ -181,8 +181,8 @@ internal fun HeroBanner(
             Text(badge, style = MaterialTheme.typography.labelSmall)
             Text(
                 title,
-                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 34.sp),
-                maxLines = 1,
+                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 32.sp),
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(spacing.xxs))

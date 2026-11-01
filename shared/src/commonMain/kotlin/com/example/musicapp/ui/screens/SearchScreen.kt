@@ -166,6 +166,17 @@ fun SearchScreen(
             .fillMaxSize()
             .padding(bottom = 96.dp)
     ) {
+        item {
+            Text(
+                "Поиск",
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Black,
+                    color = AppColors.TextPrimary
+                ),
+                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp)
+            )
+        }
+
         if (searchQuery.isBlank()) {
             if (searchHistory.isNotEmpty()) {
                 item {
@@ -232,18 +243,46 @@ fun SearchScreen(
                 }
             }
 
-            item {
-                Text(
-                    "Жанры медиатеки",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary
-                    ),
-                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
-                )
-            }
+            if (localGenres.isNotEmpty()) {
+                item {
+                    Text(
+                        "Жанры медиатеки",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        ),
+                        modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+                    )
+                }
 
-            if (localGenres.isEmpty()) {
+                val columns = if (isCompact) 2 else 4
+                val rowCount = (localGenres.size + columns - 1) / columns
+                for (rowIndex in 0 until rowCount) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            for (colIndex in 0 until columns) {
+                                val itemIndex = rowIndex * columns + colIndex
+                                if (itemIndex < localGenres.size) {
+                                    val (genreName, count) = localGenres[itemIndex]
+                                    val color = GENRE_PALETTE[itemIndex % GENRE_PALETTE.size]
+                                    LocalGenreCard(
+                                        name = genreName,
+                                        trackCount = count,
+                                        color = color,
+                                        onClick = { onSearchQueryChange(genreName) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (library.visibleTracks.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -275,62 +314,78 @@ fun SearchScreen(
                                 textAlign = TextAlign.Center
                             )
                             Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                if (onUploadSong != null) {
-                                    Button(
-                                        onClick = onUploadSong,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = AppColors.Accent,
-                                            contentColor = Color.Black
-                                        ),
-                                        shape = RoundedCornerShape(20.dp)
-                                    ) {
-                                        Icon(Icons.Rounded.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Добавить файлы", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            if (isCompact) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    if (onUploadSong != null) {
+                                        Button(
+                                            onClick = onUploadSong,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = AppColors.Accent,
+                                                contentColor = Color.Black
+                                            ),
+                                            shape = RoundedCornerShape(20.dp),
+                                            modifier = Modifier.fillMaxWidth().height(40.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Добавить файлы", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
+                                    }
+                                    if (onUploadFolder != null) {
+                                        Button(
+                                            onClick = onUploadFolder,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = AppColors.SurfaceElevated,
+                                                contentColor = AppColors.TextPrimary
+                                            ),
+                                            shape = RoundedCornerShape(20.dp),
+                                            modifier = Modifier.fillMaxWidth().height(40.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Импорт папки", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        }
                                     }
                                 }
-                                if (onUploadFolder != null) {
-                                    Button(
-                                        onClick = onUploadFolder,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = AppColors.SurfaceElevated,
-                                            contentColor = AppColors.TextPrimary
-                                        ),
-                                        shape = RoundedCornerShape(20.dp)
-                                    ) {
-                                        Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("Импорт папки", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            } else {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (onUploadSong != null) {
+                                        Button(
+                                            onClick = onUploadSong,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = AppColors.Accent,
+                                                contentColor = Color.Black
+                                            ),
+                                            shape = RoundedCornerShape(20.dp),
+                                            modifier = Modifier.height(40.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Добавить файлы", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
                                     }
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                val columns = if (isCompact) 2 else 4
-                val rowCount = (localGenres.size + columns - 1) / columns
-                for (rowIndex in 0 until rowCount) {
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            for (colIndex in 0 until columns) {
-                                val itemIndex = rowIndex * columns + colIndex
-                                if (itemIndex < localGenres.size) {
-                                    val (genreName, count) = localGenres[itemIndex]
-                                    val color = GENRE_PALETTE[itemIndex % GENRE_PALETTE.size]
-                                    LocalGenreCard(
-                                        name = genreName,
-                                        trackCount = count,
-                                        color = color,
-                                        onClick = { onSearchQueryChange(genreName) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                } else {
-                                    Spacer(Modifier.weight(1f))
+                                    if (onUploadFolder != null) {
+                                        Button(
+                                            onClick = onUploadFolder,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = AppColors.SurfaceElevated,
+                                                contentColor = AppColors.TextPrimary
+                                            ),
+                                            shape = RoundedCornerShape(20.dp),
+                                            modifier = Modifier.height(40.dp)
+                                        ) {
+                                            Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(6.dp))
+                                            Text("Импорт папки", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -14,9 +14,14 @@ interface PlayerEngine {
     fun seekTo(ms: Long)
     fun positionMs(): Long
     fun durationMs(): Long
+    fun isPlaying(): Boolean = false
     fun setVolume(volume: Float)
     fun setPlaybackSpeed(speed: Float)
     fun setEqualizerBand(bandIndex: Int, gainDb: Float)
+    fun setEqualizerEnabled(enabled: Boolean) {}
+    fun getEqualizerBandCount(): Int = 10
+    fun getEqualizerGainRange(): ClosedFloatingPointRange<Float> = -24f..12f
+    fun getEqualizerBandFrequencies(): List<Int> = listOf(32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
     fun setSpectrumListener(listener: ((FloatArray) -> Unit)?)
     fun release()
 }
@@ -69,6 +74,9 @@ expect fun onPlaybackTrackChanged(previousTrackId: String?, newTrackId: String?)
 expect fun onPlaybackReleased()
 
 expect fun getEnv(name: String): String?
+
+/** Checks whether local or content URI file is currently accessible on the device/filesystem. */
+expect fun isFileAvailable(source: String?): Boolean
 
 expect inline fun <R> synchronizedPlatform(lock: Any, block: () -> R): R
 

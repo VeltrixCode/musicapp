@@ -24,6 +24,7 @@ data class AppSettings(
     val playbackSpeed: Float = 1.0f,
     val equalizerPresetName: String = "Flat",
     val equalizerCustomGains: List<Float> = emptyList(),
+    val isEqualizerEnabled: Boolean = true,
     val fetchOnlineLyrics: Boolean = false,
     val fetchOnlineCovers: Boolean = false,
     val offlineMode: Boolean = false,

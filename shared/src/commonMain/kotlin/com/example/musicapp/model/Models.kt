@@ -46,6 +46,7 @@ data class Track(
     val isLossless: Boolean = false,
     val webPageUrl: String? = null,
     val workId: String? = null,
+    val isMissing: Boolean = false,
 ) {
     val playableUri: String? get() = cachedFilePath ?: source
     val isCloud: Boolean get() = sourceProvider != TrackSource.LOCAL

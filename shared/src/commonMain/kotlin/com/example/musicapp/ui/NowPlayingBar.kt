@@ -15,6 +15,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -28,6 +30,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -1347,21 +1359,114 @@ internal fun EqualizerDialog(
     onDismiss: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
-    val frequencies = listOf("32Hz", "64Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz", "8kHz", "16kHz")
+    val bandCount = player.getEqualizerBandCount()
+    val gainRange = player.getEqualizerGainRange()
+    val frequencies = player.getEqualizerBandFrequencies()
+    var selectedBandIndex by remember { mutableStateOf(0) }
+
+    val presets = listOf(
+        EqualizerPreset.BassBoost,
+        EqualizerPreset.Rock,
+        EqualizerPreset.Pop,
+        EqualizerPreset.Vocal,
+        EqualizerPreset.Classical
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.Escape -> {
+                            onDismiss()
+                            true
+                        }
+                        Key.DirectionLeft -> {
+                            selectedBandIndex = (selectedBandIndex - 1).coerceAtLeast(0)
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            selectedBandIndex = (selectedBandIndex + 1).coerceAtMost(bandCount - 1)
+                            true
+                        }
+                        Key.DirectionUp -> {
+                            val curGain = player.equalizerGains.getOrElse(selectedBandIndex) { 0f }
+                            player.setEqualizerBand(selectedBandIndex, (curGain + 1f).coerceAtMost(gainRange.endInclusive))
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            val curGain = player.equalizerGains.getOrElse(selectedBandIndex) { 0f }
+                            player.setEqualizerBand(selectedBandIndex, (curGain - 1f).coerceAtLeast(gainRange.start))
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            },
         shape = RoundedCornerShape(16.dp),
-        title = { Text("Эквалайзер", fontWeight = FontWeight.Bold) },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Equalizer, contentDescription = null, tint = AppColors.Accent)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Эквалайзер", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Закрыть", tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
+                }
+            }
+        },
         text = {
             Column(Modifier.fillMaxWidth()) {
+                // Controls Row: Enable Switch & Reset Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = player.isEqualizerEnabled,
+                            onCheckedChange = { player.setEqualizerEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = AppColors.Accent,
+                                checkedTrackColor = AppColors.Accent.copy(alpha = 0.35f),
+                                uncheckedThumbColor = AppColors.TextMuted,
+                                uncheckedTrackColor = AppColors.SurfaceElevated
+                            )
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (player.isEqualizerEnabled) "Включен" else "Выключен",
+                            fontSize = 13.sp,
+                            color = if (player.isEqualizerEnabled) AppColors.TextPrimary else AppColors.TextMuted,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    TextButton(
+                        onClick = { player.resetEqualizer() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text("Сбросить", color = AppColors.Accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.height(spacing.sm))
+
+                // Presets row: Buttons
                 Text("Пресеты", style = MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.height(spacing.xs))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xxs)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    EqualizerPreset.entries.forEach { p ->
+                    presets.forEach { p ->
                         val isSelected = player.equalizerPreset == p
                         Button(
                             onClick = { player.setEqualizerPreset(p) },
@@ -1370,50 +1475,190 @@ internal fun EqualizerDialog(
                                 containerColor = if (isSelected) AppColors.Accent else AppColors.SurfaceElevated,
                                 contentColor = if (isSelected) Color.Black else Color.White
                             ),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(p.title, fontSize = 9.5.sp, maxLines = 1)
+                            Text(p.title, fontSize = 10.sp, maxLines = 1, softWrap = false)
                         }
                     }
                 }
 
                 Spacer(Modifier.height(spacing.md))
 
-                frequencies.forEachIndexed { idx, freq ->
+                // Sliders Row with Edge Scale on the left
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Edge scale: +max dB, 0 dB, -min dB
+                    Column(
+                        modifier = Modifier.height(160.dp).padding(end = 6.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Text("+${gainRange.endInclusive.toInt()} dB", fontSize = 9.sp, color = AppColors.TextMuted)
+                        Text("0 dB", fontSize = 9.sp, color = AppColors.TextMuted)
+                        Text("${gainRange.start.toInt()} dB", fontSize = 9.sp, color = AppColors.TextMuted)
+                    }
+
+                    // Vertical Sliders
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(freq, style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(48.dp))
-                        Slider(
-                            value = player.equalizerGains.getOrElse(idx) { 0f },
-                            onValueChange = { gain -> player.setEqualizerBand(idx, gain) },
-                            valueRange = -12f..12f,
-                            colors = SliderDefaults.colors(
-                                thumbColor = AppColors.Accent,
-                                activeTrackColor = AppColors.Accent,
-                                inactiveTrackColor = AppColors.SurfaceElevated
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            "${player.equalizerGains.getOrElse(idx) { 0f }.toInt()}dB",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.width(38.dp),
-                            textAlign = TextAlign.End
-                        )
+                        for (idx in 0 until bandCount) {
+                            val freq = frequencies.getOrElse(idx) { 1000 }
+                            val freqLabel = if (freq >= 1000) "${freq / 1000}k" else "$freq"
+                            val gain = player.equalizerGains.getOrElse(idx) { 0f }
+                            VerticalEqualizerSlider(
+                                gain = gain,
+                                gainRange = gainRange,
+                                isSelected = selectedBandIndex == idx,
+                                enabled = player.isEqualizerEnabled,
+                                frequencyLabel = freqLabel,
+                                onGainChange = { newGain ->
+                                    selectedBandIndex = idx
+                                    player.setEqualizerBand(idx, newGain)
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss, colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)) {
-                Text("Готово", color = Color.Black)
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+            ) {
+                Text("Готово", color = Color.Black, fontWeight = FontWeight.Bold)
             }
         },
         containerColor = AppColors.Surface
     )
+}
+
+@Composable
+private fun VerticalEqualizerSlider(
+    gain: Float,
+    gainRange: ClosedFloatingPointRange<Float>,
+    isSelected: Boolean,
+    enabled: Boolean,
+    frequencyLabel: String,
+    onGainChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val minGain = gainRange.start
+    val maxGain = gainRange.endInclusive
+    val span = (maxGain - minGain).coerceAtLeast(1f)
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
+        // dB value above slider
+        Text(
+            text = "${if (gain > 0) "+" else ""}${gain.roundToInt()} dB",
+            fontSize = 11.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) AppColors.Accent else AppColors.TextPrimary,
+            maxLines = 1
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        // Vertical Track (width 28dp, height 160dp)
+        Box(
+            modifier = Modifier
+                .width(28.dp)
+                .height(160.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(AppColors.SurfaceElevated)
+                .border(
+                    width = if (isSelected) 1.5.dp else 0.dp,
+                    color = if (isSelected) AppColors.Accent else Color.Transparent,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                .pointerInput(enabled, minGain, maxGain) {
+                    if (!enabled) return@pointerInput
+                    detectVerticalDragGestures { change, _ ->
+                        change.consume()
+                        val posFraction = 1f - (change.position.y / size.height).coerceIn(0f, 1f)
+                        val newGain = minGain + posFraction * (maxGain - minGain)
+                        onGainChange(newGain)
+                    }
+                }
+                .pointerInput(enabled, minGain, maxGain) {
+                    if (!enabled) return@pointerInput
+                    detectTapGestures { pos ->
+                        val posFraction = 1f - (pos.y / size.height).coerceIn(0f, 1f)
+                        val newGain = minGain + posFraction * (maxGain - minGain)
+                        onGainChange(newGain)
+                    }
+                }
+                .drawBehind {
+                    val trackWidth = 4.dp.toPx()
+                    val centerX = size.width / 2f
+                    val zeroY = size.height * (1f - (0f - minGain) / span)
+                    val currentY = size.height * (1f - (gain.coerceIn(minGain, maxGain) - minGain) / span)
+
+                    // Background center vertical line
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.15f),
+                        start = Offset(centerX, 0f),
+                        end = Offset(centerX, size.height),
+                        strokeWidth = trackWidth
+                    )
+
+                    // Center 0 dB marker notch
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.35f),
+                        start = Offset(centerX - 6.dp.toPx(), zeroY),
+                        end = Offset(centerX + 6.dp.toPx(), zeroY),
+                        strokeWidth = 2.dp.toPx()
+                    )
+
+                    // Fill bar from 0 dB line up or down
+                    if (enabled) {
+                        drawLine(
+                            color = AppColors.Accent,
+                            start = Offset(centerX, zeroY),
+                            end = Offset(centerX, currentY),
+                            strokeWidth = trackWidth
+                        )
+                        // Thumb circle
+                        drawCircle(
+                            color = AppColors.Accent,
+                            radius = 7.dp.toPx(),
+                            center = Offset(centerX, currentY)
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 3.dp.toPx(),
+                            center = Offset(centerX, currentY)
+                        )
+                    } else {
+                        drawCircle(
+                            color = AppColors.TextMuted,
+                            radius = 5.dp.toPx(),
+                            center = Offset(centerX, currentY)
+                        )
+                    }
+                }
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        // Frequency label below slider
+        Text(
+            text = frequencyLabel,
+            fontSize = 10.sp,
+            color = AppColors.TextMuted,
+            maxLines = 1
+        )
+    }
 }
 
 @Composable

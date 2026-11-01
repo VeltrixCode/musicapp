@@ -262,6 +262,7 @@ fun MusicApp(
 
     fun navigateTo(screen: AppScreen) {
         if (backStack.lastOrNull() != screen) {
+            (player as? PlayerController)?.dismissAllErrors()
             backStack.add(screen)
             forwardStack.clear()
         }
@@ -269,6 +270,7 @@ fun MusicApp(
 
     fun goBack() {
         if (backStack.size > 1) {
+            (player as? PlayerController)?.dismissAllErrors()
             val curr = backStack.removeLast()
             forwardStack.add(curr)
         }
@@ -276,6 +278,7 @@ fun MusicApp(
 
     fun goForward() {
         if (forwardStack.isNotEmpty()) {
+            (player as? PlayerController)?.dismissAllErrors()
             val next = forwardStack.removeLast()
             backStack.add(next)
         }
@@ -424,48 +427,6 @@ fun MusicApp(
                                     isSyncing = (player as? PlayerController)?.providerRegistry?.isSyncing?.collectAsState()?.value ?: false,
                                     isOffline = settingsRepo.settings.collectAsState().value.offlineMode,
                                 )
-
-                                // Unified AppError Banner / Snackbar
-                                val currentAppError by player.appError.collectAsState()
-                                currentAppError?.let { err ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = spacing.md, vertical = spacing.xxs)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(AppColors.Error.copy(alpha = 0.25f))
-                                            .padding(12.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                                Icon(Icons.Rounded.Info, contentDescription = null, tint = AppColors.Error, modifier = Modifier.size(20.dp))
-                                                Spacer(Modifier.width(10.dp))
-                                                Text(err.message, color = Color.White, style = MaterialTheme.typography.bodySmall)
-                                            }
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                if (err.actionLabel != null && err.onAction != null) {
-                                                    androidx.compose.material3.TextButton(
-                                                        onClick = {
-                                                            val action = err.onAction
-                                                            player.dismissError()
-                                                            action?.invoke()
-                                                        }
-                                                    ) {
-                                                        Text(err.actionLabel!!, color = AppColors.Accent, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                                                    }
-                                                    Spacer(Modifier.width(8.dp))
-                                                }
-                                                IconButton(onClick = { player.dismissError() }, modifier = Modifier.size(24.dp)) {
-                                                    Icon(Icons.Rounded.Close, contentDescription = "Закрыть", tint = Color.White, modifier = Modifier.size(16.dp))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
 
                                 // Format unsupported warning banner if needed
                                 player.unsupportedFormatNotice?.let { notice ->
@@ -785,6 +746,59 @@ fun MusicApp(
                         library = library,
                         onClose = { isFullscreenNowPlaying = false }
                     )
+                }
+
+                // Floating Error Snackbar above bottom player (no layout jump)
+                val currentAppError by player.appError.collectAsState()
+                val errorBottomPadding = if (isMobile) (56.dp + 76.dp + 12.dp) else (76.dp + 16.dp)
+
+                AnimatedVisibility(
+                    visible = currentAppError != null,
+                    enter = fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 2 },
+                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 2 },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = errorBottomPadding, start = 16.dp, end = 16.dp)
+                ) {
+                    currentAppError?.let { err ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF2E1C1C))
+                                .border(1.dp, AppColors.Error.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    Icon(Icons.Rounded.Info, contentDescription = null, tint = AppColors.Error, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(err.message, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (err.actionLabel != null && err.onAction != null) {
+                                        androidx.compose.material3.TextButton(
+                                            onClick = {
+                                                val action = err.onAction
+                                                player.dismissError()
+                                                action?.invoke()
+                                            }
+                                        ) {
+                                            Text(err.actionLabel!!, color = AppColors.Accent, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    IconButton(onClick = { player.dismissError() }, modifier = Modifier.size(24.dp)) {
+                                        Icon(Icons.Rounded.Close, contentDescription = "Закрыть", tint = Color.White, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Global Snackbar Host

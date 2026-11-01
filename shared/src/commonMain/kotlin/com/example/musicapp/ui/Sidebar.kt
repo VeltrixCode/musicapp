@@ -166,19 +166,6 @@ internal fun AppSidebar(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        if (showLabels) {
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                "JVXMusic",
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = AppColors.TextPrimary
-                                ),
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Clip
-                            )
-                        }
                     }
 
                     AppTooltip(text = "Свернуть боковую панель (Ctrl+B)") {
@@ -750,7 +737,7 @@ internal fun SidebarNavItem(
     onClick: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
-    val interactionSource = remember(label) { MutableInteractionSource() }
+    val interactionSource = remember(label, isSelected) { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val itemContent = @Composable {

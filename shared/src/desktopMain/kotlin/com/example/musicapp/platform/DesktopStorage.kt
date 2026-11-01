@@ -3,8 +3,34 @@ package com.example.musicapp.platform
 import java.io.File
 
 actual object AppStorage {
-    private val dir: File by lazy {
-        File(System.getProperty("user.home"), "JVXMusic").apply { mkdirs() }
+    @Volatile
+    private var customDir: File? = null
+
+    fun setCustomDataDir(directory: File?) {
+        customDir = directory
+    }
+
+    val dir: File get() {
+        val custom = customDir
+        if (custom != null) {
+            custom.mkdirs()
+            return custom
+        }
+        val sysProp = System.getProperty("jvx.data.dir")
+        if (!sysProp.isNullOrBlank()) {
+            val f = File(sysProp)
+            f.mkdirs()
+            return f
+        }
+        val isTestIsolated = System.getProperty("jvx.test.isolation") == "true"
+        if (isTestIsolated) {
+            val userDir = File(System.getProperty("user.home"), "JVXMusic")
+            throw IllegalStateException(
+                "TEST ISOLATION VIOLATION: Test attempted to access real user data folder at ${userDir.absolutePath}. " +
+                "Specify a temporary directory via system property 'jvx.data.dir' or AppStorage.setCustomDataDir()."
+            )
+        }
+        return File(System.getProperty("user.home"), "JVXMusic").apply { mkdirs() }
     }
 
     actual fun read(name: String): String? =

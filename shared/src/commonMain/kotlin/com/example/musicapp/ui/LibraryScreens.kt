@@ -49,6 +49,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -117,6 +118,10 @@ internal fun LibraryView(
         (player as? PlayerController)?.settingsRepository?.let { repo ->
             repo.save(repo.load().copy(librarySortColumn = col.name, librarySortDirection = newDir.name))
         }
+    }
+
+    LaunchedEffect(Unit) {
+        library.checkFilesAvailability()
     }
 
     val isOnline = com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled
@@ -405,7 +410,12 @@ internal fun LibraryView(
                             onAddToPlaylist = { pId -> onAddToPlaylist(pId, track) },
                             onToggleFavorite = { library.toggleFavorite(track) },
                             onRename = { onRename(track) },
-                            onDelete = { pendingDelete = track }
+                            onDelete = { pendingDelete = track },
+                            onRelocateFile = {
+                                com.example.musicapp.platform.launchAudioImport { imp ->
+                                    imp.source?.let { library.updateTrackSource(track.id, it) }
+                                }
+                            }
                         )
                     }
                 }

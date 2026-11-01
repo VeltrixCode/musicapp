@@ -69,6 +69,9 @@ class Library {
         // Ensure system "Любимые треки" playlist exists
         ensureFavoritesPlaylist()
 
+        // Check local files availability
+        checkFilesAvailability()
+
         // Asynchronously enrich missing durations and tags for local files
         scope.launch {
             for (i in tracks.indices) {
@@ -140,6 +143,7 @@ class Library {
     }
 
     fun recordTrackPlayed(track: Track) {
+        if (track.isMissing) return
         val idx = tracks.indexOfFirst { it.id == track.id }
         if (idx >= 0) {
             tracks[idx] = tracks[idx].copy(playCount = tracks[idx].playCount + 1)
@@ -327,8 +331,39 @@ class Library {
                 else list.filter { it.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL }
             }
 
+    fun checkFilesAvailability() {
+        for (i in tracks.indices) {
+            val t = tracks.getOrNull(i) ?: continue
+            if (t.sourceProvider == com.example.musicapp.model.TrackSource.LOCAL && t.source != null) {
+                val available = com.example.musicapp.platform.isFileAvailable(t.source)
+                if (t.isMissing != !available) {
+                    tracks[i] = t.copy(isMissing = !available)
+                }
+            }
+        }
+    }
+
+    fun updateTrackSource(trackId: String, newPath: String) {
+        val idx = tracks.indexOfFirst { it.id == trackId }
+        if (idx >= 0) {
+            val old = tracks[idx]
+            val info = com.example.musicapp.platform.readTrackInfo(newPath)
+            tracks[idx] = old.copy(
+                source = newPath,
+                isMissing = false,
+                durationMs = if (info != null && info.durationMs > 0) info.durationMs else old.durationMs,
+                title = if (old.title.isBlank() || old.title == "Unknown") (info?.title ?: old.title) else old.title,
+                artist = if (old.artist.isBlank() || old.artist == "Unknown artist") (info?.artist ?: old.artist) else old.artist,
+                album = if (old.album.isBlank()) (info?.album ?: "") else old.album,
+                genre = old.genre ?: info?.genre,
+                year = old.year ?: info?.year,
+            )
+            save()
+        }
+    }
+
     fun getMixOfTheDay(): List<Track> {
-        val base = visibleTracks
+        val base = visibleTracks.filter { !it.isMissing }
         if (base.isEmpty()) return emptyList()
         val daySeed = currentTimeMillis() / (1000L * 60 * 60 * 24)
         val rnd = kotlin.random.Random(daySeed)
@@ -336,10 +371,10 @@ class Library {
     }
 
     fun getRecentlyAdded(limit: Int = 20): List<Track> =
-        visibleTracks.sortedByDescending { it.addedAt }.take(limit)
+        visibleTracks.filter { !it.isMissing }.sortedByDescending { it.addedAt }.take(limit)
 
     fun getFrequentlyPlayed(limit: Int = 20): List<Track> =
-        visibleTracks.sortedByDescending { it.playCount }.take(limit)
+        visibleTracks.filter { !it.isMissing }.sortedByDescending { it.playCount }.take(limit)
 
     fun getCloudTracks(): List<Track> =
         if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) tracks.filter { it.isCloud } else emptyList()

@@ -17,6 +17,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
@@ -26,12 +27,18 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,52 +79,62 @@ internal fun AppTopBar(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         // Navigation Back & Forward Buttons (Two distinct circular buttons separated by 8dp gap)
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(if (canGoBack) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.3f))
-                    .clickable(enabled = canGoBack, onClick = onGoBack),
-                contentAlignment = Alignment.Center
+        if (!isCompact) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Назад",
-                    tint = if (canGoBack) Color.White else AppColors.TextMuted,
-                    modifier = Modifier.size(18.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(if (canGoBack) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.3f))
+                        .clickable(enabled = canGoBack, onClick = onGoBack),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Назад",
+                        tint = if (canGoBack) Color.White else AppColors.TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(if (canGoForward) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.3f))
+                        .clickable(enabled = canGoForward, onClick = onGoForward),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                        contentDescription = "Вперед",
+                        tint = if (canGoForward) Color.White else AppColors.TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
-            Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(if (canGoForward) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.3f))
-                    .clickable(enabled = canGoForward, onClick = onGoForward),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
-                    contentDescription = "Вперед",
-                    tint = if (canGoForward) Color.White else AppColors.TextMuted,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            Spacer(Modifier.width(spacing.md))
         }
-
-        Spacer(Modifier.width(spacing.md))
 
         // Search Input Box
         Box(
-            modifier = Modifier
-                .width(if (isCompact) 180.dp else 360.dp)
-                .height(44.dp)
-                .clip(CircleShape)
-                .background(AppColors.SurfaceElevated)
-                .padding(horizontal = spacing.sm),
+            modifier = if (isCompact) {
+                Modifier
+                    .weight(1f)
+                    .height(44.dp)
+                    .clip(CircleShape)
+                    .background(AppColors.SurfaceElevated)
+                    .padding(horizontal = spacing.sm)
+            } else {
+                Modifier
+                    .width(360.dp)
+                    .height(44.dp)
+                    .clip(CircleShape)
+                    .background(AppColors.SurfaceElevated)
+                    .padding(horizontal = spacing.sm)
+            },
             contentAlignment = Alignment.CenterStart
         ) {
             Row(
@@ -134,7 +151,7 @@ internal fun AppTopBar(
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     if (searchQuery.isEmpty()) {
                         Text(
-                            "Что хочешь послушать?",
+                            if (isCompact) "Поиск" else "Что хочешь послушать?",
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 color = AppColors.TextMuted,
                                 fontSize = 13.5.sp,
@@ -211,29 +228,67 @@ internal fun AppTopBar(
                 Spacer(Modifier.width(spacing.xs))
             }
 
-            Button(
-                onClick = onUploadSong,
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceElevated),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                shape = CircleShape
-            ) {
-                Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = AppColors.TextPrimary, modifier = Modifier.size(16.dp))
-                if (!isCompact) {
+            if (isCompact) {
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(
+                        onClick = { menuOpen = true },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(AppColors.SurfaceElevated)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = "Добавить",
+                            tint = AppColors.TextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        modifier = Modifier.background(AppColors.SurfaceElevated)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Добавить файлы", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Rounded.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            onClick = {
+                                menuOpen = false
+                                onUploadSong()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Импорт папки", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            onClick = {
+                                menuOpen = false
+                                onUploadFolder()
+                            }
+                        )
+                    }
+                }
+            } else {
+                Button(
+                    onClick = onUploadSong,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceElevated),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = AppColors.TextPrimary, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(spacing.xs))
                     Text("Файл", color = AppColors.TextPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                 }
-            }
 
-            Spacer(Modifier.width(spacing.xs))
+                Spacer(Modifier.width(spacing.xs))
 
-            Button(
-                onClick = onUploadFolder,
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceElevated),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                shape = CircleShape
-            ) {
-                Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = AppColors.TextPrimary, modifier = Modifier.size(16.dp))
-                if (!isCompact) {
+                Button(
+                    onClick = onUploadFolder,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.SurfaceElevated),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = AppColors.TextPrimary, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(spacing.xs))
                     Text("Папка", color = AppColors.TextPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                 }

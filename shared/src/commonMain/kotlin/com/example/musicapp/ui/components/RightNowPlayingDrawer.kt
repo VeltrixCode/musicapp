@@ -282,11 +282,23 @@ private fun NowPlayingDetailPane(
                     .padding(12.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (track.album.isNotBlank()) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Альбом", color = AppColors.TextMuted, fontSize = 12.sp)
-                            Text(track.album, color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                        }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Альбом", color = AppColors.TextMuted, fontSize = 12.sp)
+                        Text(if (track.album.isNotBlank() && track.album != "Неизвестный альбом") track.album else "—", color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Жанр", color = AppColors.TextMuted, fontSize = 12.sp)
+                        Text(track.genre?.takeIf { it.isNotBlank() } ?: "—", color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    }
+                    val formatStr = (track.format?.uppercase() ?: track.source?.substringAfterLast('.', "")?.uppercase())?.takeIf { it.isNotBlank() } ?: "MP3"
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Формат", color = AppColors.TextMuted, fontSize = 12.sp)
+                        Text(formatStr, color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    }
+                    val bitrateStr = track.bitrateKbps?.let { "$it кбит/с" } ?: "—"
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Битрейт", color = AppColors.TextMuted, fontSize = 12.sp)
+                        Text(bitrateStr, color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
                     if (track.year != null && track.year > 0) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

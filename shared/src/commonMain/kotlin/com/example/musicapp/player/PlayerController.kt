@@ -51,7 +51,7 @@ data class PlaybackContext(
 
 enum class EqualizerPreset(val title: String, val gains: FloatArray) {
     Flat("Обычный", floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)),
-    BassBoost("Усиление басов", floatArrayOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
+    BassBoost("Усиление баса", floatArrayOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
     Rock("Рок", floatArrayOf(4f, 3f, 2f, 0f, -1f, 1f, 3f, 4f, 5f, 5f)),
     Pop("Поп", floatArrayOf(-1f, 1f, 3f, 4f, 4f, 3f, 1f, -1f, -1f, -1f)),
     Vocal("Вокал", floatArrayOf(-2f, -2f, -1f, 2f, 4f, 4f, 3f, 1f, 0f, -1f)),
@@ -97,6 +97,7 @@ interface AudioPlayer {
     val speed: Float
     val equalizerPreset: EqualizerPreset
     val equalizerGains: FloatArray
+    val isEqualizerEnabled: Boolean
     val lyrics: List<LrcLine>
     val queue: List<Track>
     val unsupportedFormatNotice: String?
@@ -133,6 +134,11 @@ interface AudioPlayer {
     fun setPlaybackSpeed(speed: Float)
     fun setEqualizerPreset(preset: EqualizerPreset)
     fun setEqualizerBand(bandIndex: Int, gainDb: Float)
+    fun setEqualizerEnabled(enabled: Boolean)
+    fun resetEqualizer()
+    fun getEqualizerBandCount(): Int
+    fun getEqualizerGainRange(): ClosedFloatingPointRange<Float>
+    fun getEqualizerBandFrequencies(): List<Int>
     fun setSleepTimer(minutes: Int?)
 
     fun playNext(track: Track)
@@ -187,6 +193,8 @@ class PlayerController(
     private var equalizerPresetState by mutableStateOf(EqualizerPreset.Flat)
     override val equalizerPreset: EqualizerPreset get() = equalizerPresetState
     override val equalizerGains = FloatArray(10) { 0f }
+    private var _isEqualizerEnabled by mutableStateOf(true)
+    override val isEqualizerEnabled: Boolean get() = _isEqualizerEnabled
 
     override var lyrics by mutableStateOf<List<LrcLine>>(emptyList())
         private set
@@ -196,6 +204,11 @@ class PlayerController(
 
     private val _appError = MutableStateFlow<com.example.musicapp.model.AppError?>(null)
     override val appError: StateFlow<com.example.musicapp.model.AppError?> = _appError.asStateFlow()
+
+    private val errorQueue = mutableListOf<com.example.musicapp.model.AppError>()
+    private var errorDismissJob: Job? = null
+    private var lastErrorMessage: String? = null
+    private var lastErrorTime: Long = 0L
 
     private val _playbackContext = MutableStateFlow<PlaybackContext?>(null)
     override val playbackContext: StateFlow<PlaybackContext?> = _playbackContext.asStateFlow()
@@ -207,11 +220,49 @@ class PlayerController(
     }
 
     override fun dismissError() {
+        errorDismissJob?.cancel()
+        advanceErrorQueue()
+    }
+
+    fun dismissAllErrors() {
+        errorDismissJob?.cancel()
+        errorQueue.clear()
         _appError.value = null
     }
 
     fun postError(err: com.example.musicapp.model.AppError) {
+        val now = currentTimeMillis()
+        if (err.message == lastErrorMessage && (now - lastErrorTime) < 4000L) {
+            return
+        }
+        lastErrorMessage = err.message
+        lastErrorTime = now
+
+        if (_appError.value == null) {
+            showError(err)
+        } else {
+            errorQueue.add(err)
+        }
+    }
+
+    private fun showError(err: com.example.musicapp.model.AppError) {
         _appError.value = err
+        errorDismissJob?.cancel()
+        errorDismissJob = scope.launch {
+            delay(5000L)
+            runOnUiThread {
+                advanceErrorQueue()
+            }
+        }
+    }
+
+    private fun advanceErrorQueue() {
+        if (errorQueue.isNotEmpty()) {
+            val next = errorQueue.removeAt(0)
+            showError(next)
+        } else {
+            _appError.value = null
+        }
     }
 
     fun isOfflineDownloadConfirmationRequired(track: Track): Boolean {
@@ -296,6 +347,8 @@ class PlayerController(
             for (i in 0 until 10) equalizerGains[i] = settings.equalizerCustomGains[i]
         }
 
+        _isEqualizerEnabled = settings.isEqualizerEnabled
+        engine.setEqualizerEnabled(isEqualizerEnabled)
         engine.setVolume(volume)
         engine.setPlaybackSpeed(speed)
         for (i in equalizerGains.indices) {
@@ -385,12 +438,32 @@ class PlayerController(
     }
 
     override fun setEqualizerBand(bandIndex: Int, gainDb: Float) {
+        val range = engine.getEqualizerGainRange()
         if (bandIndex in equalizerGains.indices) {
-            equalizerGains[bandIndex] = gainDb.coerceIn(-24f, 12f)
+            equalizerGains[bandIndex] = gainDb.coerceIn(range.start, range.endInclusive)
             engine.setEqualizerBand(bandIndex, equalizerGains[bandIndex])
             persistSettings()
         }
     }
+
+    override fun setEqualizerEnabled(enabled: Boolean) {
+        _isEqualizerEnabled = enabled
+        engine.setEqualizerEnabled(enabled)
+        persistSettings()
+    }
+
+    override fun resetEqualizer() {
+        for (i in equalizerGains.indices) {
+            equalizerGains[i] = 0f
+            engine.setEqualizerBand(i, 0f)
+        }
+        equalizerPresetState = EqualizerPreset.Flat
+        persistSettings()
+    }
+
+    override fun getEqualizerBandCount(): Int = engine.getEqualizerBandCount()
+    override fun getEqualizerGainRange(): ClosedFloatingPointRange<Float> = engine.getEqualizerGainRange()
+    override fun getEqualizerBandFrequencies(): List<Int> = engine.getEqualizerBandFrequencies()
 
     override fun setSleepTimer(minutes: Int?) {
         sleepTimerJob?.cancel()
@@ -431,10 +504,16 @@ class PlayerController(
     }
 
     override fun play(track: Track, context: List<Track>, playbackContext: PlaybackContext?) {
+        if (track.isMissing) {
+            val shortName = track.source?.substringAfterLast('/')?.substringAfterLast('\\') ?: "файл"
+            val msg = "Не удалось воспроизвести «${track.title}»: файл не найден ($shortName)"
+            postError(com.example.musicapp.model.AppError.Generic(msg))
+            return
+        }
         _playbackContext.value = playbackContext
         consecutivePlaybackErrors = 0
         _queue.clear()
-        _queue.addAll(context)
+        _queue.addAll(context.filter { !it.isMissing || it.id == track.id })
         currentIndex = _queue.indexOfFirst { it.id == track.id }
         if (currentIndex < 0) {
             _queue.add(0, track)
@@ -530,7 +609,9 @@ class PlayerController(
         syncState()
     }
 
-    override fun next() = advance(+1)
+    override fun next() {
+        advance(+1)
+    }
 
     override fun previous() {
         if (positionMs > 3_000) seekTo(0) else advance(-1)
@@ -609,6 +690,9 @@ class PlayerController(
     }
 
     private fun start(track: Track) {
+        val previousTrackBeforeStart = current
+        val previousPositionBeforeStart = positionMs
+        val previousDurationBeforeStart = durationMs
         val previousTrackId = current?.id
         if (previousTrackId != null && previousTrackId != track.id) {
             com.example.musicapp.platform.onPlaybackTrackChanged(previousTrackId, track.id)
@@ -693,12 +777,16 @@ class PlayerController(
                                     errorMsg.contains("MEDIA_UNAVAILABLE", ignoreCase = true) ||
                                     errorMsg.contains("UNSUPPORTED", ignoreCase = true)
 
+                            val shortFileName = track.source?.substringAfterLast('/')?.substringAfterLast('\\') ?: ""
+                            val isMissing = !com.example.musicapp.platform.isFileAvailable(track.source)
                             val userMsg = if (isUnsupported) {
                                 "Формат ${track.format?.uppercase() ?: "FLAC/OGG"} не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC."
+                            } else if (isMissing && shortFileName.isNotBlank()) {
+                                "Ошибка воспроизведения «${track.title}»: файл не найден ($shortFileName)"
                             } else {
-                                "Ошибка воспроизведения «${track.title}»: $errorMsg"
+                                "Ошибка воспроизведения «${track.title}»"
                             }
-                            unsupportedFormatNotice = userMsg
+                            unsupportedFormatNotice = if (isUnsupported) userMsg else null
                             postError(
                                 if (isUnsupported) com.example.musicapp.model.AppError.UnsupportedFormat(track.format?.uppercase() ?: "FLAC/OGG")
                                 else com.example.musicapp.model.AppError.Generic(userMsg)
@@ -706,9 +794,15 @@ class PlayerController(
 
                             // Transition to next track in queue with circuit breaker to avoid tight native crash loops
                             consecutivePlaybackErrors++
-                            if (consecutivePlaybackErrors < 3 && consecutivePlaybackErrors < _queue.size) {
+                            val advanced = if (consecutivePlaybackErrors < 3 && consecutivePlaybackErrors < _queue.size) {
                                 advance(+1)
                             } else {
+                                false
+                            }
+                            if (!advanced) {
+                                current = previousTrackBeforeStart
+                                positionMs = previousPositionBeforeStart
+                                durationMs = previousDurationBeforeStart
                                 consecutivePlaybackErrors = 0
                                 isPlaying = false
                                 syncState()
@@ -761,20 +855,21 @@ class PlayerController(
         }
     }
 
-    private fun advance(direction: Int) {
+    private fun advance(direction: Int): Boolean {
         val nextIdx = pickIndex(direction)
         if (nextIdx == null) {
             engine.pause()
             isPlaying = false
             syncState()
-            return
+            return false
         }
         currentIndex = nextIdx
         start(_queue[currentIndex])
+        return true
     }
 
     private fun pickIndex(direction: Int): Int? {
-        if (_queue.none { it.source != null }) return null
+        if (_queue.none { it.source != null && !it.isMissing }) return null
         if (shuffleState && direction > 0) {
             if (shuffledIndices.isEmpty()) rebuildShuffledQueue()
             shufflePointer++
@@ -796,13 +891,13 @@ class PlayerController(
                 if (repeatState != RepeatMode.All) return null
                 i = if (direction > 0) 0 else _queue.lastIndex
             }
-            if (_queue[i].source != null) return i
+            if (_queue[i].source != null && !_queue[i].isMissing) return i
         }
         return null
     }
 
     private fun rebuildShuffledQueue() {
-        val playable = _queue.indices.filter { _queue[it].source != null }
+        val playable = _queue.indices.filter { _queue[it].source != null && !_queue[it].isMissing }
         val cur = currentIndex
         val others = playable.filter { it != cur }.shuffled()
         shuffledIndices.clear()
@@ -824,6 +919,7 @@ class PlayerController(
                 playbackSpeed = speed,
                 equalizerPresetName = equalizerPreset.name,
                 equalizerCustomGains = equalizerGains.toList(),
+                isEqualizerEnabled = isEqualizerEnabled,
             )
         )
     }

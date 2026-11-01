@@ -1,5 +1,6 @@
 package com.example.musicapp
 
+import android.content.Intent
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
@@ -12,21 +13,41 @@ import com.example.musicapp.player.PlayerController
 import com.example.musicapp.ui.MusicApp
 
 class MainActivity : ComponentActivity() {
-    private var pending: ((Uri?) -> Unit)? = null
+    private var pendingAudio: ((Uri?) -> Unit)? = null
+    private var pendingFolder: ((Uri?) -> Unit)? = null
     private var mediaSession: MediaSession? = null
     private val player = PlayerController()
 
-    private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        pending?.invoke(uri)
-        pending = null
+    private val audioPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: SecurityException) {}
+        }
+        pendingAudio?.invoke(uri)
+        pendingAudio = null
+    }
+
+    private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        if (treeUri != null) {
+            try {
+                contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: SecurityException) {}
+        }
+        pendingFolder?.invoke(treeUri)
+        pendingFolder = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AndroidBridge.appContext = applicationContext
         AndroidBridge.pickAudio = { callback ->
-            pending = callback
-            picker.launch(arrayOf("audio/*"))
+            pendingAudio = callback
+            audioPicker.launch(arrayOf("audio/*"))
+        }
+        AndroidBridge.pickFolder = { callback ->
+            pendingFolder = callback
+            folderPicker.launch(null)
         }
         AndroidBridge.onHeadphonesUnplugged = {
             player.pause()

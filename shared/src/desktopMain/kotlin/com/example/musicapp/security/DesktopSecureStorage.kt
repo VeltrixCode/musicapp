@@ -15,13 +15,15 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 
 actual object SecureStorage {
-    val vaultDir: File by lazy {
-        File(System.getProperty("user.home"), "JVXMusic/.security").apply {
-            mkdirs()
-            setReadable(true, true)
-            setWritable(true, true)
-            setExecutable(true, true)
+    val vaultDir: File get() {
+        val d = File(com.example.musicapp.platform.AppStorage.dir, ".security")
+        d.mkdirs()
+        runCatching {
+            d.setReadable(true, true)
+            d.setWritable(true, true)
+            d.setExecutable(true, true)
         }
+        return d
     }
 
     /**
