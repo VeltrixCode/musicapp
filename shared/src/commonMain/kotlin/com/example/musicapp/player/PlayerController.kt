@@ -32,6 +32,23 @@ import kotlin.math.abs
 
 enum class RepeatMode { Off, All, One }
 
+enum class PlaybackContextType {
+    Playlist,
+    SmartMix,
+    Album,
+    Artist,
+    Search,
+    TrackShelf,
+    Library,
+    Unknown
+}
+
+data class PlaybackContext(
+    val type: PlaybackContextType,
+    val id: String,
+    val title: String = "",
+)
+
 enum class EqualizerPreset(val title: String, val gains: FloatArray) {
     Flat("Обычный", floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)),
     BassBoost("Усиление басов", floatArrayOf(6f, 5f, 4f, 2f, 0f, 0f, 0f, 0f, 0f, 0f)),
@@ -85,6 +102,10 @@ interface AudioPlayer {
     val unsupportedFormatNotice: String?
     val appError: StateFlow<com.example.musicapp.model.AppError?>
     val providerRegistry: com.example.musicapp.provider.ProviderRegistry
+    val playbackContext: StateFlow<PlaybackContext?>
+
+    fun isContextPlaying(type: PlaybackContextType, id: String): Boolean =
+        isPlaying && playbackContext.value?.let { it.type == type && it.id == id } == true
 
     fun dismissFormatNotice()
     fun dismissError()
@@ -95,6 +116,9 @@ interface AudioPlayer {
     fun deleteOffline(trackId: String)
 
     fun play(track: Track, context: List<Track> = listOf(track))
+    fun play(track: Track, context: List<Track>, playbackContext: PlaybackContext?) {
+        play(track, context)
+    }
     fun toggle()
     fun pause()
     fun resume()
@@ -172,6 +196,9 @@ class PlayerController(
 
     private val _appError = MutableStateFlow<com.example.musicapp.model.AppError?>(null)
     override val appError: StateFlow<com.example.musicapp.model.AppError?> = _appError.asStateFlow()
+
+    private val _playbackContext = MutableStateFlow<PlaybackContext?>(null)
+    override val playbackContext: StateFlow<PlaybackContext?> = _playbackContext.asStateFlow()
 
     override val providerRegistry = com.example.musicapp.provider.ProviderRegistry()
 
@@ -400,6 +427,11 @@ class PlayerController(
     }
 
     override fun play(track: Track, context: List<Track>) {
+        play(track, context, null)
+    }
+
+    override fun play(track: Track, context: List<Track>, playbackContext: PlaybackContext?) {
+        _playbackContext.value = playbackContext
         consecutivePlaybackErrors = 0
         _queue.clear()
         _queue.addAll(context)

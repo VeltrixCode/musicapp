@@ -27,6 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.DriveFolderUpload
 import androidx.compose.material.icons.rounded.GridView
@@ -36,6 +38,8 @@ import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -131,7 +135,7 @@ internal fun LibraryView(
 
     val sorted = remember(filtered, sortColumn, sortDirection) {
         val comparator = when (sortColumn) {
-            SortColumn.Number -> compareBy<Track> { library.tracks.indexOf(it) }
+            SortColumn.Number -> compareBy<Track> { library.visibleTracks.indexOf(it) }
             SortColumn.Title -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.title }
             SortColumn.Artist -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.artist }
             SortColumn.Album -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.album }
@@ -157,7 +161,7 @@ internal fun LibraryView(
                 modifier = Modifier.fillMaxSize()
             ) {
                 item {
-                    val trackCount = library.tracks.size
+                    val trackCount = library.visibleTracks.size
                     HeroBanner(
                         title = "Моя медиатека",
                         subtitle = pluralRu(trackCount, "трек", "трека", "треков"),
@@ -173,6 +177,7 @@ internal fun LibraryView(
 
                 item {
                     Spacer(Modifier.height(spacing.sm))
+                    var sortMenuOpen by remember { mutableStateOf(false) }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.xs),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -195,14 +200,80 @@ internal fun LibraryView(
                                     )
                                 }
                             }
+                        } else {
+                            Spacer(Modifier.width(1.dp))
                         }
 
-                        IconButton(onClick = { isGridView = !isGridView }) {
-                            Icon(
-                                imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
-                                contentDescription = "Вид",
-                                tint = AppColors.TextSecondary
-                            )
+                        // Right-aligned toolbar group: sort dropdown + list/grid toggle (no lonely icons)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box {
+                                TextButton(
+                                    onClick = { sortMenuOpen = true },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    val sortLabel = when (sortColumn) {
+                                        SortColumn.Number -> "По порядку"
+                                        SortColumn.Title -> "По названию"
+                                        SortColumn.Artist -> "По исполнителю"
+                                        SortColumn.Album -> "По альбому"
+                                        SortColumn.Duration -> "По длительности"
+                                        SortColumn.AddedAt -> "По дате"
+                                        SortColumn.PlayCount -> "По популярности"
+                                    }
+                                    Text(sortLabel, fontSize = 12.sp, color = AppColors.TextSecondary)
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = if (sortDirection == SortDirection.Ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                                        contentDescription = null,
+                                        tint = AppColors.TextSecondary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = sortMenuOpen,
+                                    onDismissRequest = { sortMenuOpen = false },
+                                    modifier = Modifier.background(AppColors.SurfaceElevated)
+                                ) {
+                                    listOf(
+                                        SortColumn.Number to "По порядку",
+                                        SortColumn.Title to "По названию",
+                                        SortColumn.Artist to "По исполнителю",
+                                        SortColumn.Album to "По альбому",
+                                        SortColumn.Duration to "По длительности",
+                                        SortColumn.AddedAt to "По дате",
+                                        SortColumn.PlayCount to "По популярности"
+                                    ).forEach { (col, title) ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    title,
+                                                    fontSize = 12.sp,
+                                                    color = if (col == sortColumn) AppColors.Accent else AppColors.TextPrimary
+                                                )
+                                            },
+                                            onClick = {
+                                                onSortChange(col)
+                                                sortMenuOpen = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { isGridView = !isGridView },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isGridView) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+                                    contentDescription = "Вид",
+                                    tint = AppColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.height(spacing.xs))

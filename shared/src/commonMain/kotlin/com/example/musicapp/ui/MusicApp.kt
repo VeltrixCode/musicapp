@@ -53,7 +53,16 @@ import com.example.musicapp.ui.screens.CloudSourcesScreen
 import com.example.musicapp.ui.screens.HomeScreen
 import com.example.musicapp.ui.screens.SearchScreen
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode as AnimRepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -273,13 +282,14 @@ fun MusicApp(
     }
 
     val currentScreen = backStack.lastOrNull() ?: AppScreen.Home
-    var sidebarWidth by remember { mutableStateOf(240.dp) }
 
     var searchQuery by remember { mutableStateOf("") }
     var debouncedQuery by remember { mutableStateOf("") }
 
     val settingsRepo = remember { (player as? PlayerController)?.settingsRepository ?: SettingsRepository() }
     val initialSettings = remember { settingsRepo.load() }
+    var sidebarExpandedWidth by remember { mutableStateOf(initialSettings.sidebarWidthDp.coerceIn(180f, 360f).dp) }
+    var isSidebarCollapsed by remember { mutableStateOf(initialSettings.isSidebarCollapsed) }
     var isRightPanelPinned by remember { mutableStateOf(initialSettings.isRightPanelPinned) }
     var showQueueDrawer by remember { mutableStateOf(initialSettings.isRightPanelOpen || initialSettings.isRightPanelPinned) }
 
@@ -315,11 +325,30 @@ fun MusicApp(
         val spacing = LocalSpacing.current
 
         Surface(
-            modifier = modifier.fillMaxSize(),
+            modifier = modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { event ->
+                    if ((event.isCtrlPressed || event.isMetaPressed) && event.key == Key.B && event.type == KeyEventType.KeyDown) {
+                        isSidebarCollapsed = !isSidebarCollapsed
+                        settingsRepo.save(settingsRepo.load().copy(isSidebarCollapsed = isSidebarCollapsed))
+                        true
+                    } else {
+                        false
+                    }
+                },
             color = AppColors.Background,
         ) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
+                val isMobile = maxWidth < 600.dp
                 val isCompact = maxWidth < 900.dp
+                val autoCollapse = maxWidth < 900.dp
+                val effectiveCollapsed = isSidebarCollapsed || autoCollapse
+                val targetSidebarWidth = if (effectiveCollapsed) 72.dp else sidebarExpandedWidth
+                val animatedSidebarWidth by animateDpAsState(
+                    targetValue = targetSidebarWidth,
+                    animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                )
+                val showSidebarLabels = !effectiveCollapsed && (animatedSidebarWidth >= sidebarExpandedWidth - 8.dp)
 
                 Column(Modifier.fillMaxSize()) {
                     // Main layout
@@ -328,14 +357,22 @@ fun MusicApp(
                             .weight(1f)
                             .fillMaxWidth()
                     ) {
-                        // Left Sidebar Navigation with Resizable Width
-                        if (!isCompact) {
+                        // Left Sidebar Navigation with Resizable Width (Visible for all non-mobile screens)
+                        if (!isMobile) {
                             AppSidebar(
                                 library = library,
                                 currentScreen = currentScreen,
-                                sidebarWidth = sidebarWidth,
-                                onWidthChange = { sidebarWidth = it },
-                                isCompact = false,
+                                sidebarWidth = animatedSidebarWidth,
+                                onWidthChange = {
+                                    sidebarExpandedWidth = it
+                                    settingsRepo.save(settingsRepo.load().copy(sidebarWidthDp = it.value))
+                                },
+                                collapsed = effectiveCollapsed,
+                                onToggleCollapse = {
+                                    isSidebarCollapsed = !isSidebarCollapsed
+                                    settingsRepo.save(settingsRepo.load().copy(isSidebarCollapsed = isSidebarCollapsed))
+                                },
+                                showLabels = showSidebarLabels,
                                 onNavigate = { navigateTo(it) },
                                 onCreatePlaylist = { showCreatePlaylistDialog = true },
                             )
@@ -493,6 +530,19 @@ fun MusicApp(
                                                     searchQuery = searchQuery,
                                                     onSearchQueryChange = { searchQuery = it },
                                                     onTrackClick = { t -> player.play(t, listOf(t)) },
+                                                    onUploadSong = {
+                                                        launchAudioImport { track ->
+                                                            library.addTrack(track)
+                                                            coroutineScope.launch { snackbarHostState.showSnackbar("Добавлен трек: ${track.title}") }
+                                                        }
+                                                    },
+                                                    onUploadFolder = {
+                                                        launchFolderImport { tracks ->
+                                                            tracks.forEach { library.addTrack(it) }
+                                                            coroutineScope.launch { snackbarHostState.showSnackbar("Импортировано треков: ${tracks.size}") }
+                                                        }
+                                                    },
+                                                    onNavigate = { navigateTo(it) },
                                                     isCompact = isCompact
                                                 )
                                             }
@@ -663,8 +713,8 @@ fun MusicApp(
                         onOpenSpeed = { showSpeedDialog = true },
                     )
 
-                    // Bottom Navigation Bar for Compact/Android devices
-                    if (isCompact) {
+                    // Bottom Navigation Bar for Mobile devices (<600dp)
+                    if (isMobile) {
                         NavigationBar(
                             containerColor = Color.Black,
                             tonalElevation = 8.dp,

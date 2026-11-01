@@ -59,6 +59,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +83,8 @@ import com.example.musicapp.model.RemoteTrack
 import com.example.musicapp.model.Track
 import com.example.musicapp.model.TrackSource
 import com.example.musicapp.player.AudioPlayer
+import com.example.musicapp.player.PlaybackContext
+import com.example.musicapp.player.PlaybackContextType
 import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.fallbackGradientFor
 import com.example.musicapp.ui.components.FavoritesCoverBox
@@ -150,10 +153,10 @@ fun HomeScreen(
 
     val favoritesPlaylist = library.playlists.find { it.id == FAVORITES_PLAYLIST_ID }
     val favoriteTracks = favoritesPlaylist?.let { library.tracksIn(it) } ?: emptyList()
-    val mixOfDay = remember(library.tracks.size) { library.getMixOfTheDay() }
-    val recentlyAdded = remember(library.tracks.size) { library.getRecentlyAdded(12) }
-    val frequentlyPlayed = remember(library.tracks.size) { library.getFrequentlyPlayed(12) }
-    val cloudTracks = remember(library.tracks.size) { library.getCloudTracks() }
+    val mixOfDay = remember(library.visibleTracks.size) { library.getMixOfTheDay() }
+    val recentlyAdded = remember(library.visibleTracks.size) { library.getRecentlyAdded(12) }
+    val frequentlyPlayed = remember(library.visibleTracks.size) { library.getFrequentlyPlayed(12) }
+    val cloudTracks = remember(library.visibleTracks.size) { library.getCloudTracks() }
 
     Column(
         modifier = Modifier
@@ -164,7 +167,7 @@ fun HomeScreen(
         Spacer(Modifier.height(16.dp))
 
         // Onboarding card for new/empty library
-        if (library.tracks.isEmpty()) {
+        if (library.visibleTracks.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -256,7 +259,7 @@ fun HomeScreen(
         }
 
         BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val columns = (maxWidth / 280.dp).toInt().coerceIn(2, 5)
+            val columns = (maxWidth / 220.dp).toInt().coerceIn(2, 6)
             val chunks = quickCards.chunked(columns)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 chunks.forEach { rowCards ->
@@ -265,7 +268,12 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         rowCards.forEach { card ->
-                            val isCardPlaying = player.isPlaying && card.tracks.any { it.id == player.current?.id }
+                            val (cardType, cardId) = if (card.title == "Любимые треки") {
+                                PlaybackContextType.Playlist to FAVORITES_PLAYLIST_ID
+                            } else {
+                                PlaybackContextType.SmartMix to card.title
+                            }
+                            val isCardPlaying = player.isContextPlaying(cardType, cardId)
                             QuickGridCard(
                                 data = card,
                                 isPlaying = isCardPlaying,
@@ -273,8 +281,11 @@ fun HomeScreen(
                                 onPlay = {
                                     if (isCardPlaying) {
                                         player.pause()
+                                    } else if (player.playbackContext.value?.type == cardType && player.playbackContext.value?.id == cardId && player.current != null) {
+                                        player.resume()
                                     } else if (card.tracks.isNotEmpty()) {
-                                        player.play(card.tracks.first(), card.tracks)
+                                        val ctx = PlaybackContext(cardType, cardId, card.title)
+                                        player.play(card.tracks.first(), card.tracks, ctx)
                                     }
                                 },
                                 onClick = {
@@ -297,19 +308,22 @@ fun HomeScreen(
         Spacer(Modifier.height(32.dp))
 
         // Shelf 1: "Недавно слушали"
-        val recentlyPlayed = library.recentlyPlayedIds.mapNotNull { id -> library.tracks.find { it.id == id } }
+        val recentlyPlayed = library.recentlyPlayedIds.mapNotNull { id -> library.visibleTracks.find { it.id == id } }
         if (recentlyPlayed.isNotEmpty()) {
             ContentShelf(
                 title = "Недавно слушали",
                 tracks = recentlyPlayed,
                 player = player,
-                onTrackClick = { t -> player.play(t, recentlyPlayed) }
+                onTrackClick = { t ->
+                    val ctx = PlaybackContext(PlaybackContextType.TrackShelf, "Недавно слушали", "Недавно слушали")
+                    player.play(t, recentlyPlayed, ctx)
+                }
             )
             Spacer(Modifier.height(28.dp))
         }
 
-        // Shelf 2: "Ваши миксы" (shown only when library has real tracks)
-        if (mixOfDay.isNotEmpty() || recentlyAdded.isNotEmpty() || frequentlyPlayed.isNotEmpty()) {
+        // Shelf 2: "Сделано для вас" (shown only when library has at least 5 tracks)
+        if (library.visibleTracks.size >= 5 && (mixOfDay.isNotEmpty() || recentlyAdded.isNotEmpty() || frequentlyPlayed.isNotEmpty())) {
             MixesShelf(
                 mixOfDay = mixOfDay,
                 recentTracks = recentlyAdded,
@@ -535,6 +549,15 @@ fun ContentShelf(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    val canScrollBackward by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+    val canScrollForward by remember {
+        derivedStateOf {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible < tracks.lastIndex
+        }
+    }
+    val showArrows = tracks.size > 4 && (canScrollBackward || canScrollForward)
+
     Column(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
@@ -548,28 +571,40 @@ fun ContentShelf(
                     color = AppColors.TextPrimary
                 )
             )
-            Row {
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            val target = (listState.firstVisibleItemIndex - 3).coerceAtLeast(0)
-                            listState.animateScrollToItem(target)
-                        }
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, contentDescription = "Назад", tint = AppColors.TextSecondary)
-                }
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            val target = (listState.firstVisibleItemIndex + 3).coerceAtMost(tracks.lastIndex)
-                            listState.animateScrollToItem(target)
-                        }
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = "Вперед", tint = AppColors.TextSecondary)
+            if (showArrows) {
+                Row {
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                val target = (listState.firstVisibleItemIndex - 3).coerceAtLeast(0)
+                                listState.animateScrollToItem(target)
+                            }
+                        },
+                        enabled = canScrollBackward,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
+                            contentDescription = "Назад",
+                            tint = if (canScrollBackward) AppColors.TextSecondary else AppColors.TextMuted
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                val target = (listState.firstVisibleItemIndex + 3).coerceAtMost(tracks.lastIndex)
+                                listState.animateScrollToItem(target)
+                            }
+                        },
+                        enabled = canScrollForward,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                            contentDescription = "Вперед",
+                            tint = if (canScrollForward) AppColors.TextSecondary else AppColors.TextMuted
+                        )
+                    }
                 }
             }
         }
@@ -582,7 +617,7 @@ fun ContentShelf(
             contentPadding = PaddingValues(horizontal = 4.dp)
         ) {
             items(tracks, key = { it.id }) { track ->
-                val isPlayingThis = player.current?.id == track.id && player.isPlaying
+                val isPlayingThis = player.isContextPlaying(PlaybackContextType.TrackShelf, title) && player.current?.id == track.id
                 ContentCard(
                     title = track.title,
                     subtitle = track.artist,
@@ -591,7 +626,14 @@ fun ContentShelf(
                     isPlaying = isPlayingThis,
                     onClick = { onTrackClick(track) },
                     onPlayClick = {
-                        if (isPlayingThis) player.pause() else onTrackClick(track)
+                        if (isPlayingThis) {
+                            player.pause()
+                        } else if (player.playbackContext.value?.type == PlaybackContextType.TrackShelf && player.playbackContext.value?.id == title && player.current?.id == track.id) {
+                            player.resume()
+                        } else {
+                            val ctx = PlaybackContext(PlaybackContextType.TrackShelf, title, title)
+                            player.play(track, tracks, ctx)
+                        }
                     }
                 )
             }
@@ -620,31 +662,60 @@ private fun MixesShelf(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            val isMixDayPlaying = player.isContextPlaying(PlaybackContextType.SmartMix, "Микс дня")
             ContentCard(
                 title = "Микс дня",
-                subtitle = "Обновляется каждый день на основе ваших предпочтений",
+                subtitle = "Случайная подборка треков из вашей медиатеки на каждый день",
                 cardWidth = 190.dp,
+                isPlaying = isMixDayPlaying,
                 onClick = { onSelectMix("Микс дня") },
                 onPlayClick = {
-                    if (mixOfDay.isNotEmpty()) player.play(mixOfDay.first(), mixOfDay)
+                    if (isMixDayPlaying) {
+                        player.pause()
+                    } else if (player.playbackContext.value?.type == PlaybackContextType.SmartMix && player.playbackContext.value?.id == "Микс дня" && player.current != null) {
+                        player.resume()
+                    } else if (mixOfDay.isNotEmpty()) {
+                        val ctx = PlaybackContext(PlaybackContextType.SmartMix, "Микс дня", "Микс дня")
+                        player.play(mixOfDay.first(), mixOfDay, ctx)
+                    }
                 }
             )
+
+            val isRecentPlaying = player.isContextPlaying(PlaybackContextType.SmartMix, "Недавно добавленное")
             ContentCard(
                 title = "Недавно добавленное",
                 subtitle = "Свежие треки, добавленные в вашу библиотеку",
                 cardWidth = 190.dp,
+                isPlaying = isRecentPlaying,
                 onClick = { onSelectMix("Недавно добавленное") },
                 onPlayClick = {
-                    if (recentTracks.isNotEmpty()) player.play(recentTracks.first(), recentTracks)
+                    if (isRecentPlaying) {
+                        player.pause()
+                    } else if (player.playbackContext.value?.type == PlaybackContextType.SmartMix && player.playbackContext.value?.id == "Недавно добавленное" && player.current != null) {
+                        player.resume()
+                    } else if (recentTracks.isNotEmpty()) {
+                        val ctx = PlaybackContext(PlaybackContextType.SmartMix, "Недавно добавленное", "Недавно добавленное")
+                        player.play(recentTracks.first(), recentTracks, ctx)
+                    }
                 }
             )
+
+            val isFrequentPlaying = player.isContextPlaying(PlaybackContextType.SmartMix, "Часто слушаемое")
             ContentCard(
                 title = "Часто слушаемое",
-                subtitle = "Треки на репите в вашем плеере",
+                subtitle = "Треки с наибольшим числом воспроизведений",
                 cardWidth = 190.dp,
+                isPlaying = isFrequentPlaying,
                 onClick = { onSelectMix("Часто слушаемое") },
                 onPlayClick = {
-                    if (frequentTracks.isNotEmpty()) player.play(frequentTracks.first(), frequentTracks)
+                    if (isFrequentPlaying) {
+                        player.pause()
+                    } else if (player.playbackContext.value?.type == PlaybackContextType.SmartMix && player.playbackContext.value?.id == "Часто слушаемое" && player.current != null) {
+                        player.resume()
+                    } else if (frequentTracks.isNotEmpty()) {
+                        val ctx = PlaybackContext(PlaybackContextType.SmartMix, "Часто слушаемое", "Часто слушаемое")
+                        player.play(frequentTracks.first(), frequentTracks, ctx)
+                    }
                 }
             )
         }

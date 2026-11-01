@@ -1,6 +1,7 @@
 package com.example.musicapp.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -70,15 +71,18 @@ internal fun AppTopBar(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Navigation Back & Forward Buttons
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onGoBack,
-                enabled = canGoBack,
+        // Navigation Back & Forward Buttons (Two distinct circular buttons separated by 8dp gap)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(if (canGoBack) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.3f))
+                    .clickable(enabled = canGoBack, onClick = onGoBack),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
@@ -87,14 +91,13 @@ internal fun AppTopBar(
                     modifier = Modifier.size(18.dp)
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            IconButton(
-                onClick = onGoForward,
-                enabled = canGoForward,
+            Box(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(if (canGoForward) Color.Black.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.3f))
+                    .clickable(enabled = canGoForward, onClick = onGoForward),
+                contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Rounded.ArrowForward,

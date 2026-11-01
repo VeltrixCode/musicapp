@@ -110,6 +110,7 @@ import com.example.musicapp.service.CoverArtService
 import com.example.musicapp.theme.fallbackGradientFor
 import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.LocalSpacing
+import com.example.musicapp.ui.components.AppTooltip
 import com.example.musicapp.util.formatTime
 
 @Composable
@@ -207,16 +208,18 @@ internal fun NowPlayingBar(
                             }
                             Spacer(Modifier.width(spacing.xs))
                             Column(Modifier.weight(1f)) {
-                                Text(
-                                    track.title,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = AppColors.TextPrimary,
-                                        fontSize = 13.sp
-                                    ),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                AppTooltip(text = track.title) {
+                                    Text(
+                                        track.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = AppColors.TextPrimary,
+                                            fontSize = 13.sp
+                                        ),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                                 Text(
                                     track.artist,
                                     style = MaterialTheme.typography.bodySmall.copy(
@@ -343,15 +346,17 @@ internal fun NowPlayingBar(
                     }
                     Spacer(Modifier.width(spacing.sm))
                     Column(Modifier.weight(1f)) {
-                        Text(
-                            track.title,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = AppColors.TextPrimary
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        AppTooltip(text = track.title) {
+                            Text(
+                                track.title,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.TextPrimary
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                         Text(
                             track.artist,
                             style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),

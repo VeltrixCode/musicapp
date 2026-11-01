@@ -33,6 +33,7 @@ data class TrackInfo(
     val title: String?,
     val artist: String?,
     val album: String?,
+    val genre: String? = null,
     val year: Int?,
     val durationMs: Long,
 )
@@ -79,6 +80,7 @@ fun importedTrack(path: String, fileName: String, info: TrackInfo? = readTrackIn
         title = info?.title ?: fileName.substringBeforeLast('.'),
         artist = info?.artist ?: "Неизвестный исполнитель",
         album = info?.album ?: "",
+        genre = info?.genre,
         year = info?.year,
         source = path,
         durationMs = info?.durationMs ?: 0L,

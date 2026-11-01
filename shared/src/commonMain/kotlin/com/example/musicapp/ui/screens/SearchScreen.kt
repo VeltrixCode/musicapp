@@ -19,12 +19,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.SearchOff
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,15 +42,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.musicapp.library.Library
@@ -52,25 +59,21 @@ import com.example.musicapp.model.RemoteTrack
 import com.example.musicapp.model.Track
 import com.example.musicapp.model.TrackSource
 import com.example.musicapp.player.AudioPlayer
+import com.example.musicapp.player.PlaybackContext
+import com.example.musicapp.player.PlaybackContextType
 import com.example.musicapp.theme.AppColors
+import com.example.musicapp.theme.fallbackGradientFor
+import com.example.musicapp.ui.AppScreen
 import com.example.musicapp.util.formatTrackDuration
+import com.example.musicapp.util.pluralRu
 import kotlinx.coroutines.delay
 
-private data class GenreCategory(val name: String, val color: Color)
-
-private val GENRES = listOf(
-    GenreCategory("Рок", Color(0xFFE91429)),
-    GenreCategory("Поп", Color(0xFF8D67AB)),
-    GenreCategory("Хип-хоп", Color(0xFFBA5D07)),
-    GenreCategory("Электроника", Color(0xFF1E3264)),
-    GenreCategory("Джаз", Color(0xFF477D95)),
-    GenreCategory("Лоу-фай", Color(0xFFE1118C)),
-    GenreCategory("Инди", Color(0xFF509BF5)),
-    GenreCategory("Классика", Color(0xFF7D4B32)),
-    GenreCategory("Метал", Color(0xFF2E77D0)),
-    GenreCategory("Акустика", Color(0xFF0D73EC)),
-    GenreCategory("Эмбиент", Color(0xFF503750)),
-    GenreCategory("R&B", Color(0xFFDC148C)),
+private val GENRE_PALETTE = listOf(
+    Color(0xFFE91429), Color(0xFF8D67AB), Color(0xFFBA5D07),
+    Color(0xFF1E3264), Color(0xFF477D95), Color(0xFFE1118C),
+    Color(0xFF509BF5), Color(0xFF7D4B32), Color(0xFF2E77D0),
+    Color(0xFF0D73EC), Color(0xFF503750), Color(0xFFDC148C),
+    Color(0xFF1DB954), Color(0xFFE66465), Color(0xFF9146FF)
 )
 
 @Composable
@@ -80,15 +83,17 @@ fun SearchScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onTrackClick: (Track) -> Unit,
+    onUploadSong: (() -> Unit)? = null,
+    onUploadFolder: (() -> Unit)? = null,
+    onNavigate: ((AppScreen) -> Unit)? = null,
     isCompact: Boolean = false,
 ) {
-    // Dynamic history without fake stubs
     val searchHistory = remember { mutableStateListOf<String>() }
 
     var isSearching by remember { mutableStateOf(false) }
     var cloudResults by remember { mutableStateOf<Map<TrackSource, List<RemoteTrack>>>(emptyMap()) }
 
-    // Live search with debounce from the top bar query
+    // Live search debouncing
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
         if (q.isBlank() || !com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
@@ -105,18 +110,55 @@ fun SearchScreen(
         cloudResults = player.providerRegistry.searchAll(q)
         isSearching = false
 
-        // Automatically record successful query in recent history
         if (!searchHistory.contains(q)) {
             searchHistory.add(0, q)
             if (searchHistory.size > 10) searchHistory.removeAt(searchHistory.lastIndex)
         }
     }
 
-    val localMatches = remember(searchQuery, library.visibleTracks.size) {
-        val q = searchQuery.trim().lowercase()
-        if (q.isBlank()) emptyList() else library.visibleTracks.filter {
-            it.title.lowercase().contains(q) || it.artist.lowercase().contains(q) || it.album.lowercase().contains(q)
+    // Genre tiles from local tags only
+    val localGenres = remember(library.visibleTracks.size) {
+        library.visibleTracks
+            .mapNotNull { it.genre?.trim() }
+            .filter { it.isNotBlank() }
+            .groupingBy { it }
+            .eachCount()
+            .toList()
+            .sortedByDescending { it.second }
+    }
+
+    // Local library search partitioned into Tracks, Albums, Artists
+    val q = searchQuery.trim().lowercase()
+    val matchingTracks = remember(searchQuery, library.visibleTracks.size) {
+        if (q.isBlank()) emptyList()
+        else library.visibleTracks.filter {
+            it.title.lowercase().contains(q) ||
+            it.artist.lowercase().contains(q) ||
+            it.album.lowercase().contains(q) ||
+            (it.genre?.lowercase()?.contains(q) == true)
         }
+    }
+
+    val matchingAlbums = remember(searchQuery, library.visibleTracks.size) {
+        if (q.isBlank()) emptyList()
+        else library.visibleTracks
+            .filter { it.album.isNotBlank() && it.album != "Неизвестный альбом" && it.album.lowercase().contains(q) }
+            .groupBy { it.album }
+            .map { (albName, trList) ->
+                Triple(albName, trList.first().artist, trList.size)
+            }
+            .sortedBy { it.first.lowercase() }
+    }
+
+    val matchingArtists = remember(searchQuery, library.visibleTracks.size) {
+        if (q.isBlank()) emptyList()
+        else library.visibleTracks
+            .filter { it.artist.isNotBlank() && it.artist != "Неизвестный исполнитель" && it.artist.lowercase().contains(q) }
+            .groupBy { it.artist }
+            .map { (artName, trList) ->
+                Pair(artName, trList.size)
+            }
+            .sortedBy { it.first.lowercase() }
     }
 
     LazyColumn(
@@ -124,7 +166,6 @@ fun SearchScreen(
             .fillMaxSize()
             .padding(bottom = 96.dp)
     ) {
-        // When no search query: Show Recent History & Genre Grid
         if (searchQuery.isBlank()) {
             if (searchHistory.isNotEmpty()) {
                 item {
@@ -193,7 +234,7 @@ fun SearchScreen(
 
             item {
                 Text(
-                    "Все жанры и категории",
+                    "Жанры медиатеки",
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
                         color = AppColors.TextPrimary
@@ -202,33 +243,102 @@ fun SearchScreen(
                 )
             }
 
-            // Genre cards grid: 2 columns on mobile/compact, 4 columns on desktop
-            val columns = if (isCompact) 2 else 4
-            val rowCount = (GENRES.size + columns - 1) / columns
-            for (rowIndex in 0 until rowCount) {
+            if (localGenres.isEmpty()) {
                 item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp, horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        for (colIndex in 0 until columns) {
-                            val itemIndex = rowIndex * columns + colIndex
-                            if (itemIndex < GENRES.size) {
-                                val genre = GENRES[itemIndex]
-                                GenreCard(
-                                    category = genre,
-                                    onClick = { onSearchQueryChange(genre.name) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            } else {
-                                Spacer(Modifier.weight(1f))
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = null,
+                                tint = AppColors.TextMuted,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Text(
+                                "Жанры ещё не добавлены в медиатеку",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.TextPrimary
+                                ),
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                "Добавьте треки или импортируйте папку с файлами, содержащими теги жанров",
+                                style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                                textAlign = TextAlign.Center
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                if (onUploadSong != null) {
+                                    Button(
+                                        onClick = onUploadSong,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = AppColors.Accent,
+                                            contentColor = Color.Black
+                                        ),
+                                        shape = RoundedCornerShape(20.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Добавить файлы", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                }
+                                if (onUploadFolder != null) {
+                                    Button(
+                                        onClick = onUploadFolder,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = AppColors.SurfaceElevated,
+                                            contentColor = AppColors.TextPrimary
+                                        ),
+                                        shape = RoundedCornerShape(20.dp)
+                                    ) {
+                                        Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Импорт папки", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                val columns = if (isCompact) 2 else 4
+                val rowCount = (localGenres.size + columns - 1) / columns
+                for (rowIndex in 0 until rowCount) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            for (colIndex in 0 until columns) {
+                                val itemIndex = rowIndex * columns + colIndex
+                                if (itemIndex < localGenres.size) {
+                                    val (genreName, count) = localGenres[itemIndex]
+                                    val color = GENRE_PALETTE[itemIndex % GENRE_PALETTE.size]
+                                    LocalGenreCard(
+                                        name = genreName,
+                                        trackCount = count,
+                                        color = color,
+                                        onClick = { onSearchQueryChange(genreName) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                } else {
+                                    Spacer(Modifier.weight(1f))
+                                }
                             }
                         }
                     }
                 }
             }
         } else {
-            // Live Search Results
+            // Live Search Results sectioned: Tracks, Albums, Artists
             if (isSearching) {
                 item {
                     Row(
@@ -240,11 +350,11 @@ fun SearchScreen(
                 }
             }
 
-            // Section 1: Local Library Tracks
-            if (localMatches.isNotEmpty()) {
+            // Section 1: Tracks
+            if (matchingTracks.isNotEmpty()) {
                 item {
                     Text(
-                        "Треки в медиатеке (${localMatches.size})",
+                        "Треки (${matchingTracks.size})",
                         style = MaterialTheme.typography.titleMedium.copy(
                             fontWeight = FontWeight.Bold,
                             color = AppColors.TextPrimary
@@ -252,45 +362,175 @@ fun SearchScreen(
                         modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
                     )
                 }
-                items(localMatches, key = { it.id }) { track ->
+                items(matchingTracks, key = { it.id }) { track ->
                     SearchResultRow(
                         track = track,
                         durationText = formatTrackDuration(track, player),
                         badge = if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) "Локально" else null,
                         badgeColor = AppColors.Accent,
-                        onClick = { onTrackClick(track) }
+                        onClick = {
+                            player.play(track, matchingTracks, PlaybackContext(PlaybackContextType.Search, searchQuery, "Поиск: $searchQuery"))
+                        }
                     )
                 }
             }
 
-            // Section 2: Cloud Provider Results
-            cloudResults.forEach { (source, remoteList) ->
-                if (remoteList.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "${source.name} (${remoteList.size})",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = AppColors.TextPrimary
-                            ),
-                            modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
-                        )
-                    }
-                    items(remoteList, key = { it.id }) { remote ->
-                        val track = remote.toTrack()
-                        SearchResultRow(
-                            track = track,
-                            durationText = formatTrackDuration(track, player),
-                            badge = source.name,
-                            badgeColor = if (source == TrackSource.JAMENDO) Color(0xFFBA5D07) else Color(0xFF1E3264),
-                            license = remote.license,
-                            onClick = { onTrackClick(track) }
-                        )
+            // Section 2: Albums
+            if (matchingAlbums.isNotEmpty()) {
+                item {
+                    Text(
+                        "Альбомы (${matchingAlbums.size})",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        ),
+                        modifier = Modifier.padding(top = 18.dp, bottom = 8.dp)
+                    )
+                }
+                items(matchingAlbums, key = { it.first }) { (albumName, artistName, trackCount) ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 52.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                if (onNavigate != null) {
+                                    onNavigate(AppScreen.SmartMixView(albumName))
+                                } else {
+                                    onSearchQueryChange(albumName)
+                                }
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(fallbackGradientFor(albumName)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Album, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    albumName,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = AppColors.TextPrimary
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "$artistName • ${pluralRu(trackCount, "трек", "трека", "треков")}",
+                                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            if (!isSearching && localMatches.isEmpty() && cloudResults.values.all { it.isEmpty() }) {
+            // Section 3: Artists
+            if (matchingArtists.isNotEmpty()) {
+                item {
+                    Text(
+                        "Исполнители (${matchingArtists.size})",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        ),
+                        modifier = Modifier.padding(top = 18.dp, bottom = 8.dp)
+                    )
+                }
+                items(matchingArtists, key = { it.first }) { (artistName, trackCount) ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 52.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                if (onNavigate != null) {
+                                    onNavigate(AppScreen.SmartMixView(artistName))
+                                } else {
+                                    onSearchQueryChange(artistName)
+                                }
+                            }
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(AppColors.SurfaceElevated),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Rounded.Person, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    artistName,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = AppColors.TextPrimary
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    pluralRu(trackCount, "трек", "трека", "треков"),
+                                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Cloud Provider Results (if enabled)
+            if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+                cloudResults.forEach { (source, remoteList) ->
+                    if (remoteList.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "${source.name} (${remoteList.size})",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.TextPrimary
+                                ),
+                                modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
+                            )
+                        }
+                        items(remoteList, key = { it.id }) { remote ->
+                            val track = remote.toTrack()
+                            SearchResultRow(
+                                track = track,
+                                durationText = formatTrackDuration(track, player),
+                                badge = source.name,
+                                badgeColor = if (source == TrackSource.JAMENDO) Color(0xFFBA5D07) else Color(0xFF1E3264),
+                                license = remote.license,
+                                onClick = { onTrackClick(track) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!isSearching && matchingTracks.isEmpty() && matchingAlbums.isEmpty() && matchingArtists.isEmpty() && cloudResults.values.all { it.isEmpty() }) {
                 item {
                     Box(
                         modifier = Modifier.fillMaxWidth().height(280.dp),
@@ -325,13 +565,11 @@ fun SearchScreen(
     }
 }
 
-/**
- * JVX Genre Tile:
- * Vibrant color, bold top-left text, 25-degree tilted art card in bottom-right corner.
- */
 @Composable
-private fun GenreCard(
-    category: GenreCategory,
+private fun LocalGenreCard(
+    name: String,
+    trackCount: Int,
+    color: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -339,25 +577,36 @@ private fun GenreCard(
         modifier = modifier
             .height(104.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(category.color)
+            .background(color)
             .clickable { onClick() }
     ) {
-        // Category Name (Top Left)
-        Text(
-            text = category.name,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                fontSize = 17.sp
-            ),
+        Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(14.dp),
-            maxLines = 2,
-            softWrap = true
-        )
+                .padding(14.dp)
+        ) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontSize = 17.sp
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = pluralRu(trackCount, "трек", "трека", "треков"),
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = Color.White.copy(alpha = 0.85f),
+                    fontSize = 11.5.sp
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
 
-        // 25-degree tilted artwork thumbnail in bottom-right corner
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -425,14 +674,14 @@ private fun SearchResultRow(
                         color = AppColors.TextPrimary
                     ),
                     maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         track.artist,
                         style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextSecondary),
                         maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (license != null) {
                         Spacer(Modifier.width(6.dp))

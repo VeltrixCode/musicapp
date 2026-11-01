@@ -39,6 +39,7 @@ actual fun readTrackInfo(path: String): TrackInfo? = runCatching {
         title = tag?.getFirst(FieldKey.TITLE)?.takeIf { it.isNotBlank() },
         artist = tag?.getFirst(FieldKey.ARTIST)?.takeIf { it.isNotBlank() },
         album = tag?.getFirst(FieldKey.ALBUM)?.takeIf { it.isNotBlank() },
+        genre = tag?.getFirst(FieldKey.GENRE)?.takeIf { it.isNotBlank() },
         year = tag?.getFirst(FieldKey.YEAR)?.toIntOrNull(),
         durationMs = file.audioHeader.trackLength * 1000L,
     )

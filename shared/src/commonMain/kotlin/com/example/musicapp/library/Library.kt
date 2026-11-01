@@ -83,6 +83,7 @@ class Library {
                                 title = if (t.title == "Unknown" || t.title.isBlank()) (info.title ?: t.title) else t.title,
                                 artist = if (t.artist == "Unknown artist") (info.artist ?: t.artist) else t.artist,
                                 album = if (t.album.isBlank()) (info.album ?: "") else t.album,
+                                genre = t.genre ?: info.genre,
                                 year = t.year ?: info.year
                             )
                         }

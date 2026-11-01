@@ -29,6 +29,7 @@ data class Track(
     val playCount: Int = 0,
     val addedAt: Long = 0L,
     val isFavorite: Boolean = false,
+    val genre: String? = null,
     val sourceProvider: TrackSource = TrackSource.LOCAL,
     val remoteId: String? = null,
     val artworkUrl: String? = null,

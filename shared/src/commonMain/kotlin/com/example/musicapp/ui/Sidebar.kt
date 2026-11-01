@@ -1,6 +1,7 @@
 package com.example.musicapp.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -68,10 +69,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.musicapp.library.FAVORITES_PLAYLIST_ID
 import com.example.musicapp.library.Library
-import com.example.musicapp.theme.fallbackGradientFor
-import com.example.musicapp.ui.components.FavoritesCoverBox
 import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.LocalSpacing
+import com.example.musicapp.theme.fallbackGradientFor
+import com.example.musicapp.ui.components.AppTooltip
+import com.example.musicapp.ui.components.FavoritesCoverBox
 import com.example.musicapp.util.pluralRu
 import kotlin.math.roundToInt
 
@@ -81,12 +83,14 @@ internal fun AppSidebar(
     currentScreen: AppScreen,
     sidebarWidth: Dp,
     onWidthChange: (Dp) -> Unit,
-    isCompact: Boolean,
+    collapsed: Boolean,
+    onToggleCollapse: () -> Unit,
+    showLabels: Boolean = !collapsed,
     onNavigate: (AppScreen) -> Unit,
     onCreatePlaylist: () -> Unit,
 ) {
     val spacing = LocalSpacing.current
-    val effectiveWidth = if (isCompact) 72.dp else sidebarWidth
+    val effectiveWidth = if (collapsed) 72.dp else sidebarWidth
 
     Row(modifier = Modifier.fillMaxHeight()) {
         Column(
@@ -94,93 +98,160 @@ internal fun AppSidebar(
                 .width(effectiveWidth)
                 .fillMaxHeight()
                 .background(Color.Black)
-                .padding(vertical = spacing.md, horizontal = if (isCompact) spacing.xs else spacing.sm)
+                .padding(vertical = spacing.md, horizontal = if (collapsed) spacing.xs else spacing.sm)
         ) {
-            // App Logo & Sidebar Collapse Toggle (no duplicate app title)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = spacing.md, start = if (isCompact) 0.dp else spacing.xs),
-                horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.SpaceBetween
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(AppColors.Accent),
-                    contentAlignment = Alignment.Center
+            // Header: Logo & Collapse Button
+            if (collapsed) {
+                // Collapsed: Logo centered, expand toggle directly below it
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = spacing.sm),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.MusicNote,
-                        contentDescription = "JVXMusic",
-                        tint = Color.Black,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                if (!isCompact) {
-                    IconButton(
-                        onClick = { onWidthChange(if (sidebarWidth <= 80.dp) 240.dp else 72.dp) },
-                        modifier = Modifier.size(28.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(AppColors.Accent),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (sidebarWidth <= 80.dp) Icons.AutoMirrored.Rounded.ArrowForward else Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Свернуть/Развернуть",
-                            tint = AppColors.TextSecondary,
-                            modifier = Modifier.size(16.dp)
+                            imageVector = Icons.Rounded.MusicNote,
+                            contentDescription = "JVXMusic",
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
                         )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    AppTooltip(text = "Развернуть боковую панель (Ctrl+B)") {
+                        val interaction = remember { MutableInteractionSource() }
+                        val isHov by interaction.collectIsHoveredAsState()
+                        IconButton(
+                            onClick = onToggleCollapse,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .hoverable(interaction)
+                                .background(if (isHov) AppColors.CardHover else Color.Transparent)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowForward,
+                                contentDescription = "Развернуть",
+                                tint = if (isHov) AppColors.TextPrimary else AppColors.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Expanded: Logo + Brand next to collapse toggle
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = spacing.md, start = spacing.xs, end = spacing.xxs),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(AppColors.Accent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MusicNote,
+                                contentDescription = "JVXMusic",
+                                tint = Color.Black,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        if (showLabels) {
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                "JVXMusic",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.TextPrimary
+                                ),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip
+                            )
+                        }
+                    }
+
+                    AppTooltip(text = "Свернуть боковую панель (Ctrl+B)") {
+                        val interaction = remember { MutableInteractionSource() }
+                        val isHov by interaction.collectIsHoveredAsState()
+                        IconButton(
+                            onClick = onToggleCollapse,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .hoverable(interaction)
+                                .background(if (isHov) AppColors.CardHover else Color.Transparent)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Свернуть",
+                                tint = if (isHov) AppColors.TextPrimary else AppColors.TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
 
-            // Nav 1: Home
+            // Nav Items (Fixed 48dp height in collapsed mode)
             SidebarNavItem(
                 label = "Главная",
                 icon = Icons.Rounded.Home,
-                isCompact = isCompact,
+                collapsed = collapsed,
+                showLabel = showLabels,
                 isSelected = currentScreen is AppScreen.Home,
                 onClick = { onNavigate(AppScreen.Home) }
             )
 
-            // Nav 2: Search
             SidebarNavItem(
                 label = "Поиск",
                 icon = Icons.Rounded.Search,
-                isCompact = isCompact,
+                collapsed = collapsed,
+                showLabel = showLabels,
                 isSelected = currentScreen is AppScreen.Search,
                 onClick = { onNavigate(AppScreen.Search) }
             )
 
-            // Nav 3: Library
             SidebarNavItem(
                 label = "Моя медиатека",
                 icon = Icons.Rounded.LibraryMusic,
-                isCompact = isCompact,
+                collapsed = collapsed,
+                showLabel = showLabels,
                 isSelected = currentScreen is AppScreen.Library,
                 onClick = { onNavigate(AppScreen.Library) }
             )
 
             if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
-                // Nav 4: Cloud & Sources
                 SidebarNavItem(
                     label = "Облако и Источники",
                     icon = Icons.Rounded.CloudQueue,
-                    isCompact = isCompact,
+                    collapsed = collapsed,
+                    showLabel = showLabels,
                     isSelected = currentScreen is AppScreen.CloudSources,
                     onClick = { onNavigate(AppScreen.CloudSources) }
                 )
             }
 
-            Spacer(Modifier.height(spacing.sm))
+            Spacer(Modifier.height(spacing.xs))
             Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
-            Spacer(Modifier.height(spacing.sm))
+            Spacer(Modifier.height(spacing.xs))
 
             var selectedFilter by remember { mutableStateOf("Плейлисты") }
             var sortOrder by remember { mutableStateOf("Пользовательский") }
             var isGrid by remember { mutableStateOf(false) }
 
-            // Library Filter Chips & Controls
-            if (!isCompact) {
+            // Controls & Filters (Hidden in collapsed mode)
+            if (!collapsed && showLabels) {
                 val availableFilters = if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
                     listOf("Плейлисты", "Альбомы", "Исполнители", "Скачанные")
                 } else {
@@ -201,16 +272,17 @@ internal fun AppSidebar(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(if (isSel) AppColors.Accent else AppColors.SurfaceElevated)
-                                .clickable {
-                                    selectedFilter = f
-                                }
+                                .clickable { selectedFilter = f }
                                 .padding(horizontal = 6.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 f,
                                 fontSize = 10.sp,
                                 fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSel) Color.Black else AppColors.TextPrimary
+                                color = if (isSel) Color.Black else AppColors.TextPrimary,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip
                             )
                         }
                     }
@@ -218,7 +290,7 @@ internal fun AppSidebar(
 
                 Spacer(Modifier.height(2.dp))
 
-                // Sort Dropdown & List/Grid Toggle
+                // Sort Dropdown & List/Grid Toggle & New Playlist Button
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.xxs),
                     verticalAlignment = Alignment.CenterVertically,
@@ -230,7 +302,7 @@ internal fun AppSidebar(
                             onClick = { sortMenuOpen = true },
                             contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                         ) {
-                            Text(sortOrder, fontSize = 11.sp, color = AppColors.TextSecondary)
+                            Text(sortOrder, fontSize = 11.sp, color = AppColors.TextSecondary, maxLines = 1, softWrap = false)
                             Spacer(Modifier.width(2.dp))
                             Icon(Icons.Rounded.ArrowDownward, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(12.dp))
                         }
@@ -241,7 +313,7 @@ internal fun AppSidebar(
                         ) {
                             listOf("Пользовательский", "По алфавиту", "Недавние").forEach { order ->
                                 DropdownMenuItem(
-                                    text = { Text(order, fontSize = 12.sp) },
+                                    text = { Text(order, fontSize = 12.sp, maxLines = 1, softWrap = false) },
                                     onClick = {
                                         sortOrder = order
                                         sortMenuOpen = false
@@ -276,24 +348,30 @@ internal fun AppSidebar(
                         }
                     }
                 }
-            } else {
-                IconButton(
-                    onClick = onCreatePlaylist,
-                    modifier = Modifier.size(36.dp).align(Alignment.CenterHorizontally),
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = AppColors.SurfaceElevated,
-                        contentColor = AppColors.TextSecondary
-                    )
+            } else if (collapsed) {
+                // Collapsed: "+" button as centered icon button directly below divider
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Add,
-                        contentDescription = "Создать плейлист",
-                        modifier = Modifier.size(18.dp)
-                    )
+                    AppTooltip(text = "Создать плейлист") {
+                        IconButton(
+                            onClick = onCreatePlaylist,
+                            modifier = Modifier.size(40.dp),
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = AppColors.SurfaceElevated,
+                                contentColor = AppColors.TextPrimary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Создать плейлист",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
             }
-
-            Spacer(Modifier.height(spacing.xxs))
 
             var draggedPlaylistId by remember { mutableStateOf<String?>(null) }
             var dragOffsetY by remember { mutableStateOf(0f) }
@@ -314,235 +392,320 @@ internal fun AppSidebar(
 
             // Playlists / Categories List
             LazyColumn(Modifier.weight(1f)) {
-                when (selectedFilter) {
-                    "Альбомы" -> {
-                        itemsIndexed(distinctAlbums, key = { _, alb -> alb }) { _, alb ->
-                            val itemInteraction = remember { MutableInteractionSource() }
-                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .hoverable(itemInteraction)
-                                    .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
-                                    .clickable { onNavigate(AppScreen.SmartMixView(alb)) }
-                                    .padding(horizontal = spacing.xs, vertical = spacing.xs),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(spacing.xs))
-                                Text(alb, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                    "Исполнители" -> {
-                        itemsIndexed(distinctArtists, key = { _, art -> art }) { _, art ->
-                            val itemInteraction = remember { MutableInteractionSource() }
-                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .hoverable(itemInteraction)
-                                    .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
-                                    .clickable { onNavigate(AppScreen.SmartMixView(art)) }
-                                    .padding(horizontal = spacing.xs, vertical = spacing.xs),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(spacing.xs))
-                                Text(art, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                    "Скачанные" -> {
-                        val downloaded = library.getOfflineDownloadedTracks()
-                        itemsIndexed(downloaded, key = { _, tr -> tr.id }) { _, tr ->
-                            val itemInteraction = remember { MutableInteractionSource() }
-                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .hoverable(itemInteraction)
-                                    .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
-                                    .clickable { onNavigate(AppScreen.Library) }
-                                    .padding(horizontal = spacing.xs, vertical = spacing.xs),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(spacing.xs))
-                                Text(tr.title, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                    else -> {
-                        if (isGrid && !isCompact && effectiveWidth > 180.dp) {
-                            val chunks = displayedPlaylists.chunked(2)
-                            itemsIndexed(chunks, key = { idx, chunk -> "${idx}_${chunk.firstOrNull()?.id}" }) { _, chunk ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    chunk.forEach { p ->
-                                        val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
-                                        val isFav = p.id == FAVORITES_PLAYLIST_ID
-                                        val itemInteraction = remember { MutableInteractionSource() }
-                                        val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                if (collapsed) {
+                    // Collapsed mode: 40dp square covers centered, strictly 48dp item height, with tooltip "Name, N tracks"
+                    itemsIndexed(displayedPlaylists, key = { _, p -> p.id }) { _, p ->
+                        val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
+                        val isFav = p.id == FAVORITES_PLAYLIST_ID
+                        val trackCount = library.tracksIn(p).size
+                        val tooltipText = "${p.name}, ${pluralRu(trackCount, "трек", "трека", "треков")}"
 
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .hoverable(itemInteraction)
-                                                .background(if (isSelected) AppColors.SurfaceElevated else if (isItemHovered) AppColors.CardHover else Color.Transparent)
-                                                .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
-                                                .padding(6.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            if (isFav) {
-                                                FavoritesCoverBox(modifier = Modifier.fillMaxWidth().aspectRatio(1f), iconSize = 24.dp, shape = RoundedCornerShape(6.dp))
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(fallbackGradientFor(p.name)),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
-                                                }
-                                            }
-                                            Spacer(Modifier.height(4.dp))
-                                            Text(p.name, style = MaterialTheme.typography.bodySmall.copy(color = if (isSelected) AppColors.Accent else AppColors.TextPrimary), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
-                                    }
-                                    if (chunk.size == 1) {
-                                        Spacer(Modifier.weight(1f))
+                        val itemInteraction = remember { MutableInteractionSource() }
+                        val isHovered by itemInteraction.collectIsHoveredAsState()
+
+                        AppTooltip(text = tooltipText) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .hoverable(itemInteraction)
+                                    .background(
+                                        when {
+                                            isSelected -> AppColors.SurfaceElevated
+                                            isHovered -> AppColors.CardHover
+                                            else -> Color.Transparent
+                                        },
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { onNavigate(AppScreen.PlaylistView(p.id)) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isFav) {
+                                    FavoritesCoverBox(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .border(
+                                                width = if (isSelected) 2.dp else 0.dp,
+                                                color = if (isSelected) AppColors.Accent else Color.Transparent,
+                                                shape = RoundedCornerShape(6.dp)
+                                            ),
+                                        iconSize = 20.dp,
+                                        shape = RoundedCornerShape(6.dp)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .border(
+                                                width = if (isSelected) 2.dp else 0.dp,
+                                                color = if (isSelected) AppColors.Accent else Color.Transparent,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .background(fallbackGradientFor(p.name)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
                                     }
                                 }
                             }
-                        } else {
-                            itemsIndexed(displayedPlaylists, key = { _, p -> p.id }) { _, p ->
-                                val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
-                                val isFav = p.id == FAVORITES_PLAYLIST_ID
+                        }
+                    }
+                } else {
+                    // Expanded mode: Full filters & playlists
+                    when (selectedFilter) {
+                        "Альбомы" -> {
+                            itemsIndexed(distinctAlbums, key = { _, alb -> alb }) { _, alb ->
                                 val itemInteraction = remember { MutableInteractionSource() }
                                 val isItemHovered by itemInteraction.collectIsHoveredAsState()
-                                val isDragged = draggedPlaylistId == p.id
-
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .zIndex(if (isDragged) 10f else 1f)
-                                        .offset {
-                                            if (isDragged) IntOffset(0, dragOffsetY.roundToInt())
-                                            else IntOffset.Zero
-                                        }
+                                        .height(48.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .hoverable(itemInteraction)
-                                        .background(
-                                            when {
-                                                isDragged -> AppColors.SurfaceElevated.copy(alpha = 0.95f)
-                                                isSelected -> AppColors.SurfaceElevated
-                                                isItemHovered -> AppColors.CardHover
-                                                else -> Color.Transparent
+                                        .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                        .clickable { onNavigate(AppScreen.SmartMixView(alb)) }
+                                        .padding(horizontal = spacing.xs),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Rounded.LibraryMusic, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                                    if (showLabels) {
+                                        Spacer(Modifier.width(spacing.xs))
+                                        Text(alb, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                        "Исполнители" -> {
+                            itemsIndexed(distinctArtists, key = { _, art -> art }) { _, art ->
+                                val itemInteraction = remember { MutableInteractionSource() }
+                                val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .hoverable(itemInteraction)
+                                        .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                        .clickable { onNavigate(AppScreen.SmartMixView(art)) }
+                                        .padding(horizontal = spacing.xs),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(20.dp))
+                                    if (showLabels) {
+                                        Spacer(Modifier.width(spacing.xs))
+                                        Text(art, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                        "Скачанные" -> {
+                            val downloaded = library.getOfflineDownloadedTracks()
+                            itemsIndexed(downloaded, key = { _, tr -> tr.id }) { _, tr ->
+                                val itemInteraction = remember { MutableInteractionSource() }
+                                val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .hoverable(itemInteraction)
+                                        .background(if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                        .clickable { onNavigate(AppScreen.Library) }
+                                        .padding(horizontal = spacing.xs),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                                    if (showLabels) {
+                                        Spacer(Modifier.width(spacing.xs))
+                                        Text(tr.title, style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextPrimary), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            if (isGrid && effectiveWidth > 180.dp) {
+                                val chunks = displayedPlaylists.chunked(2)
+                                itemsIndexed(chunks, key = { idx, chunk -> "${idx}_${chunk.firstOrNull()?.id}" }) { _, chunk ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        chunk.forEach { p ->
+                                            val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
+                                            val isFav = p.id == FAVORITES_PLAYLIST_ID
+                                            val itemInteraction = remember { MutableInteractionSource() }
+                                            val isItemHovered by itemInteraction.collectIsHoveredAsState()
+
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .hoverable(itemInteraction)
+                                                    .background(if (isSelected) AppColors.SurfaceElevated else if (isItemHovered) AppColors.CardHover else Color.Transparent)
+                                                    .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
+                                                    .padding(6.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                if (isFav) {
+                                                    FavoritesCoverBox(modifier = Modifier.fillMaxWidth().aspectRatio(1f), iconSize = 24.dp, shape = RoundedCornerShape(6.dp))
+                                                } else {
+                                                    Box(
+                                                        modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(fallbackGradientFor(p.name)),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                                                    }
+                                                }
+                                                if (showLabels) {
+                                                    Spacer(Modifier.height(4.dp))
+                                                    Text(p.name, style = MaterialTheme.typography.bodySmall.copy(color = if (isSelected) AppColors.Accent else AppColors.TextPrimary), maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                                                }
                                             }
-                                        )
-                                        .pointerInput(p.id, sortOrder) {
-                                            if (!p.isSystem && sortOrder == "Пользовательский") {
-                                                detectDragGesturesAfterLongPress(
-                                                    onDragStart = {
-                                                        draggedPlaylistId = p.id
-                                                        dragOffsetY = 0f
-                                                    },
-                                                    onDragEnd = {
-                                                        draggedPlaylistId = null
-                                                        dragOffsetY = 0f
-                                                    },
-                                                    onDragCancel = {
-                                                        draggedPlaylistId = null
-                                                        dragOffsetY = 0f
-                                                    },
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        dragOffsetY += dragAmount.y
-                                                        val threshold = 40.dp.toPx()
-                                                        if (dragOffsetY > threshold) {
-                                                            val moved = library.movePlaylist(p.id, moveUp = false)
-                                                            if (moved) {
-                                                                dragOffsetY -= threshold
-                                                            } else {
-                                                                dragOffsetY = dragOffsetY.coerceAtMost(threshold)
-                                                            }
-                                                        } else if (dragOffsetY < -threshold) {
-                                                            val moved = library.movePlaylist(p.id, moveUp = true)
-                                                            if (moved) {
-                                                                dragOffsetY += threshold
-                                                            } else {
-                                                                dragOffsetY = dragOffsetY.coerceAtLeast(-threshold)
+                                        }
+                                        if (chunk.size == 1) {
+                                            Spacer(Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            } else {
+                                itemsIndexed(displayedPlaylists, key = { _, p -> p.id }) { _, p ->
+                                    val isSelected = currentScreen is AppScreen.PlaylistView && (currentScreen as AppScreen.PlaylistView).playlistId == p.id
+                                    val isFav = p.id == FAVORITES_PLAYLIST_ID
+                                    val itemInteraction = remember { MutableInteractionSource() }
+                                    val isItemHovered by itemInteraction.collectIsHoveredAsState()
+                                    val isDragged = draggedPlaylistId == p.id
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .zIndex(if (isDragged) 10f else 1f)
+                                            .offset {
+                                                if (isDragged) IntOffset(0, dragOffsetY.roundToInt())
+                                                else IntOffset.Zero
+                                            }
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .hoverable(itemInteraction)
+                                            .background(
+                                                when {
+                                                    isDragged -> AppColors.SurfaceElevated.copy(alpha = 0.95f)
+                                                    isSelected -> AppColors.SurfaceElevated
+                                                    isItemHovered -> AppColors.CardHover
+                                                    else -> Color.Transparent
+                                                }
+                                            )
+                                            .pointerInput(p.id, sortOrder) {
+                                                if (!p.isSystem && sortOrder == "Пользовательский") {
+                                                    detectDragGesturesAfterLongPress(
+                                                        onDragStart = {
+                                                            draggedPlaylistId = p.id
+                                                            dragOffsetY = 0f
+                                                        },
+                                                        onDragEnd = {
+                                                            draggedPlaylistId = null
+                                                            dragOffsetY = 0f
+                                                        },
+                                                        onDragCancel = {
+                                                            draggedPlaylistId = null
+                                                            dragOffsetY = 0f
+                                                        },
+                                                        onDrag = { change, dragAmount ->
+                                                            change.consume()
+                                                            dragOffsetY += dragAmount.y
+                                                            val threshold = 48.dp.toPx()
+                                                            if (dragOffsetY > threshold) {
+                                                                val moved = library.movePlaylist(p.id, moveUp = false)
+                                                                if (moved) {
+                                                                    dragOffsetY -= threshold
+                                                                } else {
+                                                                    dragOffsetY = dragOffsetY.coerceAtMost(threshold)
+                                                                }
+                                                            } else if (dragOffsetY < -threshold) {
+                                                                val moved = library.movePlaylist(p.id, moveUp = true)
+                                                                if (moved) {
+                                                                    dragOffsetY += threshold
+                                                                } else {
+                                                                    dragOffsetY = dragOffsetY.coerceAtLeast(-threshold)
+                                                                }
                                                             }
                                                         }
-                                                    }
+                                                    )
+                                                }
+                                            }
+                                            .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
+                                            .padding(horizontal = spacing.xs),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Start
+                                    ) {
+                                        if (isFav) {
+                                            FavoritesCoverBox(
+                                                modifier = Modifier.size(36.dp),
+                                                iconSize = 18.dp,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(fallbackGradientFor(p.name)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
+                                                    contentDescription = null,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(18.dp)
                                                 )
                                             }
                                         }
-                                        .clickable { onNavigate(AppScreen.PlaylistView(p.id)) }
-                                        .padding(horizontal = if (isCompact) spacing.xxs else spacing.xs, vertical = spacing.xs),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
-                                ) {
-                                    if (isFav) {
-                                        FavoritesCoverBox(
-                                            modifier = Modifier.size(32.dp),
-                                            iconSize = 16.dp,
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(32.dp)
-                                                .clip(RoundedCornerShape(6.dp))
-                                                .background(fallbackGradientFor(p.name)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.AutoMirrored.Rounded.QueueMusic,
-                                                contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                    if (!isCompact) {
-                                        Spacer(Modifier.width(spacing.xs))
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                p.name,
-                                                style = MaterialTheme.typography.bodyMedium.copy(
-                                                    color = if (isSelected) AppColors.Accent else if (isItemHovered) AppColors.TextPrimary else AppColors.TextSecondary,
-                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                                ),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                pluralRu(p.trackIds.size, "трек", "трека", "треков"),
-                                                style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
-                                                fontSize = 11.sp
-                                            )
-                                        }
 
-                                        // Manual playlist reordering (up/down arrows when custom sort)
-                                        if (isItemHovered && sortOrder == "Пользовательский" && !p.isSystem) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                IconButton(
-                                                    onClick = { library.movePlaylist(p.id, moveUp = true) },
-                                                    modifier = Modifier.size(20.dp)
-                                                ) {
-                                                    Icon(Icons.Rounded.ArrowUpward, contentDescription = "Выше", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
-                                                }
-                                                IconButton(
-                                                    onClick = { library.movePlaylist(p.id, moveUp = false) },
-                                                    modifier = Modifier.size(20.dp)
-                                                ) {
-                                                    Icon(Icons.Rounded.ArrowDownward, contentDescription = "Ниже", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                        if (showLabels) {
+                                            Spacer(Modifier.width(spacing.xs))
+                                            Column(Modifier.weight(1f)) {
+                                                Text(
+                                                    p.name,
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        color = if (isSelected) AppColors.Accent else if (isItemHovered) AppColors.TextPrimary else AppColors.TextSecondary,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                    ),
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                val trackCount = library.tracksIn(p).size
+                                                Text(
+                                                    pluralRu(trackCount, "трек", "трека", "треков"),
+                                                    style = MaterialTheme.typography.bodySmall.copy(color = AppColors.TextMuted),
+                                                    fontSize = 11.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+
+                                            // Manual playlist reordering
+                                            if (isItemHovered && sortOrder == "Пользовательский" && !p.isSystem) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    IconButton(
+                                                        onClick = { library.movePlaylist(p.id, moveUp = true) },
+                                                        modifier = Modifier.size(20.dp)
+                                                    ) {
+                                                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "Выше", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                                    }
+                                                    IconButton(
+                                                        onClick = { library.movePlaylist(p.id, moveUp = false) },
+                                                        modifier = Modifier.size(20.dp)
+                                                    ) {
+                                                        Icon(Icons.Rounded.ArrowDownward, contentDescription = "Ниже", tint = AppColors.TextSecondary, modifier = Modifier.size(14.dp))
+                                                    }
                                                 }
                                             }
                                         }
@@ -556,21 +719,24 @@ internal fun AppSidebar(
         }
 
         // Draggable right edge handle for resizing sidebar
-        if (!isCompact) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(Color.Transparent)
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures { change, dragAmount ->
-                            change.consume()
-                            val newWidth = (sidebarWidth + dragAmount.dp).coerceIn(160.dp, 360.dp)
-                            onWidthChange(newWidth)
+        Box(
+            modifier = Modifier
+                .width(5.dp)
+                .fillMaxHeight()
+                .background(Color.Transparent)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures { change, dragAmount ->
+                        change.consume()
+                        val newWidth = effectiveWidth + dragAmount.dp
+                        if (newWidth < 120.dp) {
+                            if (!collapsed) onToggleCollapse()
+                        } else {
+                            if (collapsed) onToggleCollapse()
+                            onWidthChange(newWidth.coerceIn(180.dp, 360.dp))
                         }
                     }
-            )
-        }
+                }
+        )
     }
 }
 
@@ -578,7 +744,8 @@ internal fun AppSidebar(
 internal fun SidebarNavItem(
     label: String,
     icon: ImageVector,
-    isCompact: Boolean,
+    collapsed: Boolean,
+    showLabel: Boolean,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -586,38 +753,52 @@ internal fun SidebarNavItem(
     val interactionSource = remember(label) { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(
-                when {
-                    isSelected -> AppColors.SurfaceElevated
-                    isHovered -> AppColors.CardHover
-                    else -> Color.Transparent
-                }
-            )
-            .hoverable(interactionSource)
-            .clickable(interactionSource = interactionSource, indication = null) { onClick() }
-            .padding(horizontal = if (isCompact) spacing.xs else spacing.sm, vertical = spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (isCompact) Arrangement.Center else Arrangement.Start
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (isSelected) AppColors.Accent else if (isHovered) AppColors.TextPrimary else AppColors.TextSecondary,
-            modifier = Modifier.size(22.dp)
-        )
-        if (!isCompact) {
-            Spacer(Modifier.width(spacing.sm))
-            Text(
-                label,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) AppColors.TextPrimary else if (isHovered) AppColors.TextPrimary else AppColors.TextSecondary,
+    val itemContent = @Composable {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(
+                    when {
+                        isSelected -> AppColors.SurfaceElevated
+                        isHovered -> AppColors.CardHover
+                        else -> Color.Transparent
+                    }
                 )
+                .hoverable(interactionSource)
+                .clickable(interactionSource = interactionSource, indication = null) { onClick() }
+                .padding(horizontal = if (collapsed) 0.dp else spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (collapsed) Arrangement.Center else Arrangement.Start
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isSelected) AppColors.Accent else if (isHovered) AppColors.TextPrimary else AppColors.TextSecondary,
+                modifier = Modifier.size(22.dp)
             )
+            if (!collapsed && showLabel) {
+                Spacer(Modifier.width(spacing.sm))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = if (isSelected) AppColors.TextPrimary else if (isHovered) AppColors.TextPrimary else AppColors.TextSecondary,
+                    ),
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
+    }
+
+    if (collapsed) {
+        AppTooltip(text = label) {
+            itemContent()
+        }
+    } else {
+        itemContent()
     }
 }

@@ -438,7 +438,7 @@ internal fun TrackRowItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End
                 ) {
-                    if (isRowHovered || track.isFavorite) {
+                    if (isRowHovered || isRowFocused || track.isFavorite) {
                         IconButton(
                             onClick = onToggleFavorite,
                             modifier = Modifier.size(28.dp)
@@ -486,7 +486,7 @@ internal fun TrackRowItem(
                 modifier = Modifier.width(if (isCompact) 44.dp else 40.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val showActions = isRowHovered || isCompact || contextMenuOpen
+                val showActions = isRowHovered || isRowFocused || isCompact || contextMenuOpen
 
                 if (showActions) {
                     IconButton(

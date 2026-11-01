@@ -41,6 +41,8 @@ data class AppSettings(
     val lastSyncTimeMs: Long? = null,
     val preferredDeduplicationSource: String? = null,
     val radioCountryCode: String? = null,
+    val isSidebarCollapsed: Boolean = false,
+    val sidebarWidthDp: Float = 240f,
 )
 
 class SettingsRepository {
