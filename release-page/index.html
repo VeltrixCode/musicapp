@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="JVXMusic — современный локальный оффлайн-аудиоплеер для Windows и Android. Чистый звук, 10-полосный эквалайзер, поддержка .lrc текстов и 100% приватность.">
+  <title>JVXMusic — Твой локальный оффлайн-плеер без ограничений</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      accent-color: #8C7CFF;
+      --bg-base: #0B0D14;
+      --bg-card: #141724;
+      --bg-card-hover: #1A1E30;
+      --bg-accent-subtle: rgba(140, 124, 255, 0.12);
+      --accent: #8C7CFF;
+      --accent-glow: rgba(140, 124, 255, 0.5);
+      --accent-cyan: #00F2FE;
+      --accent-cyan-glow: rgba(0, 242, 254, 0.4);
+      --text-primary: #FFFFFF;
+      --text-secondary: #A0A5BA;
+      --text-muted: #656A82;
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-highlight: rgba(140, 124, 255, 0.35);
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 24px;
+      --radius-full: 9999px;
+      --font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-stack);
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      line-height: 1.6;
+      overflow-x: hidden;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* Ambient Animated Aurora Glowing Orbs */
+    .ambient-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .ambient-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.65;
+      will-change: transform;
+    }
+
+    .orb-1 {
+      top: -120px;
+      left: 15%;
+      width: 650px;
+      height: 650px;
+      background: radial-gradient(circle, rgba(140, 124, 255, 0.28) 0%, rgba(108, 92, 231, 0.1) 50%, transparent 75%);
+      animation: floatOrb1 18s ease-in-out infinite alternate;
+    }
+
+    .orb-2 {
+      top: 250px;
+      right: 5%;
+      width: 580px;
+      height: 580px;
+      background: radial-gradient(circle, rgba(0, 242, 254, 0.22) 0%, rgba(0, 198, 254, 0.08) 55%, transparent 75%);
+      animation: floatOrb2 22s ease-in-out infinite alternate;
+    }
+
+    .orb-3 {
+      top: 900px;
+      left: 30%;
+      width: 700px;
+      height: 700px;
+      background: radial-gradient(circle, rgba(255, 95, 133, 0.15) 0%, rgba(140, 124, 255, 0.08) 60%, transparent 80%);
+      animation: floatOrb3 25s ease-in-out infinite alternate;
+    }
+
+    @keyframes floatOrb1 {
+      0% { transform: translate3d(0, 0, 0) scale(1); }
+      50% { transform: translate3d(80px, 60px, 0) scale(1.15); }
+      100% { transform: translate3d(-60px, 120px, 0) scale(0.95); }
+    }
+
+    @keyframes floatOrb2 {
+      0% { transform: translate3d(0, 0, 0) scale(1); }
+      50% { transform: translate3d(-100px, 80px, 0) scale(1.12); }
+      100% { transform: translate3d(40px, -70px, 0) scale(0.92); }
+    }
+
+    @keyframes floatOrb3 {
+      0% { transform: translate3d(0, 0, 0) scale(1); }
+      50% { transform: translate3d(-80px, -50px, 0) scale(1.18); }
+      100% { transform: translate3d(70px, 60px, 0) scale(0.9); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ambient-orb {
+        animation: none !important;
+      }
+      .reveal {
+        opacity: 1 !important;
+        transform: none !important;
+        transition: none !important;
+      }
+      .btn-primary {
+        animation: none !important;
+      }
+    }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      background: rgba(11, 13, 20, 0.78);
+      border-bottom: 1px solid var(--border-color);
+      transition: border-color 0.3s ease;
+    }
+
+    .nav-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text-primary);
+      font-weight: 800;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-cyan));
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      box-shadow: 0 4px 18px var(--accent-glow);
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .brand:hover .brand-icon {
+      transform: scale(1.08) rotate(5deg);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 22px;
+      list-style: none;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: color 0.2s ease;
+      position: relative;
+      padding: 4px 0;
+    }
+
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 0;
+      height: 2px;
+      background: var(--accent);
+      transition: width 0.25s ease;
+      border-radius: 2px;
+    }
+
+    .nav-links a:hover,
+    .nav-links a:focus-visible {
+      color: var(--text-primary);
+    }
+
+    .nav-links a:hover::after {
+      width: 100%;
+    }
+
+    main {
+      flex: 1;
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+      width: 100%;
+    }
+
+    /* Scroll Reveal helper */
+    .reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity 0.75s cubic-bezier(0.16, 1, 0.3, 1), transform 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+      will-change: opacity, transform;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Hero Section */
+    .hero {
+      text-align: center;
+      padding: 50px 0 70px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .badge-offline {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 18px;
+      background: var(--bg-accent-subtle);
+      border: 1px solid var(--border-highlight);
+      border-radius: var(--radius-full);
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--accent);
+      margin-bottom: 24px;
+      box-shadow: 0 2px 16px var(--accent-glow);
+    }
+
+    .hero-title {
+      font-size: clamp(2.4rem, 5.2vw, 4.4rem);
+      font-weight: 900;
+      letter-spacing: -0.035em;
+      line-height: 1.15;
+      margin-bottom: 20px;
+      max-width: 920px;
+    }
+
+    .gradient-text {
+      background: linear-gradient(135deg, #FFFFFF 20%, var(--accent) 70%, var(--accent-cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: clamp(1.05rem, 2vw, 1.25rem);
+      color: var(--text-secondary);
+      max-width: 740px;
+      margin-bottom: 42px;
+      font-weight: 400;
+      line-height: 1.65;
+    }
+
+    /* Download CTA block with Pulse & Shimmer */
+    .download-cta-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 60px;
+      width: 100%;
+    }
+
+    .btn-primary {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 18px 40px;
+      background: linear-gradient(135deg, #7C4DFF 0%, #6C5CE7 100%);
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 1.18rem;
+      text-decoration: none;
+      border-radius: var(--radius-full);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      box-shadow: 0 8px 32px var(--accent-glow);
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
+      cursor: pointer;
+      overflow: hidden;
+      animation: pulseGlow 3.5s infinite;
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% {
+        box-shadow: 0 8px 30px rgba(140, 124, 255, 0.45);
+      }
+      50% {
+        box-shadow: 0 10px 42px rgba(140, 124, 255, 0.75), 0 0 20px rgba(0, 242, 254, 0.35);
+      }
+    }
+
+    /* Shimmer light sweep */
+    .btn-primary::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -60%;
+      width: 40%;
+      height: 200%;
+      background: linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.3) 50%,
+        rgba(255, 255, 255, 0) 100%
+      );
+      transform: rotate(25deg);
+      transition: left 0.75s ease;
+      pointer-events: none;
+    }
+
+    .btn-primary:hover::after {
+      left: 130%;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-3px) scale(1.02);
+      filter: brightness(1.08);
+      box-shadow: 0 14px 44px var(--accent-glow);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0) scale(0.98);
+    }
+
+    .btn-primary:focus-visible {
+      outline: 3px solid var(--accent-cyan);
+      outline-offset: 4px;
+    }
+
+    .alt-downloads {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 18px;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+    }
+
+    .alt-downloads a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-bottom: 1px dashed var(--text-muted);
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    .alt-downloads a:hover {
+      color: var(--text-primary);
+      border-color: var(--accent);
+    }
+
+    /* Interactive Player Mockup Showcase */
+    .player-mockup-wrapper {
+      width: 100%;
+      max-width: 980px;
+      margin: 0 auto;
+      border-radius: var(--radius-lg);
+      padding: 2px;
+      background: linear-gradient(135deg, rgba(140, 124, 255, 0.5), rgba(0, 242, 254, 0.25) 50%, rgba(255, 255, 255, 0.08));
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.8), 0 0 50px rgba(140, 124, 255, 0.2);
+      transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
+    }
+
+    .player-mockup-wrapper:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 32px 85px rgba(0, 0, 0, 0.85), 0 0 60px rgba(140, 124, 255, 0.3);
+    }
+
+    .player-mockup {
+      background: var(--bg-card);
+      border-radius: calc(var(--radius-lg) - 2px);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .mockup-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 16px;
+    }
+
+    .mockup-dots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .mockup-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .dot-red { background: #FF5F56; }
+    .dot-yellow { background: #FFBD2E; }
+    .dot-green { background: #27C93F; }
+
+    .mockup-body {
+      display: grid;
+      grid-template-columns: 240px 1fr 280px;
+      gap: 24px;
+    }
+
+    @media (max-width: 890px) {
+      .mockup-body {
+        grid-template-columns: 1fr;
+      }
+      .mockup-sidebar, .mockup-drawer {
+        display: none;
+      }
+    }
+
+    .mockup-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .mockup-nav-item {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.2s ease;
+    }
+
+    .mockup-nav-item.active {
+      background: var(--bg-accent-subtle);
+      color: var(--accent);
+      font-weight: 600;
+      border-left: 3px solid var(--accent);
+    }
+
+    .mockup-main {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .mockup-track-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .mockup-track-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: var(--radius-sm);
+      font-size: 0.88rem;
+      transition: background 0.2s ease;
+    }
+
+    .mockup-track-row.playing {
+      background: rgba(140, 124, 255, 0.16);
+      border: 1px solid var(--border-highlight);
+    }
+
+    /* Live Disc Spin */
+    .vinyl-disc {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: radial-gradient(circle, #0B0D14 30%, #222638 31%, #151824 55%, #2B3048 75%, #0B0D14 100%);
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      animation: spinDisc 8s linear infinite;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    @keyframes spinDisc {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .vinyl-core {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .mockup-drawer {
+      background: rgba(0, 0, 0, 0.28);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      font-size: 0.85rem;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    /* Dynamic Spectrum Analyzer Bars */
+    .mockup-equalizer-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      height: 90px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .eq-bar {
+      flex: 1;
+      min-height: 8px;
+      background: linear-gradient(to top, var(--accent) 0%, var(--accent-cyan) 100%);
+      border-radius: 3px;
+      transition: height 0.12s ease;
+      will-change: height;
+    }
+
+    .mockup-now-playing-bar {
+      background: rgba(11, 13, 20, 0.95);
+      border-radius: var(--radius-md);
+      padding: 16px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--border-color);
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* Track Progress Bar */
+    .playback-progress-wrap {
+      flex: 1;
+      max-width: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .playback-track {
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .playback-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-cyan));
+      border-radius: 2px;
+      width: 36%;
+      transition: width 0.5s linear;
+    }
+
+    /* Features Section with Spotlight Glow Cards */
+    .section-title-wrap {
+      text-align: center;
+      margin: 110px 0 55px;
+    }
+
+    .section-title {
+      font-size: clamp(1.9rem, 3.8vw, 2.7rem);
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      margin-bottom: 12px;
+    }
+
+    .section-subtitle {
+      color: var(--text-secondary);
+      font-size: 1.08rem;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+    }
+
+    /* Spotlight Glow Card */
+    .feature-card {
+      position: relative;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+      overflow: hidden;
+    }
+
+    /* Spotlight hover overlay */
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      border-radius: inherit;
+      background: radial-gradient(
+        400px circle at var(--mouse-x, -500px) var(--mouse-y, -500px),
+        rgba(140, 124, 255, 0.15),
+        transparent 60%
+      );
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      z-index: 1;
+    }
+
+    .feature-card:hover::before {
+      opacity: 1;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-5px);
+      border-color: var(--border-highlight);
+      box-shadow: 0 14px 36px rgba(140, 124, 255, 0.14);
+    }
+
+    .feature-card * {
+      position: relative;
+      z-index: 2;
+    }
+
+    .feature-icon-box {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: var(--bg-accent-subtle);
+      border: 1px solid var(--border-highlight);
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    .feature-card h3 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .feature-card p {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Specs & Checksums Section */
+    .specs-section {
+      margin-top: 110px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 44px;
+    }
+
+    .specs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 32px;
+      margin-top: 32px;
+    }
+
+    .spec-card {
+      background: rgba(0, 0, 0, 0.28);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .spec-card h4 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.25rem;
+      color: var(--text-primary);
+    }
+
+    .spec-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.92rem;
+      color: var(--text-secondary);
+    }
+
+    .spec-list strong {
+      color: var(--text-primary);
+    }
+
+    .hash-box {
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      margin-top: 8px;
+      transition: border-color 0.2s ease;
+    }
+
+    .hash-box:hover {
+      border-color: var(--border-highlight);
+    }
+
+    .hash-label {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .hash-value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.8rem;
+      color: var(--accent-cyan);
+      word-break: break-all;
+      user-select: all;
+    }
+
+    .btn-copy {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 0.78rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      transition: background 0.2s, color 0.2s, transform 0.15s;
+    }
+
+    .btn-copy:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: var(--text-primary);
+      transform: translateY(-1px);
+    }
+
+    .btn-copy:active {
+      transform: translateY(0);
+    }
+
+    .btn-download-sm {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 20px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-accent-subtle);
+      border: 1px solid var(--border-highlight);
+      color: var(--text-primary);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.94rem;
+      margin-top: 8px;
+      transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    }
+
+    .btn-download-sm:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    /* Toast Notification */
+    #toastNotification {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: rgba(20, 23, 36, 0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--accent);
+      box-shadow: 0 10px 35px rgba(0, 0, 0, 0.6), 0 0 20px var(--accent-glow);
+      color: #FFFFFF;
+      padding: 14px 26px;
+      border-radius: var(--radius-full);
+      font-size: 0.92rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.35s ease;
+      z-index: 1000;
+    }
+
+    #toastNotification.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    footer {
+      border-top: 1px solid var(--border-color);
+      padding: 36px 24px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 80px;
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: var(--text-primary);
+    }
+  </style>
+</head>
+<body>
+  <!-- Ambient Floating Orbs -->
+  <div class="ambient-container">
+    <div class="ambient-orb orb-1"></div>
+    <div class="ambient-orb orb-2"></div>
+    <div class="ambient-orb orb-3"></div>
+  </div>
+
+  <header>
+    <nav class="nav-container">
+      <a href="#" class="brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 18V5l12-2v13"></path>
+            <circle cx="6" cy="18" r="3"></circle>
+            <circle cx="18" cy="16" r="3"></circle>
+          </svg>
+        </div>
+        <span>JVXMusic</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#features">Возможности</a></li>
+        <li><a href="#specs">Требования</a></li>
+        <li><a href="#downloads">Загрузки</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section class="hero reveal">
+      <div class="badge-offline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+        </svg>
+        <span>100% Локальный режим • Без интернета и подписок</span>
+      </div>
+      <h1 class="hero-title">
+        Твой локальный оффлайн-плеер <span class="gradient-text">без ограничений</span>
+      </h1>
+      <p class="hero-subtitle">
+        Наслаждайся кристально чистым звуком локальной медиатеки. Встроенный 10-полосный эквалайзер, синхронизация караоке-текстов (.lrc) и мгновенный отклик на Windows и Android.
+      </p>
+
+      <!-- Dynamic CTA Download Button with Pulse and Shimmer -->
+      <div class="download-cta-wrapper" id="downloads">
+        <a id="primaryDownloadBtn" href="./downloads/JVXMusic-Setup.msi" class="btn-primary" download>
+          <svg id="primaryIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span id="primaryBtnText">Скачать для Windows (.msi)</span>
+        </a>
+
+        <div class="alt-downloads" id="altDownloadsWrap">
+          <span>Также доступно:</span>
+          <a href="./downloads/JVXMusic-Setup.exe" id="exeAltLink" download>Windows .exe (113.1 МБ)</a>
+          <span>•</span>
+          <a href="./downloads/JVXMusic.apk" id="apkAltLink" download>Android .apk (13.9 МБ)</a>
+        </div>
+      </div>
+
+      <!-- Live Player Showcase -->
+      <div class="player-mockup-wrapper">
+        <div class="player-mockup">
+          <div class="mockup-header">
+            <div class="mockup-dots">
+              <span class="mockup-dot dot-red"></span>
+              <span class="mockup-dot dot-yellow"></span>
+              <span class="mockup-dot dot-green"></span>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">JVXMusic Desktop — 1.0.0 (Offline Mode)</div>
+            <div style="font-size: 0.82rem; color: #27C93F; font-weight: 600; display: flex; align-items: center; gap: 5px;">
+              <span style="width: 7px; height: 7px; background: #27C93F; border-radius: 50%; display: inline-block;"></span>
+              Воспроизведение
+            </div>
+          </div>
+
+          <div class="mockup-body">
+            <!-- Sidebar -->
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item active">
+                <span>🎵</span>
+                <span>Медиатека</span>
+              </div>
+              <div class="mockup-nav-item">
+                <span>🔍</span>
+                <span>Поиск</span>
+              </div>
+              <div class="mockup-nav-item">
+                <span>❤️</span>
+                <span>Любимые треки</span>
+              </div>
+              <div class="mockup-nav-item">
+                <span>📁</span>
+                <span>Локальные папки</span>
+              </div>
+            </div>
+
+            <!-- Track List -->
+            <div class="mockup-main">
+              <div style="font-size: 0.88rem; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between;">
+                <span>ЛОКАЛЬНАЯ МЕДИАТЕКА (108 ТРЕКОВ)</span>
+                <span>FLAC / MP3 / AAC</span>
+              </div>
+              <div class="mockup-track-list">
+                <div class="mockup-track-row playing">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <div class="vinyl-disc">
+                      <div class="vinyl-core"></div>
+                    </div>
+                    <div>
+                      <div style="font-weight: 600; color: #FFFFFF;">Bring Me To Life (original)</div>
+                      <div style="font-size: 0.78rem; color: var(--text-secondary);">Evanescence • Fallen (2003)</div>
+                    </div>
+                  </div>
+                  <span style="color: var(--accent); font-weight: 700;">3:58</span>
+                </div>
+
+                <div class="mockup-track-row">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="color: var(--text-muted); width: 20px; text-align: center;">2</span>
+                    <div>
+                      <div style="font-weight: 500;">Numb</div>
+                      <div style="font-size: 0.78rem; color: var(--text-muted);">Linkin Park • Meteora</div>
+                    </div>
+                  </div>
+                  <span style="color: var(--text-muted);">3:07</span>
+                </div>
+
+                <div class="mockup-track-row">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="color: var(--text-muted); width: 20px; text-align: center;">3</span>
+                    <div>
+                      <div style="font-weight: 500;">In The End</div>
+                      <div style="font-size: 0.78rem; color: var(--text-muted);">Linkin Park • Hybrid Theory</div>
+                    </div>
+                  </div>
+                  <span style="color: var(--text-muted);">3:36</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Equalizer / Spectrum Visualizer Drawer -->
+            <div class="mockup-drawer">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; color: var(--accent); font-size: 0.9rem;">10-полосный Эквалайзер</span>
+                <span style="font-size: 0.72rem; color: var(--accent-cyan); background: rgba(0, 242, 254, 0.12); padding: 2px 6px; border-radius: 4px;">60 FPS</span>
+              </div>
+
+              <!-- Live animated equalizer bars -->
+              <div class="mockup-equalizer-bars" id="eqContainer">
+                <div class="eq-bar" style="height: 65%;"></div>
+                <div class="eq-bar" style="height: 52%;"></div>
+                <div class="eq-bar" style="height: 44%;"></div>
+                <div class="eq-bar" style="height: 72%;"></div>
+                <div class="eq-bar" style="height: 88%;"></div>
+                <div class="eq-bar" style="height: 60%;"></div>
+                <div class="eq-bar" style="height: 48%;"></div>
+                <div class="eq-bar" style="height: 76%;"></div>
+                <div class="eq-bar" style="height: 84%;"></div>
+                <div class="eq-bar" style="height: 92%;"></div>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted);">
+                <span>32 Hz</span>
+                <span>1 kHz</span>
+                <span>16 kHz</span>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px; display: flex; justify-content: space-between;">
+                <span>Пресет: <strong style="color: var(--text-primary);">Рок (+4 дБ)</strong></span>
+                <span style="color: var(--accent-cyan);">Pitch: 1.0x</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom bar with ticking timecode -->
+          <div class="mockup-now-playing-bar">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="width: 38px; height: 38px; background: #202436; border-radius: 8px; display: grid; place-items: center; font-size: 1.2rem;">💿</div>
+              <div>
+                <div style="font-size: 0.9rem; font-weight: 600;">Bring Me To Life (original)</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted);">Evanescence — 320 kbps MP3</div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 16px;">
+              <span style="cursor: pointer; opacity: 0.8;">⏮</span>
+              <span style="background: var(--accent); color: white; border-radius: 50%; width: 34px; height: 34px; display: grid; place-items: center; cursor: pointer; box-shadow: 0 2px 10px var(--accent-glow);">⏸</span>
+              <span style="cursor: pointer; opacity: 0.8;">⏭</span>
+            </div>
+
+            <div class="playback-progress-wrap">
+              <div class="playback-track">
+                <div class="playback-fill" id="playbackFill"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted);">
+                <span id="currentTimeDisplay">1:24</span>
+                <span>3:58</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features">
+      <div class="section-title-wrap reveal">
+        <h2 class="section-title">Создан для тех, кто ценит музыку</h2>
+        <p class="section-subtitle">Всё необходимое для бескомпромиссного прослушивания без сетевого шума и подписок</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card reveal">
+          <div class="feature-icon-box">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <h3>Полный оффлайн и приватность</h3>
+          <p>Никакой телеметрии, трекеров, создания аккаунтов и скрытых запросов. Ваши аудиофайлы и история прослушиваний остаются строго на вашем компьютере и телефоне.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon-box">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+          </div>
+          <h3>10-полосный эквалайзер</h3>
+          <p>Точная калибровка частот от 32 Гц до 16 кГц с биполярным заполнением от нуля (0 дБ), встроенные пресеты («Рок», «Поп», «Вокал», «Усиление баса») и клавиатурное управление со стрелок.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon-box">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+          </div>
+          <h3>Теги и синхронизация .lrc</h3>
+          <p>Чтение встроенных ID3-тегов, обложек, жанра и битрейта. Синхронизированные тексты песен (.lrc) рядом с треком с подсветкой активной строки и моментальной перемоткой по нажатию.</p>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="feature-icon-box">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
+          <h3>Адаптивный UI и быстрый поиск</h3>
+          <p>Сворачиваемый сайдбар, мгновенный локальный поиск без задержек, автоматическая проверка доступности файлов и защита от сбоев воспроизведения.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Specs & Checksums -->
+    <section id="specs" class="specs-section reveal">
+      <h2 style="font-size: 1.85rem; font-weight: 800; margin-bottom: 8px;">Системные требования и контрольные суммы</h2>
+      <p style="color: var(--text-secondary);">Официальные сборки релиза 1.0.0. Вы можете сверить целостность и подлинность файлов перед установкой.</p>
+
+      <div class="specs-grid">
+        <!-- Windows Spec -->
+        <div class="spec-card">
+          <h4>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+            </svg>
+            Windows (MSI / EXE)
+          </h4>
+          <ul class="spec-list">
+            <li><strong>ОС:</strong> Windows 10 / 11 (64-bit)</li>
+            <li><strong>ОЗУ:</strong> 2 ГБ минимум (рекомендуется 4 ГБ)</li>
+            <li><strong>Место на диске:</strong> ~150 МБ</li>
+            <li><strong>Версия релиза:</strong> 1.0.0</li>
+          </ul>
+
+          <div class="hash-box">
+            <div class="hash-label">
+              <span>SHA-256 (JVXMusic-Setup.msi • 115.8 МБ)</span>
+              <button class="btn-copy" onclick="copyHash('51FF8E87EFBB5B551A001EA9F9A8DEB1BA4FFD9AC11F99C6BA6737F8365EBB9B', this)">Копировать</button>
+            </div>
+            <div class="hash-value">51FF8E87EFBB5B551A001EA9F9A8DEB1BA4FFD9AC11F99C6BA6737F8365EBB9B</div>
+          </div>
+
+          <div class="hash-box">
+            <div class="hash-label">
+              <span>SHA-256 (JVXMusic-Setup.exe • 116.4 МБ)</span>
+              <button class="btn-copy" onclick="copyHash('6E58822C68615D84E2D20748989E41632F68A4C0E1E492981085B0C58342B442', this)">Копировать</button>
+            </div>
+            <div class="hash-value">6E58822C68615D84E2D20748989E41632F68A4C0E1E492981085B0C58342B442</div>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 6px;">
+            <a href="./downloads/JVXMusic-Setup.msi" class="btn-download-sm" style="flex: 1;" download>Скачать .msi</a>
+            <a href="./downloads/JVXMusic-Setup.exe" class="btn-download-sm" style="flex: 1;" download>Скачать .exe</a>
+          </div>
+        </div>
+
+        <!-- Android Spec -->
+        <div class="spec-card">
+          <h4>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-1.0001s.4482-1.0001.9993-1.0001c.5516 0 .9998.4486.9998 1.0001s-.4482 1.0001-.9998 1.0001m-11.046 0c-.5511 0-.9993-.4486-.9993-1.0001s.4482-1.0001.9993-1.0001c.5516 0 .9998.4486.9998 1.0001s-.4482 1.0001-.9998 1.0001m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.4116 13.8533 8.081 12 8.081c-1.8533 0-3.5902.3306-5.1368.8686L4.8409 5.4467a.4161.4161 0 00-.5677-.1521.4157.4157 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3432-4.1021-2.6889-7.5743-6.1185-9.4396"/>
+            </svg>
+            Android (APK)
+          </h4>
+          <ul class="spec-list">
+            <li><strong>ОС:</strong> Android 8.0+ (Oreo и новее)</li>
+            <li><strong>Архитектура:</strong> arm64-v8a, armeabi-v7a, x86_64</li>
+            <li><strong>ОЗУ:</strong> 1 ГБ минимум</li>
+            <li><strong>Место на диске:</strong> ~25 МБ</li>
+            <li><strong>Версия релиза:</strong> 1.0 (сборка 1)</li>
+          </ul>
+
+          <div class="hash-box">
+            <div class="hash-label">
+              <span>SHA-256 (JVXMusic.apk • 13.9 МБ)</span>
+              <button class="btn-copy" onclick="copyHash('55459CDA28FE6CC158631A056CDBC6DF93F37819FC9FB0A5C42F8A705CC312D8', this)">Копировать</button>
+            </div>
+            <div class="hash-value">55459CDA28FE6CC158631A056CDBC6DF93F37819FC9FB0A5C42F8A705CC312D8</div>
+          </div>
+
+          <div style="margin-top: 6px;">
+            <a href="./downloads/JVXMusic.apk" class="btn-download-sm" style="width: 100%;" download>Скачать APK (13.9 МБ)</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast Notification -->
+  <div id="toastNotification" role="status" aria-live="polite">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#27C93F" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>
+    <span id="toastMessage">Контрольная сумма скопирована!</span>
+  </div>
+
+  <footer>
+    <p>JVXMusic — свободный и открытый плеер под лицензией <a href="../LICENSE" style="color: var(--accent-primary); text-decoration: underline;">GNU GPLv3</a>. Сторонние лицензии: <a href="../THIRD_PARTY_LICENSES.md" style="color: var(--accent-primary); text-decoration: underline;">THIRD_PARTY_LICENSES.md</a>. Официальные релизы: <a href="https://github.com/JVXMusic/JVXMusic/releases" target="_blank" rel="noopener noreferrer" style="color: var(--accent-primary); text-decoration: underline;">GitHub Releases</a>.</p>
+  </footer>
+
+  <script>
+    // 1. Detect visitor OS and prioritize download CTA
+    (function detectPlatform() {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera || '';
+      const primaryBtn = document.getElementById('primaryDownloadBtn');
+      const primaryText = document.getElementById('primaryBtnText');
+      const altWrap = document.getElementById('altDownloadsWrap');
+
+      const isAndroid = /android/i.test(userAgent);
+
+      if (isAndroid) {
+        primaryBtn.href = './downloads/JVXMusic.apk';
+        primaryText.textContent = 'Скачать для Android (.apk)';
+        altWrap.innerHTML = `
+          <span>Для настольных ПК:</span>
+          <a href="./downloads/JVXMusic-Setup.msi" download>Windows .msi (112.5 МБ)</a>
+          <span>•</span>
+          <a href="./downloads/JVXMusic-Setup.exe" download>Windows .exe (113.1 МБ)</a>
+        `;
+      } else {
+        primaryBtn.href = './downloads/JVXMusic-Setup.msi';
+        primaryText.textContent = 'Скачать для Windows (.msi)';
+        altWrap.innerHTML = `
+          <span>Также доступно:</span>
+          <a href="./downloads/JVXMusic-Setup.exe" download>Windows .exe (113.1 МБ)</a>
+          <span>•</span>
+          <a href="./downloads/JVXMusic.apk" download>Android .apk (13.9 МБ)</a>
+        `;
+      }
+    })();
+
+    // 2. Spotlight cursor reaction for Feature Cards
+    document.querySelectorAll('.feature-card').forEach(card => {
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        card.style.setProperty('--mouse-x', `${x}px`);
+        card.style.setProperty('--mouse-y', `${y}px`);
+      });
+    });
+
+    // 3. Scroll Reveal with IntersectionObserver & Stagger
+    const revealObserver = new IntersectionObserver((entries, observer) => {
+      entries.forEach((entry, idx) => {
+        if (entry.isIntersecting) {
+          setTimeout(() => {
+            entry.target.classList.add('visible');
+          }, idx * 75);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12 });
+
+    document.querySelectorAll('.reveal').forEach(el => revealObserver.observe(el));
+
+    // 4. Live Equalizer Spectrum Visualizer Simulation (60 FPS)
+    const eqBars = document.querySelectorAll('#eqContainer .eq-bar');
+    let eqT = 0;
+    const baseFreqs = [0.8, 1.2, 0.6, 1.4, 1.8, 1.5, 0.9, 1.3, 1.7, 2.0];
+    const baseHeights = [60, 52, 45, 75, 85, 62, 50, 78, 86, 90];
+
+    function animateEqualizer() {
+      eqT += 0.08;
+      eqBars.forEach((bar, i) => {
+        const osc = Math.sin(eqT * baseFreqs[i] + i * 0.7);
+        const rand = Math.sin(eqT * 2.3 + i * 1.5) * 15;
+        const h = Math.min(98, Math.max(18, baseHeights[i] + osc * 24 + rand));
+        bar.style.height = `${h.toFixed(1)}%`;
+      });
+      requestAnimationFrame(animateEqualizer);
+    }
+    requestAnimationFrame(animateEqualizer);
+
+    // 5. Ticking Timecode & Playback Progress Simulation
+    let currentSeconds = 84; // 1:24
+    const totalSeconds = 238; // 3:58
+    const timeDisplay = document.getElementById('currentTimeDisplay');
+    const playbackFill = document.getElementById('playbackFill');
+
+    setInterval(() => {
+      currentSeconds++;
+      if (currentSeconds >= totalSeconds) currentSeconds = 0;
+      const m = Math.floor(currentSeconds / 60);
+      const s = currentSeconds % 60;
+      timeDisplay.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
+      const pct = (currentSeconds / totalSeconds) * 100;
+      playbackFill.style.width = `${pct.toFixed(2)}%`;
+    }, 1000);
+
+    // 6. Toast Notification & Copy Hash helper
+    let toastTimeout = null;
+    function copyHash(hash, btn) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(hash).then(() => {
+          showToast('Контрольная сумма SHA-256 скопирована!');
+          const orig = btn.textContent;
+          btn.textContent = 'Скопировано';
+          btn.style.color = '#00F2FE';
+          setTimeout(() => {
+            btn.textContent = orig;
+            btn.style.color = '';
+          }, 2000);
+        });
+      }
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toastNotification');
+      const msg = document.getElementById('toastMessage');
+      msg.textContent = message;
+      toast.classList.add('show');
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2600);
+    }
+  </script>
+</body>
+</html>
