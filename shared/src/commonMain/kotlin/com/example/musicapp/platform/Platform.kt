@@ -7,6 +7,9 @@ import com.example.musicapp.model.Track
 interface PlayerEngine {
     val supportsSpectrum: Boolean get() = false
     val supportsPreamp: Boolean get() = false
+    val engineName: String get() = "Default"
+    val engineStatusText: String get() = "Движок: $engineName"
+    val isFallback: Boolean get() = false
     fun getEqualizerPreamp(): Float = 0f
     fun setEqualizerPreamp(gainDb: Float) {}
 

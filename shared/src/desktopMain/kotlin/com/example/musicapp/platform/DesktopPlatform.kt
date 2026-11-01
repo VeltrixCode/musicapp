@@ -154,6 +154,9 @@ fun importLocalAudioFile(sourceFile: File): Track {
 internal class JavaFxPlayerEngine : PlayerEngine {
     override val supportsSpectrum: Boolean get() = true
     override val supportsPreamp: Boolean get() = false
+    override val engineName: String get() = "JavaFX"
+    override val engineStatusText: String get() = VlcBridge.fallbackStatusText
+    override val isFallback: Boolean get() = true
 
     private var player: MediaPlayer? = null
     private var currentVolume = 0.8f

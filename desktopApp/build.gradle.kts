@@ -66,22 +66,30 @@ tasks.withType<Test>().configureEach {
 }
 
 val copyLicensesToAppResources by tasks.registering {
-    val resDir = project.layout.projectDirectory.dir("resources").asFile
-    outputs.files(File(resDir, "LICENSE"), File(resDir, "THIRD_PARTY_LICENSES.md"))
+    val commonResDir = project.layout.projectDirectory.dir("resources/common").asFile
+    outputs.files(File(commonResDir, "LICENSE"), File(commonResDir, "THIRD_PARTY_LICENSES.md"))
     doLast {
-        resDir.mkdirs()
-        rootProject.file("LICENSE").copyTo(File(resDir, "LICENSE"), overwrite = true)
-        rootProject.file("THIRD_PARTY_LICENSES.md").copyTo(File(resDir, "THIRD_PARTY_LICENSES.md"), overwrite = true)
+        commonResDir.mkdirs()
+        rootProject.file("LICENSE").copyTo(File(commonResDir, "LICENSE"), overwrite = true)
+        rootProject.file("THIRD_PARTY_LICENSES.md").copyTo(File(commonResDir, "THIRD_PARTY_LICENSES.md"), overwrite = true)
     }
 }
 
 val prepareVlcNatives by tasks.registering {
-    val vlcDir = project.layout.projectDirectory.dir("resources/vlc").asFile
+    val legacyVlcDir = project.layout.projectDirectory.dir("resources/vlc").asFile
+    val vlcDir = project.layout.projectDirectory.dir("resources/windows/vlc").asFile
     val libvlcDll = File(vlcDir, "libvlc.dll")
     val pluginsDat = File(vlcDir, "plugins/plugins.dat")
     outputs.files(libvlcDll, pluginsDat)
 
     doLast {
+        // Удаляем устаревшую папку resources/vlc если она осталась
+        if (legacyVlcDir.exists()) {
+            val legacySize = legacyVlcDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            logger.lifecycle("Удаление устаревшей папки ${legacyVlcDir.absolutePath} (${legacySize / (1024 * 1024)} МБ)...")
+            legacyVlcDir.deleteRecursively()
+        }
+
         if (!libvlcDll.exists() || !pluginsDat.exists()) {
             val vlcVersion = project.findProperty("vlc.version")?.toString() ?: "3.0.21"
             val vlcUrl = project.findProperty("vlc.win64.url")?.toString()
@@ -93,10 +101,13 @@ val prepareVlcNatives by tasks.registering {
             downloadDir.mkdirs()
             val archiveFile = File(downloadDir, "vlc-$vlcVersion-win64.zip")
 
-            if (!archiveFile.exists() || archiveFile.length() == 0L) {
+            if (!archiveFile.exists() || archiveFile.length() < 70000000L) {
                 logger.lifecycle("Загрузка официального архива VLC $vlcVersion с $vlcUrl...")
                 val connection = URL(vlcUrl).openConnection() as HttpURLConnection
                 connection.instanceFollowRedirects = true
+                connection.connectTimeout = 30000
+                connection.readTimeout = 60000
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0 JVXMusic-Build")
                 connection.connect()
                 connection.inputStream.use { input ->
                     archiveFile.outputStream().use { output ->
@@ -135,6 +146,8 @@ val prepareVlcNatives by tasks.registering {
             }
 
             val rootVlcDir = extractDir.listFiles()?.firstOrNull { it.isDirectory && it.name.startsWith("vlc-") } ?: extractDir
+            val rawExtractedSize = rootVlcDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            logger.lifecycle("Размер распакованного дистрибутива VLC до оптимизации: ${rawExtractedSize / (1024 * 1024)} МБ")
 
             vlcDir.mkdirs()
             File(rootVlcDir, "libvlc.dll").copyTo(File(vlcDir, "libvlc.dll"), overwrite = true)
@@ -161,6 +174,9 @@ val prepareVlcNatives by tasks.registering {
                     commandLine(cacheGen.absolutePath, pluginsDest.absolutePath)
                 }
             }
+
+            val optimizedSize = vlcDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            logger.lifecycle("Размер оптимизированного комплекта VLC в desktopApp/resources/windows/vlc: ${optimizedSize / (1024 * 1024)} МБ")
 
             extractDir.deleteRecursively()
             logger.lifecycle("Нативные библиотеки VLC успешно подготовлены в ${vlcDir.absolutePath}.")
