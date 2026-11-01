@@ -48,6 +48,8 @@ kotlin {
                 // Native System Keyring & Windows DPAPI for SecureStorage
                 implementation("net.java.dev.jna:jna:5.14.0")
                 implementation("net.java.dev.jna:jna-platform:5.14.0")
+                // VLCJ for native desktop playback with pitch preservation (scaletempo)
+                implementation("uk.co.caprica:vlcj:4.8.3")
                 // Ktor client & embedded streaming proxy for Desktop JavaFX Media
                 implementation("io.ktor:ktor-client-cio:$ktorVersion")
                 implementation("io.ktor:ktor-server-core:$ktorVersion")
@@ -66,6 +68,12 @@ kotlin {
                 implementation("androidx.media3:media3-exoplayer:$media3Version")
                 implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
                 implementation("androidx.media3:media3-common:$media3Version")
+                implementation("androidx.documentfile:documentfile:1.0.1")
+            }
+        }
+        val androidUnitTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
             }
         }
     }
@@ -79,4 +87,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
+
+tasks.withType<Test>().configureEach {
+    val testDataDir = layout.buildDirectory.dir("test-jvx-data/$name").get().asFile
+    testDataDir.mkdirs()
+    systemProperty("jvx.data.dir", testDataDir.absolutePath)
+    systemProperty("jvx.test.isolation", "true")
+}
+

@@ -13,6 +13,13 @@ import kotlin.test.assertTrue
 
 class JavaFxPlayerEngineTest {
 
+    @org.junit.Before
+    fun setUp() {
+        try {
+            Platform.startup {}
+        } catch (_: Throwable) {}
+    }
+
     @Test
     fun testEngineInstantiationAndControls() {
         // Skip safely in headless CI / test environments without display

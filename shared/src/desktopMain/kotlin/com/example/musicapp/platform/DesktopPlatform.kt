@@ -24,7 +24,8 @@ import javax.swing.SwingUtilities
 
 private val AUDIO_EXTENSIONS = listOf(".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg")
 
-actual fun createPlayerEngine(): PlayerEngine = JavaFxPlayerEngine()
+actual fun createPlayerEngine(): PlayerEngine =
+    if (VlcBridge.isAvailable) VlcPlayerEngine() else JavaFxPlayerEngine()
 
 actual fun runOnUiThread(block: () -> Unit) {
     if (SwingUtilities.isEventDispatchThread()) block() else SwingUtilities.invokeLater(block)
@@ -150,7 +151,7 @@ fun importLocalAudioFile(sourceFile: File): Track {
     return importedTrack(dest.absolutePath, sourceFile.name)
 }
 
-private class JavaFxPlayerEngine : PlayerEngine {
+internal class JavaFxPlayerEngine : PlayerEngine {
     private var player: MediaPlayer? = null
     private var currentVolume = 0.8f
     private var currentRate = 1.0f
@@ -292,7 +293,11 @@ private class JavaFxPlayerEngine : PlayerEngine {
 
     override fun setPlaybackSpeed(speed: Float) {
         currentRate = speed.coerceIn(0.25f, 3.0f)
-        Platform.runLater { player?.rate = currentRate.toDouble() }
+        Platform.runLater {
+            // JavaFX MediaPlayer.rate adjusts playback speed directly through native GStreamer/DirectShow.
+            // Note: JavaFX Media pipeline does not provide an external pitch DSP API, so pitch shifts proportionally with rate on desktop.
+            player?.rate = currentRate.toDouble()
+        }
     }
 
     override fun setEqualizerBand(bandIndex: Int, gainDb: Float) {
@@ -301,6 +306,15 @@ private class JavaFxPlayerEngine : PlayerEngine {
             Platform.runLater { applyEqualizer() }
         }
     }
+
+    override fun setEqualizerEnabled(enabled: Boolean) {
+        Platform.runLater {
+            player?.audioEqualizer?.isEnabled = enabled
+        }
+    }
+
+    override fun getEqualizerGainRange(): ClosedFloatingPointRange<Float> =
+        (EqualizerBand.MIN_GAIN.toFloat())..(EqualizerBand.MAX_GAIN.toFloat())
 
     override fun setSpectrumListener(listener: ((FloatArray) -> Unit)?) {
         spectrumCallback = listener
@@ -319,6 +333,14 @@ private class JavaFxPlayerEngine : PlayerEngine {
 }
 
 actual fun getEnv(name: String): String? = System.getenv(name) ?: System.getProperty(name)
+
+actual fun isFileAvailable(source: String?): Boolean {
+    if (source.isNullOrBlank()) return false
+    return runCatching {
+        if (source.startsWith("http://") || source.startsWith("https://")) true
+        else File(source).exists()
+    }.getOrDefault(false)
+}
 
 actual inline fun <R> synchronizedPlatform(lock: Any, block: () -> R): R = synchronized(lock) { block() }
 
