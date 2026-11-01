@@ -5,6 +5,11 @@ import com.example.musicapp.library.newId
 import com.example.musicapp.model.Track
 
 interface PlayerEngine {
+    val supportsSpectrum: Boolean get() = false
+    val supportsPreamp: Boolean get() = false
+    fun getEqualizerPreamp(): Float = 0f
+    fun setEqualizerPreamp(gainDb: Float) {}
+
     fun load(path: String, onReady: (durationMs: Long) -> Unit, onFinished: () -> Unit)
     fun load(path: String, onReady: (durationMs: Long) -> Unit, onFinished: () -> Unit, onError: ((errorMessage: String) -> Unit)?) {
         load(path, onReady, onFinished)

@@ -98,6 +98,10 @@ interface AudioPlayer {
     val equalizerPreset: EqualizerPreset
     val equalizerGains: FloatArray
     val isEqualizerEnabled: Boolean
+    val supportsSpectrum: Boolean get() = false
+    val supportsPreamp: Boolean get() = false
+    val equalizerPreamp: Float get() = 0f
+    fun setEqualizerPreamp(gainDb: Float) {}
     val lyrics: List<LrcLine>
     val queue: List<Track>
     val unsupportedFormatNotice: String?
@@ -195,6 +199,14 @@ class PlayerController(
     override val equalizerGains = FloatArray(10) { 0f }
     private var _isEqualizerEnabled by mutableStateOf(true)
     override val isEqualizerEnabled: Boolean get() = _isEqualizerEnabled
+
+    override val supportsSpectrum: Boolean get() = engine.supportsSpectrum
+    override val supportsPreamp: Boolean get() = engine.supportsPreamp
+    override val equalizerPreamp: Float get() = engine.getEqualizerPreamp()
+
+    override fun setEqualizerPreamp(gainDb: Float) {
+        engine.setEqualizerPreamp(gainDb)
+    }
 
     override var lyrics by mutableStateOf<List<LrcLine>>(emptyList())
         private set

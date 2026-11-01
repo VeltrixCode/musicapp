@@ -152,6 +152,9 @@ fun importLocalAudioFile(sourceFile: File): Track {
 }
 
 internal class JavaFxPlayerEngine : PlayerEngine {
+    override val supportsSpectrum: Boolean get() = true
+    override val supportsPreamp: Boolean get() = false
+
     private var player: MediaPlayer? = null
     private var currentVolume = 0.8f
     private var currentRate = 1.0f

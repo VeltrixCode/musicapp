@@ -60,12 +60,17 @@ object VlcBridge {
         MediaPlayerFactory(
             "--no-video",
             "--audio-filter=scaletempo", // Pitch preservation WSOLA filter
-            "--no-sub-autodetect-file"
+            "--no-sub-autodetect-file",
+            "--no-plugins-cache",
+            "--no-stats",
+            "--no-media-library"
         )
     }
 }
 
 class VlcPlayerEngine : PlayerEngine {
+    override val supportsSpectrum: Boolean get() = false
+    override val supportsPreamp: Boolean get() = true
     private var mediaPlayer: MediaPlayer? = null
     private var equalizer: Equalizer? = null
     private var currentVolume = 0.8f
@@ -152,7 +157,7 @@ class VlcPlayerEngine : PlayerEngine {
                 override fun error(mediaPlayer: MediaPlayer) {
                     eventDispatcher.execute {
                         isPlayingState = false
-                        runOnUiThread { onErrorCallback?.invoke("Ошибка воспроизведения аудио") }
+                        runOnUiThread { onErrorCallback?.invoke("Неподдерживаемый или повреждённый аудиофайл") }
                     }
                 }
 
@@ -264,7 +269,7 @@ class VlcPlayerEngine : PlayerEngine {
         }
     }
 
-    fun setEqualizerPreamp(gainDb: Float) {
+    override fun setEqualizerPreamp(gainDb: Float) {
         preampGain = gainDb.coerceIn(-20f, 20f)
         try {
             equalizer?.setPreamp(preampGain)
@@ -272,7 +277,7 @@ class VlcPlayerEngine : PlayerEngine {
         } catch (_: Throwable) {}
     }
 
-    fun getEqualizerPreamp(): Float = preampGain
+    override fun getEqualizerPreamp(): Float = preampGain
 
     override fun setEqualizerEnabled(enabled: Boolean) {
         try {
