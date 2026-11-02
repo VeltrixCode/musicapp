@@ -82,7 +82,7 @@ object GoogleOAuthDesktop {
         }.start(wait = false)
 
         try {
-            val scope = "https://www.googleapis.com/auth/drive.readonly"
+            val scope = "https://www.googleapis.com/auth/drive"
             val authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
                     "client_id=$clientId&" +
                     "redirect_uri=$redirectUri&" +

@@ -25,7 +25,7 @@ private data class TokenResponse(
 )
 
 object GoogleOAuthAndroid {
-    private const val DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+    private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
     private const val REDIRECT_URI = "com.example.musicapp:/oauth2callback"
 
     private fun generateCodeVerifier(): String {
@@ -60,7 +60,7 @@ object GoogleOAuthAndroid {
                     "client_id=$clientId&" +
                     "redirect_uri=$REDIRECT_URI&" +
                     "response_type=code&" +
-                    "scope=$DRIVE_READONLY_SCOPE&" +
+                    "scope=$DRIVE_SCOPE&" +
                     "access_type=offline&" +
                     "prompt=consent&" +
                     "code_challenge=$codeChallenge&" +
