@@ -215,13 +215,23 @@ fun CloudSourcesScreen(
         Spacer(Modifier.height(24.dp))
 
         // Provider Card 1: Google Drive
+        val gdriveTracksCount = library.tracks.count { it.sourceProvider == com.example.musicapp.model.TrackSource.GOOGLE_DRIVE }
+        val gdriveSyncInfo = buildString {
+            if (gdriveTracksCount > 0) append("$gdriveTracksCount трек(ов) • ")
+            append(formatSyncTime(appSettings.lastSyncTimeMs))
+        }
+
         CloudProviderItem(
             name = "Google Диск",
-            description = "OAuth 2.0 PKCE • Чтение файлов audio/* • Потоковое воспроизведение с Range",
+            description = if (gdriveTracksCount > 0) {
+                "Синхронизировано $gdriveTracksCount треков. Они доступны в разделе «Медиатека» (фильтр «Google Диск»)."
+            } else {
+                "OAuth 2.0 PKCE • Чтение файлов audio/* • Потоковое воспроизведение с Range"
+            },
             isConnected = isGDriveSignedIn,
             accountEmail = appSettings.gdriveAccountEmail ?: if (isGDriveSignedIn) "Google Drive Account" else null,
             folderId = appSettings.gdriveSyncFolderId,
-            lastSyncTime = formatSyncTime(appSettings.lastSyncTimeMs),
+            lastSyncTime = gdriveSyncInfo,
             onSelectFolder = {
                 folderInput = appSettings.gdriveSyncFolderId ?: ""
                 showGDriveFolderDialog = true
