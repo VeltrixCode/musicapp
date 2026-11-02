@@ -55,33 +55,39 @@ class VisibleTracksCounterTest {
         library.addTrack(cloudTrack1)
         library.addTrack(cloudTrack2)
 
-        // When ONLINE_SOURCES = false
-        assertFalse(AppFeatures.isOnlineSourcesEnabled, "Online sources must be disabled by default")
+        val prevDev = AppFeatures.devOnlineSourcesEnabled
+        AppFeatures.devOnlineSourcesEnabled = false
+        try {
+            // When ONLINE_SOURCES = false
+            assertFalse(AppFeatures.isOnlineSourcesEnabled, "Online sources must be disabled when overridden")
 
-        // 1. Library visible tracks count
-        val visible = library.visibleTracks
-        assertEquals(2, visible.size, "Visible tracks must only contain local tracks")
-        assertTrue(visible.all { it.sourceProvider == TrackSource.LOCAL })
+            // 1. Library visible tracks count
+            val visible = library.visibleTracks
+            assertEquals(2, visible.size, "Visible tracks must only contain local tracks")
+            assertTrue(visible.all { it.sourceProvider == TrackSource.LOCAL })
 
-        // 2. Playlists counting
-        val mixedPlaylist = Playlist(
-            id = "p-mixed",
-            name = "Mixed Playlist",
-            trackIds = listOf("loc-1", "cloud-1", "cloud-2")
-        )
-        library.createPlaylist("Mixed Playlist")
-        library.addToPlaylist("p-mixed", "loc-1")
-        library.addToPlaylist("p-mixed", "cloud-1")
-        library.addToPlaylist("p-mixed", "cloud-2")
+            // 2. Playlists counting
+            val mixedPlaylist = Playlist(
+                id = "p-mixed",
+                name = "Mixed Playlist",
+                trackIds = listOf("loc-1", "cloud-1", "cloud-2")
+            )
+            library.createPlaylist("Mixed Playlist")
+            library.addToPlaylist("p-mixed", "loc-1")
+            library.addToPlaylist("p-mixed", "cloud-1")
+            library.addToPlaylist("p-mixed", "cloud-2")
 
-        val playlistTracks = library.tracksIn(mixedPlaylist)
-        assertEquals(1, playlistTracks.size, "Playlist tracksIn must only return visible local tracks")
-        assertEquals("loc-1", playlistTracks.first().id)
+            val playlistTracks = library.tracksIn(mixedPlaylist)
+            assertEquals(1, playlistTracks.size, "Playlist tracksIn must only return visible local tracks")
+            assertEquals("loc-1", playlistTracks.first().id)
 
-        // 3. Header and Table row count agreement
-        // The table renders rows from sorted/filtered visibleTracks:
-        val tableRowCount = visible.size
-        val headerCounter = library.visibleTracks.size
-        assertEquals(headerCounter, tableRowCount, "Header counter must strictly equal visible table rows count")
+            // 3. Header and Table row count agreement
+            // The table renders rows from sorted/filtered visibleTracks:
+            val tableRowCount = visible.size
+            val headerCounter = library.visibleTracks.size
+            assertEquals(headerCounter, tableRowCount, "Header counter must strictly equal visible table rows count")
+        } finally {
+            AppFeatures.devOnlineSourcesEnabled = prevDev
+        }
     }
 }

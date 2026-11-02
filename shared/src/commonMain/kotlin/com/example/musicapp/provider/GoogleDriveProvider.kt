@@ -9,6 +9,7 @@ import com.example.musicapp.security.SecureStorage
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +34,7 @@ private data class GDriveFile(
 
 class GoogleDriveProvider(
     private var accessToken: String? = SecureStorage.getSecret(AppConfig.TOKEN_GDRIVE_ACCESS),
+    var syncFolderId: String? = null,
     private val onTokenRefreshNeeded: (suspend () -> String?)? = null,
 ) : MusicProvider {
     override val id: String = "gdrive"
@@ -67,17 +69,21 @@ class GoogleDriveProvider(
 
     override suspend fun listTracks(folderId: String?, pageToken: String?): Page<RemoteTrack> {
         val token = accessToken ?: return Page(emptyList())
+        val effectiveFolderId = folderId ?: syncFolderId
         return try {
             val query = StringBuilder("mimeType contains 'audio/' and trashed = false")
-            if (!folderId.isNullOrBlank()) {
-                query.append(" and '$folderId' in parents")
+            if (!effectiveFolderId.isNullOrBlank()) {
+                query.append(" and '$effectiveFolderId' in parents")
             }
-            val encodedQuery = query.toString().replace(" ", "%20").replace("'", "%27")
-            val tokenParam = if (pageToken != null) "&pageToken=$pageToken" else ""
-            val url = "https://www.googleapis.com/drive/v3/files?q=$encodedQuery&fields=nextPageToken,files(id,name,size,mimeType)&pageSize=50$tokenParam"
 
-            val response = appHttpClient.get(url) {
+            val response = appHttpClient.get("https://www.googleapis.com/drive/v3/files") {
                 header("Authorization", "Bearer $token")
+                parameter("q", query.toString())
+                parameter("fields", "nextPageToken,files(id,name,size,mimeType)")
+                parameter("pageSize", 50)
+                if (!pageToken.isNullOrBlank()) {
+                    parameter("pageToken", pageToken)
+                }
             }.body<GDriveFileList>()
 
             val tracks = response.files.map { f ->
@@ -107,9 +113,9 @@ class GoogleDriveProvider(
     suspend fun fetchAccountEmail(): String? {
         val t = accessToken ?: return null
         return runCatching {
-            val url = "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress)"
-            val jsonText = appHttpClient.get(url) {
+            val jsonText = appHttpClient.get("https://www.googleapis.com/drive/v3/about") {
                 header("Authorization", "Bearer $t")
+                parameter("fields", "user(displayName,emailAddress)")
             }.body<String>()
             val json = Json { ignoreUnknownKeys = true }
             val root = json.parseToJsonElement(jsonText).jsonObject
@@ -122,10 +128,11 @@ class GoogleDriveProvider(
     suspend fun listFolders(): List<Pair<String, String>> {
         val t = accessToken ?: return emptyList()
         return runCatching {
-            val q = "mimeType='application/vnd.google-apps.folder' and trashed=false".replace(" ", "%20").replace("'", "%27")
-            val url = "https://www.googleapis.com/drive/v3/files?q=$q&fields=files(id,name)&pageSize=100"
-            val response = appHttpClient.get(url) {
+            val response = appHttpClient.get("https://www.googleapis.com/drive/v3/files") {
                 header("Authorization", "Bearer $t")
+                parameter("q", "mimeType='application/vnd.google-apps.folder' and trashed=false")
+                parameter("fields", "files(id,name)")
+                parameter("pageSize", 100)
             }.body<GDriveFileList>()
             response.files.map { it.id to it.name }
         }.getOrDefault(emptyList())
@@ -133,13 +140,18 @@ class GoogleDriveProvider(
 
     override suspend fun search(query: String): List<RemoteTrack> {
         val token = accessToken ?: return emptyList()
+        val effectiveFolderId = syncFolderId
         return try {
-            val q = "mimeType contains 'audio/' and trashed = false and name contains '$query'"
-                .replace(" ", "%20").replace("'", "%27")
-            val url = "https://www.googleapis.com/drive/v3/files?q=$q&fields=files(id,name,size,mimeType)&pageSize=30"
+            val q = StringBuilder("mimeType contains 'audio/' and trashed = false and name contains '$query'")
+            if (!effectiveFolderId.isNullOrBlank()) {
+                q.append(" and '$effectiveFolderId' in parents")
+            }
 
-            val response = appHttpClient.get(url) {
+            val response = appHttpClient.get("https://www.googleapis.com/drive/v3/files") {
                 header("Authorization", "Bearer $token")
+                parameter("q", q.toString())
+                parameter("fields", "files(id,name,size,mimeType)")
+                parameter("pageSize", 30)
             }.body<GDriveFileList>()
 
             response.files.map { f ->

@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.example.musicapp.platform.AndroidBridge
 import com.example.musicapp.player.PlayerController
 import com.example.musicapp.ui.MusicApp
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private var pendingAudio: ((Uri?) -> Unit)? = null
@@ -74,8 +75,40 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        handleOAuthIntent(intent)
+
         setContent {
             MusicApp(player = player)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOAuthIntent(intent)
+    }
+
+    private fun handleOAuthIntent(intent: Intent?) {
+        val uri = intent?.data ?: return
+        if (uri.scheme == "com.example.musicapp" && (uri.host == "oauth2callback" || uri.path?.contains("oauth2callback") == true)) {
+            val code = uri.getQueryParameter("code")
+            val error = uri.getQueryParameter("error")
+            if (!code.isNullOrBlank()) {
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    val result = com.example.musicapp.oauth.GoogleOAuthAndroid.handleAuthCode(code)
+                    if (result.isSuccess) {
+                        val token = result.getOrNull()
+                        if (!token.isNullOrBlank()) {
+                            player.providerRegistry.gdrive.updateToken(token)
+                            Toast.makeText(this@MainActivity, "Google Диск успешно подключен!", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(this@MainActivity, "Ошибка входа Google: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } else if (error != null) {
+                Toast.makeText(this, "Вход Google отменен: $error", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

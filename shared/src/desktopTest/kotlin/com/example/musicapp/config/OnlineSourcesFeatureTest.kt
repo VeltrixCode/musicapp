@@ -29,7 +29,7 @@ import kotlin.test.assertTrue
 
 class OnlineSourcesFeatureTest {
 
-    private var initialDevFlag = false
+    private var initialDevFlag: Boolean? = null
 
     @Before
     fun setUp() {
