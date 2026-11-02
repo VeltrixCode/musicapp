@@ -62,10 +62,12 @@ object AppConfig {
             _audiusAppNameFlow.value = trimmed
         }
 
+    const val DEFAULT_GOOGLE_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+
     var googleClientId: String
         get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_GOOGLE_CLIENT_ID)
             ?: getEnv("GOOGLE_CLIENT_ID")
-            ?: ""
+            ?: DEFAULT_GOOGLE_CLIENT_ID
         set(value) = SecureStorage.saveSecret(KEY_GOOGLE_CLIENT_ID, value.trim())
 
     var googleClientSecret: String
