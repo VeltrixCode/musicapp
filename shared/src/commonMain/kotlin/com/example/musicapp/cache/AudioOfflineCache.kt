@@ -66,7 +66,7 @@ object AudioOfflineCache {
         onCompleted: (String) -> Unit = {}
     ) {
         // Live radio streams cannot be downloaded for offline
-        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || track.durationMs <= 0L) {
+        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER) {
             return
         }
         val trackId = track.id
@@ -139,7 +139,7 @@ object AudioOfflineCache {
 
     fun preloadNextTrack(track: Track?, streamUrl: String?, headers: Map<String, String> = emptyMap()) {
         if (track == null || streamUrl == null) return
-        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || track.durationMs <= 0L) return
+        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER) return
         if (!isCached(track.id)) {
             downloadTrack(track, streamUrl, headers)
         }

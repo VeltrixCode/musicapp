@@ -105,6 +105,8 @@ data class StreamSource(
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val supportsRange: Boolean = true,
+    val contentLength: Long? = null,
+    val contentType: String? = null,
 )
 
 @Serializable

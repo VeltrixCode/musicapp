@@ -182,6 +182,12 @@ class GoogleDriveProvider(
         val url = "https://www.googleapis.com/drive/v3/files/$rawId?alt=media"
         val headers = mutableMapOf<String, String>()
         accessToken?.let { headers["Authorization"] = "Bearer $it" }
-        return StreamSource(url = url, headers = headers, supportsRange = true)
+        return StreamSource(
+            url = url,
+            headers = headers,
+            supportsRange = true,
+            contentLength = track.sizeBytes,
+            contentType = track.mimeType ?: "audio/mpeg"
+        )
     }
 }

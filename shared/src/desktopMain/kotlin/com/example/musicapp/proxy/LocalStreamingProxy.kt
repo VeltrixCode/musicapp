@@ -283,6 +283,17 @@ fun configureStreamingProxyRoutes(
             // Touch session last access timestamp
             session.touch()
 
+            // If content length and type are already known from provider metadata, respond immediately (0ms latency)
+            val knownLength = session.streamSource.contentLength
+            val knownType = session.streamSource.contentType ?: "audio/mpeg"
+            if (knownLength != null && knownLength > 0L) {
+                call.response.header(HttpHeaders.ContentType, knownType)
+                call.response.header(HttpHeaders.AcceptRanges, "bytes")
+                call.response.header(HttpHeaders.ContentLength, knownLength.toString())
+                call.respond(HttpStatusCode.OK)
+                return@head
+            }
+
             try {
                 val upstream = LocalStreamingProxy.fetchUpstream(session.streamSource, "bytes=0-0")
                 val contentType = upstream.headers[HttpHeaders.ContentType] ?: "audio/mpeg"

@@ -755,12 +755,16 @@ class PlayerController(
                                 track.mimeType?.contains("ogg") == true ||
                                 track.source?.endsWith(".flac", ignoreCase = true) == true ||
                                 track.source?.endsWith(".ogg", ignoreCase = true) == true
-                        if (isFlacOrOgg) {
+                        if (engine.isFallback && isFlacOrOgg) {
                             unsupportedFormatNotice = "Формат FLAC/OGG не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC или библиотека VLCJ."
                         }
 
                         val streamSource = providerRegistry.getStreamSource(track)
                         if (streamSource != null) {
+                            // Immediately queue background download into offline cache so future plays and looping are 100% instant local
+                            if (!track.isLiveStream && track.sourceProvider != com.example.musicapp.model.TrackSource.RADIO_BROWSER && !com.example.musicapp.cache.AudioOfflineCache.isCached(track.id)) {
+                                com.example.musicapp.cache.AudioOfflineCache.downloadTrack(track, streamSource.url, streamSource.headers)
+                            }
                             com.example.musicapp.platform.prepareStreamUrlForPlayback(track.id, streamSource)
                         } else {
                             track.source
@@ -807,7 +811,8 @@ class PlayerController(
                     },
                     onError = { errorMsg ->
                         runOnUiThread {
-                            val isUnsupported = track.mimeType?.contains("flac") == true ||
+                            val isUnsupported = engine.isFallback && (
+                                    track.mimeType?.contains("flac") == true ||
                                     track.mimeType?.contains("ogg") == true ||
                                     track.source?.endsWith(".flac", ignoreCase = true) == true ||
                                     track.source?.endsWith(".ogg", ignoreCase = true) == true ||
@@ -815,6 +820,7 @@ class PlayerController(
                                     track.format?.equals("ogg", ignoreCase = true) == true ||
                                     errorMsg.contains("MEDIA_UNAVAILABLE", ignoreCase = true) ||
                                     errorMsg.contains("UNSUPPORTED", ignoreCase = true)
+                            )
 
                             val shortFileName = track.source?.substringAfterLast('/')?.substringAfterLast('\\') ?: ""
                             val isMissing = !com.example.musicapp.platform.isFileAvailable(track.source)
@@ -869,7 +875,7 @@ class PlayerController(
                         nextTrack.sourceProvider != com.example.musicapp.model.TrackSource.RADIO_BROWSER &&
                         !com.example.musicapp.cache.AudioOfflineCache.isCached(nextTrack.id)) {
                         val nextStream = providerRegistry.getStreamSource(nextTrack)
-                        if (nextStream != null && nextStream.supportsRange && nextTrack.durationMs > 0L) {
+                        if (nextStream != null && nextStream.supportsRange) {
                             com.example.musicapp.cache.AudioOfflineCache.preloadNextTrack(nextTrack, nextStream.url, nextStream.headers)
                         }
                     }
