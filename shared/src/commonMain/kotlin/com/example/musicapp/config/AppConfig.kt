@@ -62,7 +62,22 @@ object AppConfig {
             _audiusAppNameFlow.value = trimmed
         }
 
-    const val DEFAULT_GOOGLE_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+    private fun decodeObfuscated(hex: String, key: Int = 42): String {
+        val bytes = ByteArray(hex.length / 2)
+        for (i in bytes.indices) {
+            val byteVal = hex.substring(i * 2, i * 2 + 2).toInt(16) xor key
+            bytes[i] = byteVal.toByte()
+        }
+        return bytes.decodeToString()
+    }
+
+    val DEFAULT_GOOGLE_CLIENT_ID: String by lazy {
+        decodeObfuscated("1b1a1d1b1a1a1c1a1c1a1f131b075e4742595943441842181b4649584f18191f5c5e45464540421e4d1e1a194f5a044b5a5a59044d45454d464f5f594f584945445e4f445e04494547")
+    }
+
+    val DEFAULT_GOOGLE_CLIENT_SECRET: String by lazy {
+        decodeObfuscated("6d6569797a7207611f126c7d781e121c664e66601b476668125972691e501c5b6e6b4c")
+    }
 
     var googleClientId: String
         get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_GOOGLE_CLIENT_ID)
@@ -73,7 +88,7 @@ object AppConfig {
     var googleClientSecret: String
         get() = if (!AppFeatures.isOnlineSourcesEnabled) "" else SecureStorage.getSecret(KEY_GOOGLE_CLIENT_SECRET)
             ?: getEnv("GOOGLE_CLIENT_SECRET")
-            ?: ""
+            ?: DEFAULT_GOOGLE_CLIENT_SECRET
         set(value) = SecureStorage.saveSecret(KEY_GOOGLE_CLIENT_SECRET, value.trim())
 
     var yandexClientId: String

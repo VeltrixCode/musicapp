@@ -270,11 +270,19 @@ fun CloudSourcesScreen(
                                 val token = res.getOrNull()
                                 if (!token.isNullOrBlank()) {
                                     registry.gdrive.updateToken(token)
-                                    appSettings = appSettings.copy(gdriveAccountEmail = "Google OAuth User")
+                                    val email = registry.gdrive.fetchAccountEmail() ?: "Google Account"
+                                    appSettings = appSettings.copy(gdriveAccountEmail = email)
                                     settingsRepo.save(appSettings)
                                     gdriveTokenInput = ""
                                     showGDriveTokenDialog = false
-                                    onShowMessage("Google Диск успешно подключен!")
+                                    onShowMessage("Google Диск ($email) подключен! Синхронизируем музыку...")
+                                    registry.syncAll(library.tracks.toList()) { newTracks ->
+                                        library.addTracks(newTracks)
+                                        val now = currentTimeMillis()
+                                        appSettings = appSettings.copy(lastSyncTimeMs = now)
+                                        settingsRepo.save(appSettings)
+                                        onShowMessage("Синхронизировано новых треков: ${newTracks.size}")
+                                    }
                                 }
                             } else {
                                 onShowMessage("Ошибка входа Google: ${res.exceptionOrNull()?.message}")
@@ -283,12 +291,23 @@ fun CloudSourcesScreen(
                     }
                 },
                 onSave = {
-                    registry.gdrive.updateToken(gdriveTokenInput.trim())
-                    appSettings = appSettings.copy(gdriveAccountEmail = "Google Token User")
-                    settingsRepo.save(appSettings)
-                    gdriveTokenInput = ""
-                    showGDriveTokenDialog = false
-                    onShowMessage("Google Диск успешно подключен!")
+                    val token = gdriveTokenInput.trim()
+                    registry.gdrive.updateToken(token)
+                    scope.launch {
+                        val email = registry.gdrive.fetchAccountEmail() ?: "Google Token User"
+                        appSettings = appSettings.copy(gdriveAccountEmail = email)
+                        settingsRepo.save(appSettings)
+                        gdriveTokenInput = ""
+                        showGDriveTokenDialog = false
+                        onShowMessage("Google Диск ($email) подключен! Синхронизируем...")
+                        registry.syncAll(library.tracks.toList()) { newTracks ->
+                            library.addTracks(newTracks)
+                            val now = currentTimeMillis()
+                            appSettings = appSettings.copy(lastSyncTimeMs = now)
+                            settingsRepo.save(appSettings)
+                            onShowMessage("Синхронизировано новых треков: ${newTracks.size}")
+                        }
+                    }
                 },
                 onCancel = {
                     gdriveTokenInput = ""
