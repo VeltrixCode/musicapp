@@ -432,9 +432,11 @@ private fun QueuePane(
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(16.dp)) {
                     Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = AppColors.TextMuted, modifier = Modifier.size(36.dp))
                     Spacer(Modifier.height(8.dp))
-                    Text("Очередь воспроизведения пуста", color = AppColors.TextSecondary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    val titleMsg = if (queue.size > 1) "Конец текущего списка (${queue.size} треков)" else "Очередь воспроизведения пуста"
+                    val subMsg = if (queue.size > 1) "Включите режим повтора или добавьте новые треки" else "Включите любой трек, альбом или плейлист"
+                    Text(titleMsg, color = AppColors.TextSecondary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("Включите любой альбом или добавьте треки в очередь", color = AppColors.TextMuted, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                    Text(subMsg, color = AppColors.TextMuted, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
                 }
             }
         } else {

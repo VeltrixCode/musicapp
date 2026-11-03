@@ -47,6 +47,7 @@ data class Track(
     val webPageUrl: String? = null,
     val workId: String? = null,
     val isMissing: Boolean = false,
+    val fileSizeBytes: Long? = null,
 ) {
     val playableUri: String? get() = cachedFilePath ?: source
     val isCloud: Boolean get() = sourceProvider != TrackSource.LOCAL
@@ -91,6 +92,7 @@ data class RemoteTrack(
         format = format,
         isLossless = isLossless,
         webPageUrl = webPageUrl,
+        fileSizeBytes = sizeBytes,
     )
 }
 

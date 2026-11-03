@@ -42,7 +42,19 @@ class ProviderRegistry(
             if (_gdrive == null) {
                 _gdrive = GoogleDriveProvider(
                     onTokenRefreshNeeded = {
-                        com.example.musicapp.oauth.GoogleOAuth.refreshAccessToken().getOrNull()
+                        val res = com.example.musicapp.oauth.GoogleOAuth.refreshAccessToken()
+                        res.fold(
+                            onSuccess = { token ->
+                                _gdrive?.markNeedsReauth(false)
+                                token
+                            },
+                            onFailure = { err ->
+                                if (err is com.example.musicapp.oauth.GoogleOAuthInvalidGrantException) {
+                                    _gdrive?.markNeedsReauth(true)
+                                }
+                                null
+                            }
+                        )
                     }
                 )
             }
@@ -60,7 +72,19 @@ class ProviderRegistry(
         get() = _gdrive ?: if (AppFeatures.isOnlineSourcesEnabled) {
             GoogleDriveProvider(
                 onTokenRefreshNeeded = {
-                    com.example.musicapp.oauth.GoogleOAuth.refreshAccessToken().getOrNull()
+                    val res = com.example.musicapp.oauth.GoogleOAuth.refreshAccessToken()
+                    res.fold(
+                        onSuccess = { token ->
+                            _gdrive?.markNeedsReauth(false)
+                            token
+                        },
+                        onFailure = { err ->
+                            if (err is com.example.musicapp.oauth.GoogleOAuthInvalidGrantException) {
+                                _gdrive?.markNeedsReauth(true)
+                            }
+                            null
+                        }
+                    )
                 }
             ).also { _gdrive = it }
         } else error("GoogleDriveProvider is disabled when ONLINE_SOURCES is false")
@@ -146,7 +170,8 @@ class ProviderRegistry(
             bitrateKbps = track.bitrateKbps,
             format = track.format,
             isLossless = track.isLossless,
-            webPageUrl = track.webPageUrl
+            webPageUrl = track.webPageUrl,
+            sizeBytes = track.fileSizeBytes
         )
         return provider.getStream(remoteTrack)
     }
@@ -176,12 +201,17 @@ class ProviderRegistry(
         return results
     }
 
-    fun syncAll(existingTracks: List<Track>, onSynced: (List<Track>) -> Unit) {
+    fun syncAll(
+        existingTracks: List<Track>,
+        onStatusUpdated: ((String) -> Unit)? = null,
+        onSynced: (List<Track>) -> Unit
+    ) {
         if (_isSyncing.value) return
         _isSyncing.value = true
         scope.launch {
             val newlyDiscovered = mutableListOf<Track>()
             val seenKeys = existingTracks.map { TrackDeduplicator.computeKey(it.title, it.artist, it.durationMs) }.toMutableSet()
+            var syncStatus: String? = null
 
             val personalCloudProviders = listOfNotNull(_gdrive, _yandex, _subsonic, _webdav)
             for (provider in personalCloudProviders) {
@@ -207,12 +237,25 @@ class ProviderRegistry(
                                 }
                             }
                         }
+                        if (_gdrive?.needsReauth?.value == true) {
+                            syncStatus = "Нужен повторный вход в Google Диск"
+                        } else {
+                            syncStatus = "Синхронизировано (${newlyDiscovered.size} новых треков)"
+                        }
                     } catch (e: Exception) {
-                        // Safe continue
+                        if (e is com.example.musicapp.oauth.GoogleOAuthInvalidGrantException || _gdrive?.needsReauth?.value == true) {
+                            syncStatus = "Нужен повторный вход в Google Диск"
+                        } else if (e is com.example.musicapp.oauth.GoogleOAuthNetworkException ||
+                            e is java.net.ConnectException || e is java.net.UnknownHostException) {
+                            syncStatus = "Синхронизация пропущена (нет сети)"
+                        } else {
+                            syncStatus = "Синхронизация завершена"
+                        }
                     }
                 }
             }
 
+            syncStatus?.let { onStatusUpdated?.invoke(it) }
             _syncedCloudTracks.value = newlyDiscovered
             _isSyncing.value = false
             onSynced(newlyDiscovered)

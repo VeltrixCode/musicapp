@@ -28,6 +28,7 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 const val PROXY_SESSION_GRACE_PERIOD_MS = 5_000L // 5 seconds grace window for initial registration
+const val DIRECT_CDN_URL_TTL_MS = 10 * 60 * 1000L // 10 minutes sliding TTL for resolved direct CDN URL
 
 data class ProxySession(
     val token: String,
@@ -38,9 +39,25 @@ data class ProxySession(
     @Volatile var lastAccessMs: Long = System.currentTimeMillis(),
     val ttlMs: Long = 30 * 60 * 1000L, // 30 minutes sliding inactivity TTL
     @Volatile var resolvedDirectUrl: String? = null,
+    @Volatile var resolvedDirectUrlExpiresAtMs: Long = 0L,
 ) {
     fun touch() {
         lastAccessMs = System.currentTimeMillis()
+    }
+
+    fun isDirectUrlValid(): Boolean {
+        val url = resolvedDirectUrl
+        return !url.isNullOrBlank() && System.currentTimeMillis() < resolvedDirectUrlExpiresAtMs
+    }
+
+    fun setDirectUrl(url: String, ttlMs: Long = DIRECT_CDN_URL_TTL_MS) {
+        resolvedDirectUrl = url
+        resolvedDirectUrlExpiresAtMs = System.currentTimeMillis() + ttlMs
+    }
+
+    fun clearDirectUrl() {
+        resolvedDirectUrl = null
+        resolvedDirectUrlExpiresAtMs = 0L
     }
 
     fun isExpired(): Boolean {
@@ -122,7 +139,11 @@ object LocalStreamingProxy {
 
         // Listen STRICTLY on 127.0.0.1 (Loopback only)
         server = embeddedServer(CIO, port = port, host = "127.0.0.1") {
-            configureStreamingProxyRoutes(this, sessions) { host -> isValidHost(host) }
+            configureStreamingProxyRoutes(
+                application = this,
+                sessionsMap = sessions,
+                hostValidator = { host -> isValidHost(host) }
+            )
         }.start(wait = false)
     }
 
@@ -270,6 +291,20 @@ fun configureStreamingProxyRoutes(
         host?.startsWith("127.0.0.1") == true || host?.startsWith("localhost") == true
     }
 ) {
+    configureStreamingProxyRoutes(
+        application = application,
+        sessionsMap = sessionsMap,
+        hostValidator = hostValidator,
+        clientProvider = { LocalStreamingProxy.proxyHttpClient }
+    )
+}
+
+fun configureStreamingProxyRoutes(
+    application: Application,
+    sessionsMap: ConcurrentHashMap<String, ProxySession>,
+    hostValidator: (String?) -> Boolean,
+    clientProvider: () -> HttpClient,
+) {
     application.routing {
         head("/stream/{token}") {
             val host = call.request.headers[HttpHeaders.Host]
@@ -301,12 +336,30 @@ fun configureStreamingProxyRoutes(
             }
 
             try {
-                val upstream = LocalStreamingProxy.fetchUpstream(
+                val directUrlToUse = if (session.isDirectUrlValid()) session.resolvedDirectUrl else null
+                if (directUrlToUse == null) {
+                    session.clearDirectUrl()
+                }
+
+                var upstream = LocalStreamingProxy.fetchUpstream(
                     streamSource = session.streamSource,
                     rangeHeader = "bytes=0-0",
-                    directUrlOverride = session.resolvedDirectUrl,
-                    onRedirectResolved = { session.resolvedDirectUrl = it }
+                    httpClient = clientProvider(),
+                    directUrlOverride = directUrlToUse,
+                    onRedirectResolved = { session.setDirectUrl(it) }
                 )
+
+                if (directUrlToUse != null && upstream.status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone, HttpStatusCode.NotFound)) {
+                    session.clearDirectUrl()
+                    upstream = LocalStreamingProxy.fetchUpstream(
+                        streamSource = session.streamSource,
+                        rangeHeader = "bytes=0-0",
+                        httpClient = clientProvider(),
+                        directUrlOverride = null,
+                        onRedirectResolved = { session.setDirectUrl(it) }
+                    )
+                }
+
                 val contentType = upstream.headers[HttpHeaders.ContentType] ?: "audio/mpeg"
                 val contentRange = upstream.headers[HttpHeaders.ContentRange]
                 val totalLength = contentRange?.substringAfterLast('/')?.toLongOrNull()
@@ -345,34 +398,44 @@ fun configureStreamingProxyRoutes(
 
             try {
                 var streamSource = session.streamSource
+                val directUrlToUse = if (session.isDirectUrlValid()) session.resolvedDirectUrl else null
+                if (directUrlToUse == null) {
+                    session.clearDirectUrl()
+                }
+
                 var upstreamResponse = LocalStreamingProxy.fetchUpstream(
                     streamSource = streamSource,
                     rangeHeader = incomingRange,
-                    directUrlOverride = session.resolvedDirectUrl,
-                    onRedirectResolved = { session.resolvedDirectUrl = it }
+                    httpClient = clientProvider(),
+                    directUrlOverride = directUrlToUse,
+                    onRedirectResolved = { session.setDirectUrl(it) }
                 )
 
-                // If cached direct URL failed (e.g. expired CDN URL with 403/404/410), fall back to original upstream URL
-                if (session.resolvedDirectUrl != null && upstreamResponse.status in listOf(HttpStatusCode.Forbidden, HttpStatusCode.Gone, HttpStatusCode.NotFound)) {
-                    session.resolvedDirectUrl = null
+                // If cached direct URL failed (401/403/404/410), reset direct URL and retry once with original upstream URL
+                if (directUrlToUse != null && upstreamResponse.status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone, HttpStatusCode.NotFound)) {
+                    session.clearDirectUrl()
                     upstreamResponse = LocalStreamingProxy.fetchUpstream(
                         streamSource = streamSource,
                         rangeHeader = incomingRange,
-                        onRedirectResolved = { session.resolvedDirectUrl = it }
+                        httpClient = clientProvider(),
+                        directUrlOverride = null,
+                        onRedirectResolved = { session.setDirectUrl(it) }
                     )
                 }
 
-                // Upstream 401/403/410 link refresh & retry
+                // If original upstream also failed with 401/403/410 (access token expired), refresh stream source link once
                 if (upstreamResponse.status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone)) {
                     val refreshed = session.onRefreshNeeded?.invoke()
                     if (refreshed != null) {
                         session.streamSource = refreshed
                         streamSource = refreshed
-                        session.resolvedDirectUrl = null
+                        session.clearDirectUrl()
                         upstreamResponse = LocalStreamingProxy.fetchUpstream(
                             streamSource = streamSource,
                             rangeHeader = incomingRange,
-                            onRedirectResolved = { session.resolvedDirectUrl = it }
+                            httpClient = clientProvider(),
+                            directUrlOverride = null,
+                            onRedirectResolved = { session.setDirectUrl(it) }
                         )
                     }
                 }

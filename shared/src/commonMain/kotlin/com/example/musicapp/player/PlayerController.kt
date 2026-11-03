@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -355,6 +356,7 @@ class PlayerController(
     internal var consecutivePlaybackErrors = 0
 
     private var sleepTimerJob: Job? = null
+    private var startTrackJob: Job? = null
 
     init {
         if (engine.isFallback) {
@@ -724,6 +726,7 @@ class PlayerController(
         com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds = emptySet()
         scope.cancel()
         sleepTimerJob?.cancel()
+        startTrackJob?.cancel()
         engine.release()
         com.example.musicapp.platform.onPlaybackReleased()
     }
@@ -745,8 +748,10 @@ class PlayerController(
         com.example.musicapp.cache.AudioOfflineCache.currentlyPlayingTrackId = track.id
         com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds = _queue.map { it.id }.toSet()
 
-        scope.launch {
+        startTrackJob?.cancel()
+        startTrackJob = scope.launch {
             try {
+                ensureActive()
                 val cachedPath = com.example.musicapp.cache.AudioOfflineCache.getCachedPath(track.id)
                 val effectiveSource: String? = when {
                     cachedPath != null -> cachedPath
@@ -760,9 +765,11 @@ class PlayerController(
                         }
 
                         val streamSource = providerRegistry.getStreamSource(track)
+                        ensureActive()
                         if (streamSource != null) {
-                            // Immediately queue background download into offline cache so future plays and looping are 100% instant local
-                            if (!track.isLiveStream && track.sourceProvider != com.example.musicapp.model.TrackSource.RADIO_BROWSER && !com.example.musicapp.cache.AudioOfflineCache.isCached(track.id)) {
+                            // Queue background download only if auto-cache is explicitly enabled by user
+                            val autoCache = settingsRepository.settings.value.isAutoCacheEnabled
+                            if (autoCache && !track.isLiveStream && track.sourceProvider != com.example.musicapp.model.TrackSource.RADIO_BROWSER && !com.example.musicapp.cache.AudioOfflineCache.isCached(track.id)) {
                                 com.example.musicapp.cache.AudioOfflineCache.downloadTrack(track, streamSource.url, streamSource.headers)
                             }
                             com.example.musicapp.platform.prepareStreamUrlForPlayback(track.id, streamSource)
@@ -790,10 +797,12 @@ class PlayerController(
                     lyrics = if (lrcText != null) LrcParser.parse(lrcText) else emptyList()
                 }
 
+                ensureActive()
                 engine.load(
                     path = effectiveSource,
                     onReady = { authoritativeDur ->
                         runOnUiThread {
+                            if (current?.id != track.id) return@runOnUiThread
                             consecutivePlaybackErrors = 0
                             val isLive = track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
                             if (!isLive && authoritativeDur > 0) {
@@ -811,6 +820,7 @@ class PlayerController(
                     },
                     onError = { errorMsg ->
                         runOnUiThread {
+                            if (current?.id != track.id) return@runOnUiThread
                             val isUnsupported = engine.isFallback && (
                                     track.mimeType?.contains("flac") == true ||
                                     track.mimeType?.contains("ogg") == true ||

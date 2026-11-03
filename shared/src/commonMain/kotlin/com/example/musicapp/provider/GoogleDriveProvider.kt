@@ -45,15 +45,24 @@ class GoogleDriveProvider(
     private val _isSignedIn = MutableStateFlow(!accessToken.isNullOrBlank())
     override val isSignedIn: StateFlow<Boolean> = _isSignedIn.asStateFlow()
 
+    private val _needsReauth = MutableStateFlow(false)
+    val needsReauth: StateFlow<Boolean> = _needsReauth.asStateFlow()
+
+    fun markNeedsReauth(needs: Boolean) {
+        _needsReauth.value = needs
+    }
+
     fun updateToken(token: String?) {
         accessToken = token
         if (!token.isNullOrBlank()) {
             SecureStorage.saveSecret(AppConfig.TOKEN_GDRIVE_ACCESS, token)
+            _needsReauth.value = false
+            _isSignedIn.value = true
         } else {
             SecureStorage.removeSecret(AppConfig.TOKEN_GDRIVE_ACCESS)
             SecureStorage.removeSecret(AppConfig.TOKEN_GDRIVE_REFRESH)
+            _isSignedIn.value = false
         }
-        _isSignedIn.value = !token.isNullOrBlank()
     }
 
     override suspend fun signIn() {
@@ -75,6 +84,7 @@ class GoogleDriveProvider(
     }
 
     override suspend fun signOut() {
+        _needsReauth.value = false
         updateToken(null)
     }
 

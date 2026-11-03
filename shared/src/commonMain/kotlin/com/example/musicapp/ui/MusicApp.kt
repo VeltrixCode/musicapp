@@ -47,6 +47,8 @@ import com.example.musicapp.ui.components.ContentCard
 import com.example.musicapp.ui.components.RightNowPlayingDrawer
 import com.example.musicapp.ui.components.TrackActionMenu
 import com.example.musicapp.service.CoverArtService
+import com.example.musicapp.player.PlaybackContext
+import com.example.musicapp.player.PlaybackContextType
 import com.example.musicapp.util.formatTrackDuration
 import com.example.musicapp.util.getEffectiveDurationMs
 import com.example.musicapp.ui.screens.CloudSourcesScreen
@@ -331,11 +333,21 @@ fun MusicApp(
             val registry = player.providerRegistry
             if (registry.gdrive.isSignedIn.value || initialSettings.gdriveAccountEmail != null) {
                 registry.gdrive.signIn()
-                registry.syncAll(library.tracks.toList()) { newTracks ->
-                    if (newTracks.isNotEmpty()) {
-                        library.addTracks(newTracks)
+                registry.syncAll(
+                    existingTracks = library.tracks.toList(),
+                    onStatusUpdated = { status ->
+                        val cur = settingsRepo.load()
+                        settingsRepo.save(cur.copy(
+                            lastSyncStatus = status,
+                            lastSyncTimeMs = com.example.musicapp.platform.currentTimeMillis()
+                        ))
+                    },
+                    onSynced = { newTracks ->
+                        if (newTracks.isNotEmpty()) {
+                            library.addTracks(newTracks)
+                        }
                     }
-                }
+                )
             }
         }
     }
@@ -535,7 +547,7 @@ fun MusicApp(
                                                     player = player,
                                                     searchQuery = searchQuery,
                                                     onSearchQueryChange = { searchQuery = it },
-                                                    onTrackClick = { t -> player.play(t, library.visibleTracks) },
+                                                    onTrackClick = { t, searchResults -> player.play(t, searchResults, PlaybackContext(PlaybackContextType.Search, searchQuery, "Поиск: $searchQuery")) },
                                                     onUploadSong = {
                                                         launchAudioImport { track ->
                                                             library.addTrack(track)

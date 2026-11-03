@@ -82,7 +82,7 @@ fun SearchScreen(
     player: AudioPlayer,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onTrackClick: (Track) -> Unit,
+    onTrackClick: ((Track, List<Track>) -> Unit)? = null,
     onUploadSong: (() -> Unit)? = null,
     onUploadFolder: (() -> Unit)? = null,
     onNavigate: ((AppScreen) -> Unit)? = null,
@@ -409,7 +409,11 @@ fun SearchScreen(
                         badge = if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) "Локально" else null,
                         badgeColor = AppColors.Accent,
                         onClick = {
-                            player.play(track, matchingTracks, PlaybackContext(PlaybackContextType.Search, searchQuery, "Поиск: $searchQuery"))
+                            if (onTrackClick != null) {
+                                onTrackClick(track, matchingTracks)
+                            } else {
+                                player.play(track, matchingTracks, PlaybackContext(PlaybackContextType.Search, searchQuery, "Поиск: $searchQuery"))
+                            }
                         }
                     )
                 }

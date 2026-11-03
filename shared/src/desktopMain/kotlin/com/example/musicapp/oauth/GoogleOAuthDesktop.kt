@@ -143,7 +143,7 @@ object GoogleOAuthDesktop {
         clientSecret: String = AppConfig.googleClientSecret,
     ): Result<String> {
         val refreshToken = SecureStorage.getSecret(AppConfig.TOKEN_GDRIVE_REFRESH)
-            ?: return Result.failure(IllegalStateException("Refresh token отсутствует. Требуется повторный вход."))
+            ?: return Result.failure(GoogleOAuthInvalidGrantException("Refresh token отсутствует. Нужен повторный вход."))
 
         return try {
             val response = appHttpClient.submitForm(
@@ -157,9 +157,7 @@ object GoogleOAuthDesktop {
             ).body<TokenResponse>()
 
             if (response.error == "invalid_grant") {
-                return Result.failure(IllegalStateException(
-                    "Токен Google Drive истек (ограничение 7 дней в режиме Testing). Авторизуйтесь снова или переведите статус проекта в 'In production' в Google Cloud Console."
-                ))
+                return Result.failure(GoogleOAuthInvalidGrantException("Токен Google Drive истек. Нужен повторный вход."))
             }
 
             val newAccessToken = response.access_token
@@ -171,8 +169,29 @@ object GoogleOAuthDesktop {
             }
 
             Result.success(newAccessToken)
+        } catch (e: io.ktor.client.plugins.ClientRequestException) {
+            val body = runCatching { e.response.bodyAsText() }.getOrNull() ?: ""
+            if (body.contains("invalid_grant")) {
+                Result.failure(GoogleOAuthInvalidGrantException("Токен Google Drive истек. Нужен повторный вход."))
+            } else {
+                Result.failure(e)
+            }
         } catch (e: Exception) {
-            Result.failure(e)
+            val msg = e.message ?: ""
+            val isNetwork = e is java.net.ConnectException ||
+                    e is java.net.UnknownHostException ||
+                    e is java.net.SocketException ||
+                    e is java.net.SocketTimeoutException ||
+                    e is io.ktor.client.plugins.HttpRequestTimeoutException ||
+                    e is java.nio.channels.UnresolvedAddressException ||
+                    msg.contains("Connection refused", ignoreCase = true) ||
+                    msg.contains("Failed to connect", ignoreCase = true) ||
+                    msg.contains("timed out", ignoreCase = true)
+            if (isNetwork) {
+                Result.failure(GoogleOAuthNetworkException("Нет подключения к сети", e))
+            } else {
+                Result.failure(e)
+            }
         }
     }
 }

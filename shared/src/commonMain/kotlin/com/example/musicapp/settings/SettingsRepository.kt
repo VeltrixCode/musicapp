@@ -44,6 +44,8 @@ data class AppSettings(
     val radioCountryCode: String? = null,
     val isSidebarCollapsed: Boolean = false,
     val sidebarWidthDp: Float = 240f,
+    val isAutoCacheEnabled: Boolean = false,
+    val lastSyncStatus: String? = null,
 )
 
 class SettingsRepository {

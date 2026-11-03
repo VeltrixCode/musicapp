@@ -215,10 +215,50 @@ fun CloudSourcesScreen(
         Spacer(Modifier.height(24.dp))
 
         // Provider Card 1: Google Drive
+        val isGDriveNeedsReauth by registry.gdrive.needsReauth.collectAsState()
         val gdriveTracksCount = library.tracks.count { it.sourceProvider == com.example.musicapp.model.TrackSource.GOOGLE_DRIVE }
         val gdriveSyncInfo = buildString {
             if (gdriveTracksCount > 0) append("$gdriveTracksCount трек(ов) • ")
+            appSettings.lastSyncStatus?.let { append("$it • ") }
             append(formatSyncTime(appSettings.lastSyncTimeMs))
+        }
+
+        if (isGDriveNeedsReauth || appSettings.lastSyncStatus?.contains("Нужен повторный вход") == true) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF3B1F24))
+                    .padding(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                        Text(
+                            "Нужен повторный вход в Google Диск",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFF6B6B),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "Срок действия токена истек (ограничение 7 дней в режиме Testing OAuth). Нажмите кнопку для входа.",
+                            color = AppColors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Button(
+                        onClick = { showGDriveTokenDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                    ) {
+                        Text("Войти снова", color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
 
         CloudProviderItem(
@@ -1115,6 +1155,32 @@ fun CloudSourcesScreen(
                             thumbColor = AppColors.Accent,
                             activeTrackColor = AppColors.Accent,
                             inactiveTrackColor = AppColors.SurfaceElevated
+                        )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Автоматическое кэширование на диск", color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Автоматически сохранять воспроизводимые облачные треки на диск для мгновенного повторного воспроизведения без сети. По умолчанию выключено.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AppColors.TextMuted
+                        )
+                    }
+                    Switch(
+                        checked = appSettings.isAutoCacheEnabled,
+                        onCheckedChange = { enabled ->
+                            appSettings = appSettings.copy(isAutoCacheEnabled = enabled)
+                            settingsRepo.save(appSettings)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = AppColors.Accent,
+                            checkedTrackColor = AppColors.Accent.copy(alpha = 0.5f)
                         )
                     )
                 }
