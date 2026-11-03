@@ -325,6 +325,21 @@ fun MusicApp(
         }
     }
 
+    // Automatic cloud sync on application startup if account is linked
+    LaunchedEffect(Unit) {
+        if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
+            val registry = player.providerRegistry
+            if (registry.gdrive.isSignedIn.value || initialSettings.gdriveAccountEmail != null) {
+                registry.gdrive.signIn()
+                registry.syncAll(library.tracks.toList()) { newTracks ->
+                    if (newTracks.isNotEmpty()) {
+                        library.addTracks(newTracks)
+                    }
+                }
+            }
+        }
+    }
+
     AppTheme {
         val spacing = LocalSpacing.current
 
@@ -520,7 +535,7 @@ fun MusicApp(
                                                     player = player,
                                                     searchQuery = searchQuery,
                                                     onSearchQueryChange = { searchQuery = it },
-                                                    onTrackClick = { t -> player.play(t, listOf(t)) },
+                                                    onTrackClick = { t -> player.play(t, library.visibleTracks) },
                                                     onUploadSong = {
                                                         launchAudioImport { track ->
                                                             library.addTrack(track)

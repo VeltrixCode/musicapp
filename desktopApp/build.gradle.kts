@@ -27,7 +27,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             licenseFile.set(rootProject.file("LICENSE"))
             packageName = "JVXMusic"
-            packageVersion = "1.0.4"
+            packageVersion = "1.0.5"
             description = "JVXMusic Cloud Player"
             copyright = "© 2026 JVXMusic"
             vendor = "JVXMusic"

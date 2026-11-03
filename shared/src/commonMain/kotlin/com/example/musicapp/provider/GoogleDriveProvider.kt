@@ -63,21 +63,33 @@ class GoogleDriveProvider(
         }
     }
 
+    suspend fun getValidToken(): String? {
+        val current = accessToken
+        if (!current.isNullOrBlank()) return current
+        val refreshed = onTokenRefreshNeeded?.invoke()
+        if (!refreshed.isNullOrBlank()) {
+            updateToken(refreshed)
+            return refreshed
+        }
+        return null
+    }
+
     override suspend fun signOut() {
         updateToken(null)
     }
 
     override suspend fun listTracks(folderId: String?, pageToken: String?): Page<RemoteTrack> {
-        val token = accessToken ?: return Page(emptyList())
+        var token = getValidToken() ?: return Page(emptyList())
         val effectiveFolderId = folderId ?: syncFolderId
-        return try {
+
+        suspend fun executeQuery(t: String): GDriveFileList {
             val query = StringBuilder("mimeType contains 'audio/' and trashed = false")
             if (!effectiveFolderId.isNullOrBlank()) {
                 query.append(" and '$effectiveFolderId' in parents")
             }
 
-            val response = appHttpClient.get("https://www.googleapis.com/drive/v3/files") {
-                header("Authorization", "Bearer $token")
+            return appHttpClient.get("https://www.googleapis.com/drive/v3/files") {
+                header("Authorization", "Bearer $t")
                 parameter("q", query.toString())
                 parameter("fields", "nextPageToken,files(id,name,size,mimeType)")
                 parameter("pageSize", 50)
@@ -85,6 +97,20 @@ class GoogleDriveProvider(
                     parameter("pageToken", pageToken)
                 }
             }.body<GDriveFileList>()
+        }
+
+        return try {
+            val response = try {
+                executeQuery(token)
+            } catch (e: Exception) {
+                // If 401 or token expired, attempt refresh once
+                val refreshed = onTokenRefreshNeeded?.invoke()
+                if (!refreshed.isNullOrBlank()) {
+                    updateToken(refreshed)
+                    token = refreshed
+                    executeQuery(token)
+                } else throw e
+            }
 
             val tracks = response.files.map { f ->
                 val cleanTitle = f.name.substringBeforeLast(".")
@@ -181,7 +207,8 @@ class GoogleDriveProvider(
         val rawId = track.id.removePrefix("gdrive_")
         val url = "https://www.googleapis.com/drive/v3/files/$rawId?alt=media"
         val headers = mutableMapOf<String, String>()
-        accessToken?.let { headers["Authorization"] = "Bearer $it" }
+        val token = getValidToken()
+        token?.let { headers["Authorization"] = "Bearer $it" }
         return StreamSource(
             url = url,
             headers = headers,

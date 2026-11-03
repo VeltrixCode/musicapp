@@ -82,8 +82,18 @@ object AudioOfflineCache {
             try {
                 _downloadProgress.update { it + (trackId to 0.05f) }
 
-                val response = appHttpClient.get(streamUrl) {
-                    headers.forEach { (k, v) -> header(k, v) }
+                var currentUrl = streamUrl
+                var currentHeaders = headers
+                var hops = 0
+                var response = appHttpClient.get(currentUrl) {
+                    currentHeaders.forEach { (k, v) -> header(k, v) }
+                }
+                while (response.status.value in 300..399 && hops < 5) {
+                    val location = response.headers[io.ktor.http.HttpHeaders.Location] ?: break
+                    hops++
+                    currentUrl = location
+                    currentHeaders = emptyMap()
+                    response = appHttpClient.get(currentUrl)
                 }
 
                 val totalLength = response.contentLength() ?: 0L

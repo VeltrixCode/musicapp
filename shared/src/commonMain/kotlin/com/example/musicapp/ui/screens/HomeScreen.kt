@@ -252,9 +252,6 @@ fun HomeScreen(
             add(QuickCardData("Часто слушаемое", Icons.Rounded.PlayArrow, Color(0xFF8D67AB), frequentlyPlayed))
             if (isOnline) {
                 add(QuickCardData("Новое в облаке", Icons.Rounded.CloudQueue, Color(0xFFE91429), cloudTracks))
-                if (hasJamendoKey && jamendoPopular.isNotEmpty()) {
-                    add(QuickCardData("Jamendo Тренды", Icons.Rounded.CloudDone, Color(0xFFBA5D07), jamendoPopular.map { it.toTrack() }))
-                }
             }
         }
 
@@ -351,37 +348,6 @@ fun HomeScreen(
                 Spacer(Modifier.height(28.dp))
             }
 
-            // Shelf 4: "Популярное в Jamendo (Creative Commons)" - shown only when client key is configured
-            if (hasJamendoKey) {
-                if (isLoadingJamendo) {
-                    ShelfSkeleton(title = "Популярное в Jamendo (Лицензия CC)")
-                    Spacer(Modifier.height(28.dp))
-                } else if (jamendoPopular.isNotEmpty()) {
-                    val converted = jamendoPopular.map { it.toTrack() }
-                    ContentShelf(
-                        title = "Популярное в Jamendo (Лицензия CC)",
-                        tracks = converted,
-                        player = player,
-                        badge = "JAMENDO",
-                        onTrackClick = { t -> player.play(t, converted) }
-                    )
-                    Spacer(Modifier.height(28.dp))
-                }
-            }
-
-            // Shelf 5: "Тренды Audius"
-            if (isLoadingAudius) {
-                ShelfSkeleton(title = "Открытая музыка Audius")
-            } else if (audiusTrending.isNotEmpty()) {
-                val converted = audiusTrending.map { it.toTrack() }
-                ContentShelf(
-                    title = "Открытая музыка Audius",
-                    tracks = converted,
-                    player = player,
-                    badge = "AUDIUS",
-                    onTrackClick = { t -> player.play(t, converted) }
-                )
-            }
         }
     }
 }

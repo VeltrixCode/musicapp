@@ -37,6 +37,7 @@ data class ProxySession(
     val createdAtMs: Long = System.currentTimeMillis(),
     @Volatile var lastAccessMs: Long = System.currentTimeMillis(),
     val ttlMs: Long = 30 * 60 * 1000L, // 30 minutes sliding inactivity TTL
+    @Volatile var resolvedDirectUrl: String? = null,
 ) {
     fun touch() {
         lastAccessMs = System.currentTimeMillis()
@@ -140,12 +141,14 @@ object LocalStreamingProxy {
         rangeHeader: String?,
         httpClient: HttpClient = proxyHttpClient,
         maxRedirectHops: Int = 5,
+        directUrlOverride: String? = null,
+        onRedirectResolved: ((String) -> Unit)? = null,
     ): HttpResponse {
-        val initialUri = runCatching { URI(streamSource.url) }.getOrNull()
-            ?: throw IllegalArgumentException("Invalid stream source URL: ${streamSource.url}")
+        val initialUri = runCatching { URI(directUrlOverride ?: streamSource.url) }.getOrNull()
+            ?: throw IllegalArgumentException("Invalid stream source URL: ${directUrlOverride ?: streamSource.url}")
 
         var currentUri = initialUri
-        var currentHeaders = streamSource.headers.toMap()
+        var currentHeaders = if (directUrlOverride != null) emptyMap() else streamSource.headers.toMap()
         var hops = 0
 
         while (true) {
@@ -167,6 +170,9 @@ object LocalStreamingProxy {
             )
 
             if (!isRedirect) {
+                if (currentUri != initialUri) {
+                    onRedirectResolved?.invoke(currentUri.toString())
+                }
                 return response
             }
 
@@ -295,7 +301,12 @@ fun configureStreamingProxyRoutes(
             }
 
             try {
-                val upstream = LocalStreamingProxy.fetchUpstream(session.streamSource, "bytes=0-0")
+                val upstream = LocalStreamingProxy.fetchUpstream(
+                    streamSource = session.streamSource,
+                    rangeHeader = "bytes=0-0",
+                    directUrlOverride = session.resolvedDirectUrl,
+                    onRedirectResolved = { session.resolvedDirectUrl = it }
+                )
                 val contentType = upstream.headers[HttpHeaders.ContentType] ?: "audio/mpeg"
                 val contentRange = upstream.headers[HttpHeaders.ContentRange]
                 val totalLength = contentRange?.substringAfterLast('/')?.toLongOrNull()
@@ -334,7 +345,22 @@ fun configureStreamingProxyRoutes(
 
             try {
                 var streamSource = session.streamSource
-                var upstreamResponse = LocalStreamingProxy.fetchUpstream(streamSource, incomingRange)
+                var upstreamResponse = LocalStreamingProxy.fetchUpstream(
+                    streamSource = streamSource,
+                    rangeHeader = incomingRange,
+                    directUrlOverride = session.resolvedDirectUrl,
+                    onRedirectResolved = { session.resolvedDirectUrl = it }
+                )
+
+                // If cached direct URL failed (e.g. expired CDN URL with 403/404/410), fall back to original upstream URL
+                if (session.resolvedDirectUrl != null && upstreamResponse.status in listOf(HttpStatusCode.Forbidden, HttpStatusCode.Gone, HttpStatusCode.NotFound)) {
+                    session.resolvedDirectUrl = null
+                    upstreamResponse = LocalStreamingProxy.fetchUpstream(
+                        streamSource = streamSource,
+                        rangeHeader = incomingRange,
+                        onRedirectResolved = { session.resolvedDirectUrl = it }
+                    )
+                }
 
                 // Upstream 401/403/410 link refresh & retry
                 if (upstreamResponse.status in listOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden, HttpStatusCode.Gone)) {
@@ -342,7 +368,12 @@ fun configureStreamingProxyRoutes(
                     if (refreshed != null) {
                         session.streamSource = refreshed
                         streamSource = refreshed
-                        upstreamResponse = LocalStreamingProxy.fetchUpstream(streamSource, incomingRange)
+                        session.resolvedDirectUrl = null
+                        upstreamResponse = LocalStreamingProxy.fetchUpstream(
+                            streamSource = streamSource,
+                            rangeHeader = incomingRange,
+                            onRedirectResolved = { session.resolvedDirectUrl = it }
+                        )
                     }
                 }
 
