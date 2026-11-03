@@ -16,6 +16,7 @@ import com.example.musicapp.platform.readTrackInfoAsync
 import com.example.musicapp.platform.runOnUiThread
 import com.example.musicapp.settings.AppSettings
 import com.example.musicapp.settings.SettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +30,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
 
 enum class RepeatMode { Off, All, One }
@@ -357,6 +360,7 @@ class PlayerController(
 
     private var sleepTimerJob: Job? = null
     private var startTrackJob: Job? = null
+    private val trackLoadMutex = Mutex()
 
     init {
         if (engine.isFallback) {
@@ -586,7 +590,7 @@ class PlayerController(
                     currentIndex = currentIndex.coerceIn(0, _queue.lastIndex)
                     start(_queue[currentIndex])
                 } else {
-                    engine.release()
+                    engine.stop()
                     current = null
                     isPlaying = false
                 }
@@ -708,7 +712,7 @@ class PlayerController(
             _queue.removeAt(idx)
         }
         if (playingId == trackId) {
-            engine.release()
+            engine.stop()
             current = null
             isPlaying = false
             positionMs = 0
@@ -727,6 +731,7 @@ class PlayerController(
         scope.cancel()
         sleepTimerJob?.cancel()
         startTrackJob?.cancel()
+        engine.stop()
         engine.release()
         com.example.musicapp.platform.onPlaybackReleased()
     }
@@ -749,6 +754,7 @@ class PlayerController(
         com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds = _queue.map { it.id }.toSet()
 
         startTrackJob?.cancel()
+        engine.stop()
         startTrackJob = scope.launch {
             try {
                 ensureActive()
@@ -782,7 +788,7 @@ class PlayerController(
 
                 if (effectiveSource == null) {
                     runOnUiThread {
-                        engine.release()
+                        engine.stop()
                         isPlaying = false
                         val msg = "Не удалось получить аудиопоток для «${track.title}»"
                         postError(com.example.musicapp.model.AppError.Generic(msg))
@@ -798,78 +804,85 @@ class PlayerController(
                 }
 
                 ensureActive()
-                engine.load(
-                    path = effectiveSource,
-                    onReady = { authoritativeDur ->
-                        runOnUiThread {
-                            if (current?.id != track.id) return@runOnUiThread
-                            consecutivePlaybackErrors = 0
-                            val isLive = track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
-                            if (!isLive && authoritativeDur > 0) {
-                                durationMs = authoritativeDur
-                                if (current?.id == track.id) {
-                                    current = track.copy(durationMs = authoritativeDur)
-                                }
-                                onTrackDurationResolved?.invoke(track.id, authoritativeDur)
-                            }
-                            syncState()
-                        }
-                    },
-                    onFinished = {
-                        runOnUiThread { onTrackFinished() }
-                    },
-                    onError = { errorMsg ->
-                        runOnUiThread {
-                            if (current?.id != track.id) return@runOnUiThread
-                            val isUnsupported = engine.isFallback && (
-                                    track.mimeType?.contains("flac") == true ||
-                                    track.mimeType?.contains("ogg") == true ||
-                                    track.source?.endsWith(".flac", ignoreCase = true) == true ||
-                                    track.source?.endsWith(".ogg", ignoreCase = true) == true ||
-                                    track.format?.equals("flac", ignoreCase = true) == true ||
-                                    track.format?.equals("ogg", ignoreCase = true) == true ||
-                                    errorMsg.contains("MEDIA_UNAVAILABLE", ignoreCase = true) ||
-                                    errorMsg.contains("UNSUPPORTED", ignoreCase = true)
-                            )
-
-                            val shortFileName = track.source?.substringAfterLast('/')?.substringAfterLast('\\') ?: ""
-                            val isMissing = !com.example.musicapp.platform.isFileAvailable(track.source)
-                            val userMsg = if (isUnsupported) {
-                                "Формат ${track.format?.uppercase() ?: "FLAC/OGG"} не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC."
-                            } else if (isMissing && shortFileName.isNotBlank()) {
-                                "Ошибка воспроизведения «${track.title}»: файл не найден ($shortFileName)"
-                            } else {
-                                "Ошибка воспроизведения «${track.title}»"
-                            }
-                            unsupportedFormatNotice = if (isUnsupported) userMsg else null
-                            postError(
-                                if (isUnsupported) com.example.musicapp.model.AppError.UnsupportedFormat(track.format?.uppercase() ?: "FLAC/OGG")
-                                else com.example.musicapp.model.AppError.Generic(userMsg)
-                            )
-
-                            // Transition to next track in queue with circuit breaker to avoid tight native crash loops
-                            consecutivePlaybackErrors++
-                            val advanced = if (consecutivePlaybackErrors < 3 && consecutivePlaybackErrors < _queue.size) {
-                                advance(+1)
-                            } else {
-                                false
-                            }
-                            if (!advanced) {
-                                current = previousTrackBeforeStart
-                                positionMs = previousPositionBeforeStart
-                                durationMs = previousDurationBeforeStart
+                trackLoadMutex.withLock {
+                    ensureActive()
+                    if (current?.id != track.id) return@withLock
+                    engine.load(
+                        path = effectiveSource,
+                        onReady = { authoritativeDur ->
+                            runOnUiThread {
+                                if (current?.id != track.id) return@runOnUiThread
                                 consecutivePlaybackErrors = 0
-                                isPlaying = false
+                                val isLive = track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
+                                if (!isLive && authoritativeDur > 0) {
+                                    durationMs = authoritativeDur
+                                    if (current?.id == track.id) {
+                                        current = track.copy(durationMs = authoritativeDur)
+                                    }
+                                    onTrackDurationResolved?.invoke(track.id, authoritativeDur)
+                                }
                                 syncState()
                             }
+                        },
+                        onFinished = {
+                            runOnUiThread {
+                                if (current?.id != track.id) return@runOnUiThread
+                                onTrackFinished()
+                            }
+                        },
+                        onError = { errorMsg ->
+                            runOnUiThread {
+                                if (current?.id != track.id) return@runOnUiThread
+                                val isUnsupported = engine.isFallback && (
+                                        track.mimeType?.contains("flac") == true ||
+                                        track.mimeType?.contains("ogg") == true ||
+                                        track.source?.endsWith(".flac", ignoreCase = true) == true ||
+                                        track.source?.endsWith(".ogg", ignoreCase = true) == true ||
+                                        track.format?.equals("flac", ignoreCase = true) == true ||
+                                        track.format?.equals("ogg", ignoreCase = true) == true ||
+                                        errorMsg.contains("MEDIA_UNAVAILABLE", ignoreCase = true) ||
+                                        errorMsg.contains("UNSUPPORTED", ignoreCase = true)
+                                )
+
+                                val shortFileName = track.source?.substringAfterLast('/')?.substringAfterLast('\\') ?: ""
+                                val isMissing = !com.example.musicapp.platform.isFileAvailable(track.source)
+                                val userMsg = if (isUnsupported) {
+                                    "Формат ${track.format?.uppercase() ?: "FLAC/OGG"} не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC."
+                                } else if (isMissing && shortFileName.isNotBlank()) {
+                                    "Ошибка воспроизведения «${track.title}»: файл не найден ($shortFileName)"
+                                } else {
+                                    "Ошибка воспроизведения «${track.title}»"
+                                }
+                                unsupportedFormatNotice = if (isUnsupported) userMsg else null
+                                postError(
+                                    if (isUnsupported) com.example.musicapp.model.AppError.UnsupportedFormat(track.format?.uppercase() ?: "FLAC/OGG")
+                                    else com.example.musicapp.model.AppError.Generic(userMsg)
+                                )
+
+                                // Transition to next track in queue with circuit breaker to avoid tight native crash loops
+                                consecutivePlaybackErrors++
+                                val advanced = if (consecutivePlaybackErrors < 3 && consecutivePlaybackErrors < _queue.size) {
+                                    advance(+1)
+                                } else {
+                                    false
+                                }
+                                if (!advanced) {
+                                    current = previousTrackBeforeStart
+                                    positionMs = previousPositionBeforeStart
+                                    durationMs = previousDurationBeforeStart
+                                    consecutivePlaybackErrors = 0
+                                    isPlaying = false
+                                    syncState()
+                                }
+                            }
                         }
-                    }
-                )
-                engine.setVolume(volume)
-                engine.setPlaybackSpeed(speed)
-                engine.play()
-                isPlaying = true
-                syncState()
+                    )
+                    engine.setVolume(volume)
+                    engine.setPlaybackSpeed(speed)
+                    engine.play()
+                    isPlaying = true
+                    syncState()
+                }
 
                 // Preload next track in queue (only if not a live stream and supports range)
                 val nextIdx = if (shuffleState && shufflePointer in shuffledIndices.indices) {
@@ -890,9 +903,11 @@ class PlayerController(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 runOnUiThread {
-                    engine.release()
+                    engine.stop()
                     isPlaying = false
                     val msg = "Ошибка запуска воспроизведения «${track.title}»: ${t.message ?: "неизвестная ошибка"}"
                     postError(com.example.musicapp.model.AppError.Generic(msg))

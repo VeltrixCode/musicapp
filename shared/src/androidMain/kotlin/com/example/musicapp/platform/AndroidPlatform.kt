@@ -564,6 +564,16 @@ internal class AndroidPlayerEngine : PlayerEngine {
         }
     }
 
+    override fun stop() {
+        postOnMain { player ->
+            try {
+                player?.stop()
+            } catch (_: Throwable) {}
+            cachedIsPlaying = false
+            mainHandler.removeCallbacks(progressUpdater)
+        }
+    }
+
     override fun seekTo(ms: Long) {
         cachedPositionMs = ms
         postOnMain { player ->

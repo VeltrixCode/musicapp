@@ -50,9 +50,10 @@ class VlcPlayerEngineTest {
         Assume.assumeTrue("VLC native libraries must be available for this test", VlcBridge.isAvailable)
 
         val engine = VlcPlayerEngine()
+        val silentWav = createSilentWav(durationSeconds = 1)
         val tempFiles = (1..5).map { i ->
-            File.createTempFile("vlc_stress_$i", ".mp3").apply {
-                writeBytes(ByteArray(1024))
+            File.createTempFile("vlc_stress_$i", ".wav").apply {
+                writeBytes(silentWav)
             }
         }
 
@@ -62,6 +63,7 @@ class VlcPlayerEngineTest {
                 val file = tempFiles[iteration % tempFiles.size]
                 val latch = CountDownLatch(1)
 
+                engine.stop()
                 engine.load(
                     path = file.absolutePath,
                     onReady = { latch.countDown() },
@@ -80,6 +82,33 @@ class VlcPlayerEngineTest {
             engine.release()
             tempFiles.forEach { it.delete() }
         }
+    }
+
+    private fun createSilentWav(durationSeconds: Int): ByteArray {
+        val sampleRate = 44100
+        val numChannels = 1
+        val bitsPerSample = 16
+        val subchunk2Size = durationSeconds * sampleRate * numChannels * (bitsPerSample / 8)
+        val chunkSize = 36 + subchunk2Size
+        val byteRate = sampleRate * numChannels * (bitsPerSample / 8)
+        val blockAlign = numChannels * (bitsPerSample / 8)
+
+        val buffer = java.nio.ByteBuffer.allocate(44 + subchunk2Size).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        buffer.put("RIFF".toByteArray())
+        buffer.putInt(chunkSize)
+        buffer.put("WAVE".toByteArray())
+        buffer.put("fmt ".toByteArray())
+        buffer.putInt(16) // Subchunk1Size
+        buffer.putShort(1) // AudioFormat (PCM)
+        buffer.putShort(numChannels.toShort())
+        buffer.putInt(sampleRate)
+        buffer.putInt(byteRate)
+        buffer.putShort(blockAlign.toShort())
+        buffer.putShort(bitsPerSample.toShort())
+        buffer.put("data".toByteArray())
+        buffer.putInt(subchunk2Size)
+        buffer.put(ByteArray(subchunk2Size))
+        return buffer.array()
     }
 
     @Test

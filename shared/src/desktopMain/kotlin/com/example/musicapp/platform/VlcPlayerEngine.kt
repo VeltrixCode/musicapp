@@ -88,6 +88,7 @@ object VlcBridge {
         try {
             // Enable cache (no --no-plugins-cache) for quick start, scaletempo and time stretch for pitch preservation
             val f = MediaPlayerFactory(
+                "--quiet",
                 "--audio-filter=scaletempo",
                 "--audio-time-stretch",
                 "--no-video",
@@ -181,6 +182,18 @@ object VlcBridge {
             // Do not crash if logging fails
         }
     }
+
+    fun logEngineError(error: String) {
+        try {
+            val userHome = System.getProperty("user.home")
+            val logsDir = File(userHome, "JVXMusic/logs").apply { mkdirs() }
+            val logFile = File(logsDir, "engine.log")
+            val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            logFile.appendText("[$dateStr] [ERROR] $error\n")
+        } catch (_: Throwable) {
+            // Do not crash if logging fails
+        }
+    }
 }
 
 class VlcPlayerEngine : PlayerEngine {
@@ -204,6 +217,7 @@ class VlcPlayerEngine : PlayerEngine {
     private var onFinishedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
     private var spectrumCallback: ((FloatArray) -> Unit)? = null
+    private var currentSessionId = 0L
 
     private val playerLock = ReentrantLock()
 
@@ -227,71 +241,130 @@ class VlcPlayerEngine : PlayerEngine {
 
             player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
                 override fun opening(mediaPlayer: MediaPlayer) {
-                    isPlayingState = true
+                    val eventSession = playerLock.withLock { currentSessionId }
+                    eventDispatcher.execute {
+                        playerLock.withLock {
+                            if (eventSession != currentSessionId) return@withLock
+                            isPlayingState = true
+                        }
+                    }
                 }
 
                 override fun mediaPlayerReady(mediaPlayer: MediaPlayer) {
+                    val eventSession = playerLock.withLock { currentSessionId }
                     // Dispatch away from JNA native thread before invoking application callbacks
                     eventDispatcher.execute {
-                        // Re-apply speed rate: libVLC resets rate to 1.0f on loading new media
-                        mediaPlayer.controls().setRate(currentRate)
-                        val len = mediaPlayer.status().length().coerceAtLeast(0L)
-                        if (len > 0L) cachedDurationMs = len
-                        pendingSeekMs?.let { ms ->
-                            mediaPlayer.controls().setTime(ms)
-                            pendingSeekMs = null
+                        val cb = playerLock.withLock {
+                            if (eventSession != currentSessionId) return@execute
+                            // Re-apply speed rate: libVLC resets rate to 1.0f on loading new media
+                            mediaPlayer.controls().setRate(currentRate)
+                            val len = mediaPlayer.status().length().coerceAtLeast(0L)
+                            if (len > 0L) cachedDurationMs = len
+                            pendingSeekMs?.let { ms ->
+                                mediaPlayer.controls().setTime(ms)
+                                pendingSeekMs = null
+                            }
+                            onReadyCallback
                         }
-                        runOnUiThread { onReadyCallback?.invoke(cachedDurationMs) }
+                        if (cb != null) {
+                            runOnUiThread { cb(cachedDurationMs) }
+                        }
                     }
                 }
 
                 override fun playing(mediaPlayer: MediaPlayer) {
+                    val eventSession = playerLock.withLock { currentSessionId }
                     eventDispatcher.execute {
-                        isPlayingState = true
-                        // Ensure active rate with WSOLA scaletempo time-stretch is enforced
-                        mediaPlayer.controls().setRate(currentRate)
-                        val len = mediaPlayer.status().length().coerceAtLeast(0L)
-                        if (len > 0L) cachedDurationMs = len
-                        pendingSeekMs?.let { ms ->
-                            mediaPlayer.controls().setTime(ms)
-                            pendingSeekMs = null
+                        val cb = playerLock.withLock {
+                            if (eventSession != currentSessionId) return@execute
+                            isPlayingState = true
+                            // Ensure active rate with WSOLA scaletempo time-stretch is enforced
+                            mediaPlayer.controls().setRate(currentRate)
+                            val len = mediaPlayer.status().length().coerceAtLeast(0L)
+                            if (len > 0L) cachedDurationMs = len
+                            pendingSeekMs?.let { ms ->
+                                mediaPlayer.controls().setTime(ms)
+                                pendingSeekMs = null
+                            }
+                            onReadyCallback
                         }
-                        runOnUiThread { onReadyCallback?.invoke(cachedDurationMs) }
+                        if (cb != null) {
+                            runOnUiThread { cb(cachedDurationMs) }
+                        }
                     }
                 }
 
                 override fun paused(mediaPlayer: MediaPlayer) {
-                    isPlayingState = false
+                    val eventSession = playerLock.withLock { currentSessionId }
+                    eventDispatcher.execute {
+                        playerLock.withLock {
+                            if (eventSession != currentSessionId) return@withLock
+                            isPlayingState = false
+                        }
+                    }
                 }
 
                 override fun stopped(mediaPlayer: MediaPlayer) {
-                    isPlayingState = false
+                    val eventSession = playerLock.withLock { currentSessionId }
+                    eventDispatcher.execute {
+                        playerLock.withLock {
+                            if (eventSession != currentSessionId) return@withLock
+                            isPlayingState = false
+                        }
+                    }
                 }
 
                 override fun finished(mediaPlayer: MediaPlayer) {
+                    val eventSession = playerLock.withLock { currentSessionId }
                     // Do NOT call player methods synchronously from finished event callback
                     eventDispatcher.execute {
-                        isPlayingState = false
-                        runOnUiThread { onFinishedCallback?.invoke() }
+                        val cb = playerLock.withLock {
+                            if (eventSession != currentSessionId) return@execute
+                            isPlayingState = false
+                            onFinishedCallback
+                        }
+                        if (cb != null) {
+                            runOnUiThread { cb() }
+                        }
                     }
                 }
 
                 override fun error(mediaPlayer: MediaPlayer) {
+                    val eventSession = playerLock.withLock { currentSessionId }
                     eventDispatcher.execute {
-                        isPlayingState = false
-                        runOnUiThread { onErrorCallback?.invoke("Неподдерживаемый или повреждённый аудиофайл") }
+                        val cb = playerLock.withLock {
+                            if (eventSession != currentSessionId) return@execute
+                            VlcBridge.logEngineError("VLC player encountered native playback error")
+                            isPlayingState = false
+                            val err = onErrorCallback
+                            onErrorCallback = null
+                            err
+                        }
+                        if (cb != null) {
+                            runOnUiThread { cb("Неподдерживаемый или повреждённый аудиофайл") }
+                        }
                     }
                 }
 
                 override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
-                    cachedPositionMs = newTime.coerceAtLeast(0L)
+                    val eventSession = playerLock.withLock { currentSessionId }
+                    if (eventSession == currentSessionId) {
+                        cachedPositionMs = newTime.coerceAtLeast(0L)
+                    }
                 }
 
                 override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) {
+                    val eventSession = playerLock.withLock { currentSessionId }
                     if (newLength > 0L) {
-                        cachedDurationMs = newLength
                         eventDispatcher.execute {
-                            runOnUiThread { onReadyCallback?.invoke(newLength) }
+                            val cb = playerLock.withLock {
+                                if (eventSession != currentSessionId) return@execute
+                                cachedDurationMs = newLength
+                                onReadyCallback
+                            }
+                            if (cb != null) {
+                                runOnUiThread { cb(newLength) }
+                            }
                         }
                     }
                 }
@@ -308,6 +381,7 @@ class VlcPlayerEngine : PlayerEngine {
 
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit, onError: ((String) -> Unit)?) {
         playerLock.withLock {
+            val sessionId = ++currentSessionId
             onReadyCallback = onReady
             onFinishedCallback = onFinished
             onErrorCallback = onError
@@ -334,9 +408,20 @@ class VlcPlayerEngine : PlayerEngine {
                 }
                 val len = player.status().length().coerceAtLeast(0L)
                 if (len > 0L) cachedDurationMs = len
-                runOnUiThread { onReady(cachedDurationMs) }
+                runOnUiThread {
+                    playerLock.withLock {
+                        if (sessionId == currentSessionId) {
+                            onReady(cachedDurationMs)
+                        }
+                    }
+                }
             } catch (t: Throwable) {
-                onError?.invoke(t.message ?: "Ошибка загрузки аудиофайла")
+                playerLock.withLock {
+                    if (sessionId == currentSessionId) {
+                        VlcBridge.logEngineError("VLC load exception: ${t.javaClass.simpleName}: ${t.message}")
+                        onError?.invoke(t.message ?: "Ошибка загрузки аудиофайла")
+                    }
+                }
             }
         }
     }
@@ -353,6 +438,19 @@ class VlcPlayerEngine : PlayerEngine {
         playerLock.withLock {
             isPlayingState = false
             mediaPlayer?.controls()?.pause()
+        }
+    }
+
+    override fun stop() {
+        playerLock.withLock {
+            currentSessionId++
+            isPlayingState = false
+            onReadyCallback = null
+            onFinishedCallback = null
+            onErrorCallback = null
+            try {
+                mediaPlayer?.controls()?.stop()
+            } catch (_: Throwable) {}
         }
     }
 
@@ -440,8 +538,9 @@ class VlcPlayerEngine : PlayerEngine {
     override fun isPlaying(): Boolean = mediaPlayer?.status()?.isPlaying ?: isPlayingState
 
     override fun release() {
-        isPlayingState = false
         playerLock.withLock {
+            currentSessionId++
+            isPlayingState = false
             val p = mediaPlayer
             mediaPlayer = null
             if (p != null) {

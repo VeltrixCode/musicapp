@@ -19,6 +19,9 @@ interface PlayerEngine {
     }
     fun play()
     fun pause()
+    fun stop() {
+        pause()
+    }
     fun seekTo(ms: Long)
     fun positionMs(): Long
     fun durationMs(): Long

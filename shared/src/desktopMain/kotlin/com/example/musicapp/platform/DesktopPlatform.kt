@@ -279,6 +279,11 @@ internal class JavaFxPlayerEngine : PlayerEngine {
 
     override fun play() = Platform.runLater { player?.play() }
     override fun pause() = Platform.runLater { player?.pause() }
+    override fun stop() = Platform.runLater {
+        try {
+            player?.stop()
+        } catch (_: Throwable) {}
+    }
 
     override fun seekTo(ms: Long) {
         Platform.runLater {
