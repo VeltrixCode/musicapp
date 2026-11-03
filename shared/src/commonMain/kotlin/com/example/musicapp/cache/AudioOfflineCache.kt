@@ -66,7 +66,7 @@ object AudioOfflineCache {
         onCompleted: (String) -> Unit = {}
     ) {
         // Live radio streams cannot be downloaded for offline
-        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || track.durationMs <= 0L) {
+        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER) {
             return
         }
         val trackId = track.id
@@ -82,8 +82,18 @@ object AudioOfflineCache {
             try {
                 _downloadProgress.update { it + (trackId to 0.05f) }
 
-                val response = appHttpClient.get(streamUrl) {
-                    headers.forEach { (k, v) -> header(k, v) }
+                var currentUrl = streamUrl
+                var currentHeaders = headers
+                var hops = 0
+                var response = appHttpClient.get(currentUrl) {
+                    currentHeaders.forEach { (k, v) -> header(k, v) }
+                }
+                while (response.status.value in 300..399 && hops < 5) {
+                    val location = response.headers[io.ktor.http.HttpHeaders.Location] ?: break
+                    hops++
+                    currentUrl = location
+                    currentHeaders = emptyMap()
+                    response = appHttpClient.get(currentUrl)
                 }
 
                 val totalLength = response.contentLength() ?: 0L
@@ -139,7 +149,7 @@ object AudioOfflineCache {
 
     fun preloadNextTrack(track: Track?, streamUrl: String?, headers: Map<String, String> = emptyMap()) {
         if (track == null || streamUrl == null) return
-        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || track.durationMs <= 0L) return
+        if (track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER) return
         if (!isCached(track.id)) {
             downloadTrack(track, streamUrl, headers)
         }

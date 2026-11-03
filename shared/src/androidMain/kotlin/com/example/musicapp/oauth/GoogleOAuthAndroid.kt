@@ -9,8 +9,10 @@ import com.example.musicapp.provider.appHttpClient
 import com.example.musicapp.security.SecureStorage
 import io.ktor.client.call.body
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.parameters
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -25,7 +27,7 @@ private data class TokenResponse(
 )
 
 object GoogleOAuthAndroid {
-    private const val DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+    private const val DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
     private const val REDIRECT_URI = "com.example.musicapp:/oauth2callback"
 
     private fun generateCodeVerifier(): String {
@@ -60,7 +62,7 @@ object GoogleOAuthAndroid {
                     "client_id=$clientId&" +
                     "redirect_uri=$REDIRECT_URI&" +
                     "response_type=code&" +
-                    "scope=$DRIVE_READONLY_SCOPE&" +
+                    "scope=$DRIVE_SCOPE&" +
                     "access_type=offline&" +
                     "prompt=consent&" +
                     "code_challenge=$codeChallenge&" +
@@ -87,7 +89,7 @@ object GoogleOAuthAndroid {
     ): Result<String> {
         val codeVerifier = SecureStorage.getSecret("google_oauth_verifier") ?: ""
         return try {
-            val response = appHttpClient.submitForm(
+            val res = appHttpClient.submitForm(
                 url = "https://oauth2.googleapis.com/token",
                 formParameters = parameters {
                     append("code", code)
@@ -97,10 +99,16 @@ object GoogleOAuthAndroid {
                     append("grant_type", "authorization_code")
                     if (codeVerifier.isNotBlank()) append("code_verifier", codeVerifier)
                 }
-            ).body<TokenResponse>()
+            )
+            val responseText = res.bodyAsText()
+            val response = try {
+                Json { ignoreUnknownKeys = true }.decodeFromString<TokenResponse>(responseText)
+            } catch (e: Exception) {
+                return Result.failure(IllegalStateException("HTTP ${res.status}: $responseText"))
+            }
 
             val token = response.access_token
-                ?: return Result.failure(IllegalStateException("Failed to exchange code: ${response.error_description ?: response.error}"))
+                ?: return Result.failure(IllegalStateException("Failed to exchange code: ${response.error_description ?: response.error ?: responseText}"))
 
             SecureStorage.saveSecret(AppConfig.TOKEN_GDRIVE_ACCESS, token)
             response.refresh_token?.let {

@@ -91,26 +91,11 @@ fun SearchScreen(
     val searchHistory = remember { mutableStateListOf<String>() }
 
     var isSearching by remember { mutableStateOf(false) }
-    var cloudResults by remember { mutableStateOf<Map<TrackSource, List<RemoteTrack>>>(emptyMap()) }
 
-    // Live search debouncing
+    // Live search history
     LaunchedEffect(searchQuery) {
         val q = searchQuery.trim()
-        if (q.isBlank() || !com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
-            cloudResults = emptyMap()
-            isSearching = false
-            if (q.isNotBlank() && !searchHistory.contains(q)) {
-                searchHistory.add(0, q)
-                if (searchHistory.size > 10) searchHistory.removeAt(searchHistory.lastIndex)
-            }
-            return@LaunchedEffect
-        }
-        delay(300)
-        isSearching = true
-        cloudResults = player.providerRegistry.searchAll(q)
-        isSearching = false
-
-        if (!searchHistory.contains(q)) {
+        if (q.isNotBlank() && !searchHistory.contains(q)) {
             searchHistory.add(0, q)
             if (searchHistory.size > 10) searchHistory.removeAt(searchHistory.lastIndex)
         }
@@ -556,36 +541,7 @@ fun SearchScreen(
                 }
             }
 
-            // Cloud Provider Results (if enabled)
-            if (com.example.musicapp.config.AppFeatures.isOnlineSourcesEnabled) {
-                cloudResults.forEach { (source, remoteList) ->
-                    if (remoteList.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "${source.name} (${remoteList.size})",
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = AppColors.TextPrimary
-                                ),
-                                modifier = Modifier.padding(top = 20.dp, bottom = 8.dp)
-                            )
-                        }
-                        items(remoteList, key = { it.id }) { remote ->
-                            val track = remote.toTrack()
-                            SearchResultRow(
-                                track = track,
-                                durationText = formatTrackDuration(track, player),
-                                badge = source.name,
-                                badgeColor = if (source == TrackSource.JAMENDO) Color(0xFFBA5D07) else Color(0xFF1E3264),
-                                license = remote.license,
-                                onClick = { onTrackClick(track) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (!isSearching && matchingTracks.isEmpty() && matchingAlbums.isEmpty() && matchingArtists.isEmpty() && cloudResults.values.all { it.isEmpty() }) {
+            if (!isSearching && matchingTracks.isEmpty() && matchingAlbums.isEmpty() && matchingArtists.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier.fillMaxWidth().height(280.dp),

@@ -187,12 +187,24 @@ class ProviderRegistry(
             for (provider in personalCloudProviders) {
                 if (provider.isSignedIn.value) {
                     try {
-                        val page = provider.listTracks()
+                        var page = provider.listTracks()
                         for (remote in page.items) {
                             val key = TrackDeduplicator.computeKey(remote.title, remote.artist, remote.durationMs ?: 0L)
                             if (!seenKeys.contains(key)) {
                                 seenKeys.add(key)
                                 newlyDiscovered.add(remote.toTrack())
+                            }
+                        }
+                        var pageCount = 1
+                        while (page.nextPageToken != null && pageCount < 20) {
+                            page = provider.listTracks(pageToken = page.nextPageToken)
+                            pageCount++
+                            for (remote in page.items) {
+                                val key = TrackDeduplicator.computeKey(remote.title, remote.artist, remote.durationMs ?: 0L)
+                                if (!seenKeys.contains(key)) {
+                                    seenKeys.add(key)
+                                    newlyDiscovered.add(remote.toTrack())
+                                }
                             }
                         }
                     } catch (e: Exception) {

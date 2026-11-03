@@ -57,12 +57,18 @@ class SidebarCollapsedStateTest {
 
         val pl = Playlist(id = "pl-test", name = "Test Playlist", trackIds = listOf("t-loc", "t-cloud"))
 
-        // Tooltip string in collapsed mode
-        val visibleTrackCount = library.tracksIn(pl).size
-        assertEquals(1, visibleTrackCount, "tracksIn must return only visible tracks (local tracks when offline)")
+        val prevDev = com.example.musicapp.config.AppFeatures.devOnlineSourcesEnabled
+        com.example.musicapp.config.AppFeatures.devOnlineSourcesEnabled = false
+        try {
+            // Tooltip string in collapsed mode
+            val visibleTrackCount = library.tracksIn(pl).size
+            assertEquals(1, visibleTrackCount, "tracksIn must return only visible tracks (local tracks when offline)")
 
-        val tooltipText = "${pl.name}, ${pluralRu(visibleTrackCount, "трек", "трека", "треков")}"
-        assertEquals("Test Playlist, 1 трек", tooltipText)
+            val tooltipText = "${pl.name}, ${pluralRu(visibleTrackCount, "трек", "трека", "треков")}"
+            assertEquals("Test Playlist, 1 трек", tooltipText)
+        } finally {
+            com.example.musicapp.config.AppFeatures.devOnlineSourcesEnabled = prevDev
+        }
     }
 
     @Test

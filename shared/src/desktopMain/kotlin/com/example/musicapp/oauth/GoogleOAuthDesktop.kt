@@ -5,6 +5,7 @@ import com.example.musicapp.provider.appHttpClient
 import com.example.musicapp.security.SecureStorage
 import io.ktor.client.call.body
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.parameters
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
@@ -14,6 +15,7 @@ import io.ktor.server.routing.routing
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.awt.Desktop
 import java.net.ServerSocket
 import java.net.URI
@@ -82,7 +84,7 @@ object GoogleOAuthDesktop {
         }.start(wait = false)
 
         try {
-            val scope = "https://www.googleapis.com/auth/drive.readonly"
+            val scope = "https://www.googleapis.com/auth/drive"
             val authUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
                     "client_id=$clientId&" +
                     "redirect_uri=$redirectUri&" +
@@ -101,7 +103,7 @@ object GoogleOAuthDesktop {
                 ?: return Result.failure(IllegalStateException("Время ожидания входа истекло (3 минуты)."))
 
             // Exchange authorization code for tokens
-            val tokenResponse = appHttpClient.submitForm(
+            val response = appHttpClient.submitForm(
                 url = "https://oauth2.googleapis.com/token",
                 formParameters = parameters {
                     append("code", code)
@@ -111,10 +113,16 @@ object GoogleOAuthDesktop {
                     append("grant_type", "authorization_code")
                     append("code_verifier", codeVerifier)
                 }
-            ).body<TokenResponse>()
+            )
+            val responseText = response.bodyAsText()
+            val tokenResponse = try {
+                Json { ignoreUnknownKeys = true }.decodeFromString<TokenResponse>(responseText)
+            } catch (e: Exception) {
+                return Result.failure(IllegalStateException("HTTP ${response.status}: $responseText"))
+            }
 
             val accessToken = tokenResponse.access_token
-                ?: return Result.failure(IllegalStateException("Не удалось получить access token: ${tokenResponse.error_description ?: tokenResponse.error}"))
+                ?: return Result.failure(IllegalStateException("Не удалось получить access token: ${tokenResponse.error_description ?: tokenResponse.error ?: responseText}"))
 
             // Securely persist tokens
             SecureStorage.saveSecret(AppConfig.TOKEN_GDRIVE_ACCESS, accessToken)

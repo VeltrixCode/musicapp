@@ -109,6 +109,9 @@ fun CloudSourcesScreen(
     remember(appSettings.offlineMode) {
         LyricsService.offlineMode = appSettings.offlineMode
     }
+    remember(appSettings.gdriveSyncFolderId) {
+        registry.gdrive.syncFolderId = appSettings.gdriveSyncFolderId
+    }
 
     val isGDriveSignedIn by registry.gdrive.isSignedIn.collectAsState()
     val isYandexSignedIn by registry.yandex.isSignedIn.collectAsState()
@@ -212,13 +215,23 @@ fun CloudSourcesScreen(
         Spacer(Modifier.height(24.dp))
 
         // Provider Card 1: Google Drive
+        val gdriveTracksCount = library.tracks.count { it.sourceProvider == com.example.musicapp.model.TrackSource.GOOGLE_DRIVE }
+        val gdriveSyncInfo = buildString {
+            if (gdriveTracksCount > 0) append("$gdriveTracksCount трек(ов) • ")
+            append(formatSyncTime(appSettings.lastSyncTimeMs))
+        }
+
         CloudProviderItem(
             name = "Google Диск",
-            description = "OAuth 2.0 PKCE • Чтение файлов audio/* • Потоковое воспроизведение с Range",
+            description = if (gdriveTracksCount > 0) {
+                "Синхронизировано $gdriveTracksCount треков. Они доступны в разделе «Медиатека» (фильтр «Google Диск»)."
+            } else {
+                "OAuth 2.0 PKCE • Чтение файлов audio/* • Потоковое воспроизведение с Range"
+            },
             isConnected = isGDriveSignedIn,
             accountEmail = appSettings.gdriveAccountEmail ?: if (isGDriveSignedIn) "Google Drive Account" else null,
             folderId = appSettings.gdriveSyncFolderId,
-            lastSyncTime = formatSyncTime(appSettings.lastSyncTimeMs),
+            lastSyncTime = gdriveSyncInfo,
             onSelectFolder = {
                 folderInput = appSettings.gdriveSyncFolderId ?: ""
                 showGDriveFolderDialog = true
@@ -229,11 +242,7 @@ fun CloudSourcesScreen(
                 }
             },
             onConnect = {
-                if (googleClientIdInput.isBlank()) {
-                    onShowMessage("Сначала укажите Google Client ID в секции «Конфигурация ключей API» ниже.")
-                } else {
-                    showGDriveTokenDialog = true
-                }
+                showGDriveTokenDialog = true
             },
             onDisconnect = {
                 scope.launch {
@@ -251,31 +260,54 @@ fun CloudSourcesScreen(
                 value = gdriveTokenInput,
                 onValueChange = { gdriveTokenInput = it },
                 onOAuthClick = {
-                    scope.launch {
-                        onShowMessage("Запуск авторизации Google (OAuth 2.0 PKCE)...")
-                        val res = com.example.musicapp.oauth.GoogleOAuth.performSignIn()
-                        if (res.isSuccess) {
-                            val token = res.getOrNull()
-                            if (!token.isNullOrBlank()) {
-                                registry.gdrive.updateToken(token)
-                                appSettings = appSettings.copy(gdriveAccountEmail = "Google OAuth User")
-                                settingsRepo.save(appSettings)
-                                gdriveTokenInput = ""
-                                showGDriveTokenDialog = false
-                                onShowMessage("Google Диск успешно подключен!")
+                    if (googleClientIdInput.isBlank()) {
+                        onShowMessage("Для входа через браузер укажите Google Client ID в секции «Конфигурация ключей API» ниже (или вставьте токен вручную).")
+                    } else {
+                        scope.launch {
+                            onShowMessage("Запуск авторизации Google (OAuth 2.0 PKCE)...")
+                            val res = com.example.musicapp.oauth.GoogleOAuth.performSignIn()
+                            if (res.isSuccess) {
+                                val token = res.getOrNull()
+                                if (!token.isNullOrBlank()) {
+                                    registry.gdrive.updateToken(token)
+                                    val email = registry.gdrive.fetchAccountEmail() ?: "Google Account"
+                                    appSettings = appSettings.copy(gdriveAccountEmail = email)
+                                    settingsRepo.save(appSettings)
+                                    gdriveTokenInput = ""
+                                    showGDriveTokenDialog = false
+                                    onShowMessage("Google Диск ($email) подключен! Синхронизируем музыку...")
+                                    registry.syncAll(library.tracks.toList()) { newTracks ->
+                                        library.addTracks(newTracks)
+                                        val now = currentTimeMillis()
+                                        appSettings = appSettings.copy(lastSyncTimeMs = now)
+                                        settingsRepo.save(appSettings)
+                                        onShowMessage("Синхронизировано новых треков: ${newTracks.size}")
+                                    }
+                                }
+                            } else {
+                                onShowMessage("Ошибка входа Google: ${res.exceptionOrNull()?.message}")
                             }
-                        } else {
-                            onShowMessage("Ошибка входа Google: ${res.exceptionOrNull()?.message}")
                         }
                     }
                 },
                 onSave = {
-                    registry.gdrive.updateToken(gdriveTokenInput.trim())
-                    appSettings = appSettings.copy(gdriveAccountEmail = "Google Token User")
-                    settingsRepo.save(appSettings)
-                    gdriveTokenInput = ""
-                    showGDriveTokenDialog = false
-                    onShowMessage("Google Диск успешно подключен!")
+                    val token = gdriveTokenInput.trim()
+                    registry.gdrive.updateToken(token)
+                    scope.launch {
+                        val email = registry.gdrive.fetchAccountEmail() ?: "Google Token User"
+                        appSettings = appSettings.copy(gdriveAccountEmail = email)
+                        settingsRepo.save(appSettings)
+                        gdriveTokenInput = ""
+                        showGDriveTokenDialog = false
+                        onShowMessage("Google Диск ($email) подключен! Синхронизируем...")
+                        registry.syncAll(library.tracks.toList()) { newTracks ->
+                            library.addTracks(newTracks)
+                            val now = currentTimeMillis()
+                            appSettings = appSettings.copy(lastSyncTimeMs = now)
+                            settingsRepo.save(appSettings)
+                            onShowMessage("Синхронизировано новых треков: ${newTracks.size}")
+                        }
+                    }
                 },
                 onCancel = {
                     gdriveTokenInput = ""
@@ -304,11 +336,7 @@ fun CloudSourcesScreen(
                 }
             },
             onConnect = {
-                if (yandexClientIdInput.isBlank()) {
-                    onShowMessage("Сначала укажите Яндекс Client ID в секции «Конфигурация ключей API» ниже.")
-                } else {
-                    showYandexTokenDialog = true
-                }
+                showYandexTokenDialog = true
             },
             onDisconnect = {
                 scope.launch {
@@ -349,7 +377,9 @@ fun CloudSourcesScreen(
                 isLoading = isLoadingFolders,
                 onDismiss = { showGDriveFolderDialog = false },
                 onSave = { selected ->
-                    appSettings = appSettings.copy(gdriveSyncFolderId = selected.takeIf { it.isNotBlank() })
+                    val folderVal = selected.takeIf { it.isNotBlank() }
+                    appSettings = appSettings.copy(gdriveSyncFolderId = folderVal)
+                    registry.gdrive.syncFolderId = folderVal
                     settingsRepo.save(appSettings)
                     showGDriveFolderDialog = false
                     onShowMessage("Папка Google Диска сохранена")

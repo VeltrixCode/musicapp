@@ -325,17 +325,16 @@ class VlcPlayerEngine : PlayerEngine {
                 player.audio().setVolume((currentVolume * 100).toInt().coerceIn(0, 100))
                 player.controls().setRate(currentRate)
 
-                val mrl = if (path.startsWith("http://") || path.startsWith("https://")) {
-                    path
+                val isRemote = path.startsWith("http://") || path.startsWith("https://")
+                val mrl = if (isRemote) path else File(path).absolutePath
+                val prepared = if (isRemote) {
+                    player.media().prepare(mrl, ":network-caching=150", ":clock-jitter=0", ":clock-synchro=0")
                 } else {
-                    File(path).absolutePath
+                    player.media().prepare(mrl)
                 }
-                val prepared = player.media().prepare(mrl)
-                if (prepared) {
-                    val len = player.status().length().coerceAtLeast(0L)
-                    if (len > 0L) cachedDurationMs = len
-                    runOnUiThread { onReady(cachedDurationMs) }
-                }
+                val len = player.status().length().coerceAtLeast(0L)
+                if (len > 0L) cachedDurationMs = len
+                runOnUiThread { onReady(cachedDurationMs) }
             } catch (t: Throwable) {
                 onError?.invoke(t.message ?: "Ошибка загрузки аудиофайла")
             }

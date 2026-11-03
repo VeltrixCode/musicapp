@@ -128,6 +128,8 @@ internal fun LibraryView(
     val baseList = when {
         isOnline && selectedFilter == "Скачанные" -> library.getOfflineDownloadedTracks()
         isOnline && selectedFilter == "Облачные" -> library.getCloudTracks()
+        isOnline && selectedFilter == "Google Диск" -> library.visibleTracks.filter { it.sourceProvider == com.example.musicapp.model.TrackSource.GOOGLE_DRIVE }
+        isOnline && selectedFilter == "Яндекс Диск" -> library.visibleTracks.filter { it.sourceProvider == com.example.musicapp.model.TrackSource.YANDEX_DISK }
         else -> library.visibleTracks
     }
 
@@ -189,8 +191,19 @@ internal fun LibraryView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isOnline) {
+                            val availableFilters = buildList {
+                                add("Все")
+                                if (library.visibleTracks.any { it.sourceProvider == com.example.musicapp.model.TrackSource.GOOGLE_DRIVE }) {
+                                    add("Google Диск")
+                                }
+                                if (library.visibleTracks.any { it.sourceProvider == com.example.musicapp.model.TrackSource.YANDEX_DISK }) {
+                                    add("Яндекс Диск")
+                                }
+                                add("Облачные")
+                                add("Скачанные")
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf("Все", "Скачанные", "Облачные").forEach { filter ->
+                                availableFilters.forEach { filter ->
                                     val isSel = selectedFilter == filter
                                     FilterChip(
                                         selected = isSel,

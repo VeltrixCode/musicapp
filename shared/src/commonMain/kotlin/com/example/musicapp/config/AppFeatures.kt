@@ -5,22 +5,22 @@ package com.example.musicapp.config
  */
 object AppFeatures {
     /**
-     * Master feature flag: when false, all remote providers, online cover/lyrics lookups,
-     * streaming proxy and network clients remain completely dormant.
-     * Default is false (strictly local playback).
+     * Master feature flag: controls whether online sources (Google Drive, Yandex Disk, etc.)
+     * and network streaming capabilities are enabled.
+     * Enabled by default for online cloud storage support.
      */
-    const val ONLINE_SOURCES: Boolean = false
+    var ONLINE_SOURCES: Boolean = true
 
     /**
-     * Optional hidden developer / test toggle. Defaults to false.
+     * Optional test / developer override. When non-null, overrides ONLINE_SOURCES.
      */
     @Volatile
-    var devOnlineSourcesEnabled: Boolean = false
+    var devOnlineSourcesEnabled: Boolean? = null
 
     /**
-     * Effective state: true only if compile-time ONLINE_SOURCES is true or
-     * developer override is explicitly turned on.
+     * Effective state: true if ONLINE_SOURCES is enabled, unless explicitly overridden
+     * by devOnlineSourcesEnabled.
      */
     val isOnlineSourcesEnabled: Boolean
-        get() = devOnlineSourcesEnabled || ONLINE_SOURCES
+        get() = devOnlineSourcesEnabled ?: ONLINE_SOURCES
 }
