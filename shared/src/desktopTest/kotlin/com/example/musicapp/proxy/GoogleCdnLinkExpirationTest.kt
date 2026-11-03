@@ -14,12 +14,23 @@ import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GoogleCdnLinkExpirationTest {
+
+    @BeforeTest
+    @AfterTest
+    fun cleanupState() {
+        LocalStreamingProxy.activePlayingTrackId = null
+        com.example.musicapp.cache.AudioOfflineCache.currentlyPlayingTrackId = null
+        LocalStreamingProxy.setActiveQueuedTracks(emptyList())
+        com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds = emptySet()
+    }
 
     @Test
     fun testRepeatedRangeRequestAfterCdnLinkExpiration() = runBlocking {

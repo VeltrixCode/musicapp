@@ -121,6 +121,9 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
 
 actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: com.example.musicapp.model.StreamSource): String {
     com.example.musicapp.proxy.LocalStreamingProxy.setActivePlayingTrack(trackId)
+    com.example.musicapp.proxy.LocalStreamingProxy.setActiveQueuedTracks(
+        com.example.musicapp.cache.AudioOfflineCache.currentlyQueuedTrackIds
+    )
     if (streamSource.url.startsWith("http://127.0.0.1:") || streamSource.url.startsWith("http://localhost:")) {
         return streamSource.url
     }

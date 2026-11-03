@@ -218,6 +218,7 @@ class VlcPlayerEngine : PlayerEngine {
     private var onErrorCallback: ((String) -> Unit)? = null
     private var spectrumCallback: ((FloatArray) -> Unit)? = null
     private var currentSessionId = 0L
+    private var currentPath: String? = null
 
     private val playerLock = ReentrantLock()
 
@@ -331,10 +332,14 @@ class VlcPlayerEngine : PlayerEngine {
 
                 override fun error(mediaPlayer: MediaPlayer) {
                     val eventSession = playerLock.withLock { currentSessionId }
+                    val mrl = runCatching { mediaPlayer.media().info().mrl() }.getOrNull()
+                    val state = runCatching { mediaPlayer.status().state() }.getOrNull()
+                    val path = currentPath
                     eventDispatcher.execute {
                         val cb = playerLock.withLock {
                             if (eventSession != currentSessionId) return@execute
-                            VlcBridge.logEngineError("VLC player encountered native playback error")
+                            val activeMrl = mrl ?: path ?: "unknown"
+                            VlcBridge.logEngineError("VLC player encountered native playback error: mrl=$activeMrl, state=$state")
                             isPlayingState = false
                             val err = onErrorCallback
                             onErrorCallback = null
@@ -382,6 +387,7 @@ class VlcPlayerEngine : PlayerEngine {
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit, onError: ((String) -> Unit)?) {
         playerLock.withLock {
             val sessionId = ++currentSessionId
+            currentPath = path
             onReadyCallback = onReady
             onFinishedCallback = onFinished
             onErrorCallback = onError

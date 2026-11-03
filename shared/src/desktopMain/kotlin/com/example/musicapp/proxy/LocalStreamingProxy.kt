@@ -2,6 +2,7 @@ package com.example.musicapp.proxy
 
 import com.example.musicapp.cache.AudioOfflineCache
 import com.example.musicapp.model.StreamSource
+import com.example.musicapp.platform.VlcBridge
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -282,6 +283,30 @@ object LocalStreamingProxy {
 }
 
 /**
+ * Resolves a concrete audio MIME type for LibVLC streaming, avoiding generic octet-stream fallback.
+ */
+fun resolveAudioContentType(streamSource: StreamSource, upstreamContentType: String?): String {
+    val sourceCt = streamSource.contentType?.trim()
+    val isGeneric = { ct: String? ->
+        ct.isNullOrBlank() ||
+        ct.equals("application/octet-stream", ignoreCase = true) ||
+        ct.equals("binary/octet-stream", ignoreCase = true)
+    }
+
+    if (!isGeneric(sourceCt)) return sourceCt!!
+    if (!isGeneric(upstreamContentType)) return upstreamContentType!!
+
+    val url = streamSource.url.lowercase()
+    return when {
+        url.contains(".flac") -> "audio/flac"
+        url.contains(".ogg") -> "audio/ogg"
+        url.contains(".wav") -> "audio/wav"
+        url.contains(".m4a") || url.contains(".aac") -> "audio/aac"
+        else -> "audio/mpeg"
+    }
+}
+
+/**
  * Route configuration shared between the live server and Ktor testApplication.
  */
 fun configureStreamingProxyRoutes(
@@ -326,7 +351,7 @@ fun configureStreamingProxyRoutes(
 
             // If content length and type are already known from provider metadata, respond immediately (0ms latency)
             val knownLength = session.streamSource.contentLength
-            val knownType = session.streamSource.contentType ?: "audio/mpeg"
+            val knownType = resolveAudioContentType(session.streamSource, null)
             if (knownLength != null && knownLength > 0L) {
                 call.response.header(HttpHeaders.ContentType, knownType)
                 call.response.header(HttpHeaders.AcceptRanges, "bytes")
@@ -360,10 +385,11 @@ fun configureStreamingProxyRoutes(
                     )
                 }
 
-                val contentType = upstream.headers[HttpHeaders.ContentType] ?: "audio/mpeg"
+                val contentType = resolveAudioContentType(session.streamSource, upstream.headers[HttpHeaders.ContentType])
                 val contentRange = upstream.headers[HttpHeaders.ContentRange]
                 val totalLength = contentRange?.substringAfterLast('/')?.toLongOrNull()
                     ?: upstream.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                    ?: session.streamSource.contentLength
 
                 call.response.header(HttpHeaders.ContentType, contentType)
                 call.response.header(HttpHeaders.AcceptRanges, "bytes")
@@ -384,8 +410,11 @@ fun configureStreamingProxyRoutes(
             }
 
             val token = call.parameters["token"]
+            val incomingRange = call.request.headers[HttpHeaders.Range]
             val session = token?.let { sessionsMap[it] }?.takeIf { !it.isExpired() }
             if (session == null) {
+                val exists = token != null && sessionsMap.containsKey(token)
+                VlcBridge.logEngineError("Proxy 404: token=$token, existsInMap=$exists, sessionsCount=${sessionsMap.size}, Range=$incomingRange")
                 if (token != null) sessionsMap.remove(token)
                 call.respondText("Stream session not found or expired", status = HttpStatusCode.NotFound)
                 return@get
@@ -393,8 +422,6 @@ fun configureStreamingProxyRoutes(
 
             // Touch session last access timestamp
             session.touch()
-
-            val incomingRange = call.request.headers[HttpHeaders.Range]
 
             try {
                 var streamSource = session.streamSource
@@ -444,29 +471,74 @@ fun configureStreamingProxyRoutes(
                     upstreamResponse.headers[HttpHeaders.ContentRange]?.let {
                         call.response.header(HttpHeaders.ContentRange, it)
                     }
+                    VlcBridge.logEngineError("Proxy 416 Requested Range Not Satisfiable for token=$token (Range: $incomingRange)")
                     call.respond(HttpStatusCode.RequestedRangeNotSatisfiable)
                     return@get
                 }
 
-                upstreamResponse.headers[HttpHeaders.ContentType]?.let {
-                    call.response.header(HttpHeaders.ContentType, it)
-                } ?: call.response.header(HttpHeaders.ContentType, "audio/mpeg")
+                if (upstreamResponse.status.value >= 400) {
+                    VlcBridge.logEngineError("Proxy upstream HTTP error ${upstreamResponse.status.value} for token=$token (Range: $incomingRange, URL: ${streamSource.url.take(120)})")
+                }
 
-                upstreamResponse.headers[HttpHeaders.ContentLength]?.let {
-                    call.response.header(HttpHeaders.ContentLength, it)
-                }
-                upstreamResponse.headers[HttpHeaders.ContentRange]?.let {
-                    call.response.header(HttpHeaders.ContentRange, it)
-                }
+                val isRangeRequest = !incomingRange.isNullOrBlank()
+                val resolvedContentType = resolveAudioContentType(session.streamSource, upstreamResponse.headers[HttpHeaders.ContentType])
+
+                call.response.header(HttpHeaders.ContentType, resolvedContentType)
                 call.response.header(HttpHeaders.AcceptRanges, "bytes")
 
-                val status = upstreamResponse.status
+                val upstreamContentRange = upstreamResponse.headers[HttpHeaders.ContentRange]
+                val knownTotalLength = upstreamContentRange?.substringAfterLast('/')?.toLongOrNull()
+                    ?: upstreamResponse.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                    ?: session.streamSource.contentLength
+
+                val (outgoingStatus, outgoingContentRange, outgoingContentLength) = when {
+                    // Upstream already responded with 206 Partial Content
+                    upstreamResponse.status == HttpStatusCode.PartialContent -> {
+                        val cr = upstreamContentRange ?: if (knownTotalLength != null && knownTotalLength > 0L) {
+                            "bytes 0-${knownTotalLength - 1}/$knownTotalLength"
+                        } else null
+                        Triple(HttpStatusCode.PartialContent, cr, upstreamResponse.headers[HttpHeaders.ContentLength]?.toLongOrNull())
+                    }
+
+                    // Client requested Range (e.g. Range: bytes=0-), but upstream returned 200 OK
+                    isRangeRequest && upstreamResponse.status == HttpStatusCode.OK -> {
+                        val rangeRegex = Regex("""bytes=(\d+)-(\d+)?""")
+                        val match = incomingRange?.let { rangeRegex.find(it) }
+                        val start = match?.groupValues?.getOrNull(1)?.toLongOrNull() ?: 0L
+                        val explicitEnd = match?.groupValues?.getOrNull(2)?.takeIf { it.isNotBlank() }?.toLongOrNull()
+                        val total = knownTotalLength ?: -1L
+                        val end = explicitEnd ?: if (total > 0L) (total - 1L) else null
+
+                        val cr = when {
+                            total > 0L && end != null -> "bytes $start-$end/$total"
+                            total > 0L -> "bytes $start-${total - 1}/$total"
+                            end != null -> "bytes $start-$end/*"
+                            else -> "bytes $start-*/*"
+                        }
+                        val len = if (end != null) (end - start + 1).coerceAtLeast(0L) else null
+                        Triple(HttpStatusCode.PartialContent, cr, len)
+                    }
+
+                    else -> {
+                        Triple(upstreamResponse.status, upstreamContentRange, upstreamResponse.headers[HttpHeaders.ContentLength]?.toLongOrNull())
+                    }
+                }
+
+                if (outgoingContentRange != null) {
+                    call.response.header(HttpHeaders.ContentRange, outgoingContentRange)
+                }
+                if (outgoingContentLength != null && outgoingContentLength > 0L) {
+                    call.response.header(HttpHeaders.ContentLength, outgoingContentLength.toString())
+                }
+
                 val channel = upstreamResponse.bodyAsChannel()
-                call.respondOutputStream(status = status) {
+                call.respondOutputStream(status = outgoingStatus) {
                     channel.copyTo(this)
                 }
             } catch (e: Exception) {
-                call.respondText("Stream error", status = HttpStatusCode.BadGateway)
+                val errDetails = "${e.javaClass.simpleName}: ${e.message}"
+                VlcBridge.logEngineError("Proxy stream exception for token=$token (Range: $incomingRange): $errDetails\n${e.stackTraceToString().take(600)}")
+                call.respondText("Stream error: $errDetails", status = HttpStatusCode.BadGateway)
             }
         }
     }
