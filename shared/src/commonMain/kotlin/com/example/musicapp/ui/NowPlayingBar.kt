@@ -1163,8 +1163,7 @@ internal fun QueueDrawer(
 
         val upNext = remember(queue, current) {
             val cIdx = queue.indexOfFirst { it.id == current?.id }
-            if (cIdx >= 0 && cIdx < queue.lastIndex) queue.subList(cIdx + 1, queue.size)
-            else emptyList()
+            if (cIdx >= 0 && cIdx < queue.lastIndex) queue.drop(cIdx + 1) else emptyList()
         }
 
         if (upNext.isEmpty()) {
