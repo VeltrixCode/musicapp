@@ -183,6 +183,18 @@ object VlcBridge {
         }
     }
 
+    fun logEngineInfo(info: String) {
+        try {
+            val userHome = System.getProperty("user.home")
+            val logsDir = File(userHome, "JVXMusic/logs").apply { mkdirs() }
+            val logFile = File(logsDir, "engine.log")
+            val dateStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            logFile.appendText("[$dateStr] [INFO] $info\n")
+        } catch (_: Throwable) {
+            // Do not crash if logging fails
+        }
+    }
+
     fun logEngineError(error: String) {
         try {
             val userHome = System.getProperty("user.home")
@@ -207,9 +219,9 @@ class VlcPlayerEngine : PlayerEngine {
     private var currentVolume = 0.8f
     private var currentRate = 1.0f
     private var pendingSeekMs: Long? = null
-    private var cachedDurationMs = 0L
-    private var cachedPositionMs = 0L
-    private var isPlayingState = false
+    @Volatile private var cachedDurationMs = 0L
+    @Volatile private var cachedPositionMs = 0L
+    @Volatile private var isPlayingState = false
     private var preampGain = 0f
 
     private val equalizerGains = FloatArray(10) { 0f }
@@ -217,8 +229,9 @@ class VlcPlayerEngine : PlayerEngine {
     private var onFinishedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
     private var spectrumCallback: ((FloatArray) -> Unit)? = null
-    private var currentSessionId = 0L
+    private val currentSessionId = java.util.concurrent.atomic.AtomicLong(0L)
     private var currentPath: String? = null
+    private var loadStartMs = 0L
 
     private val playerLock = ReentrantLock()
 
@@ -242,21 +255,21 @@ class VlcPlayerEngine : PlayerEngine {
 
             player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
                 override fun opening(mediaPlayer: MediaPlayer) {
-                    val eventSession = playerLock.withLock { currentSessionId }
+                    val eventSession = currentSessionId.get()
                     eventDispatcher.execute {
                         playerLock.withLock {
-                            if (eventSession != currentSessionId) return@withLock
+                            if (eventSession != currentSessionId.get()) return@withLock
                             isPlayingState = true
                         }
                     }
                 }
 
                 override fun mediaPlayerReady(mediaPlayer: MediaPlayer) {
-                    val eventSession = playerLock.withLock { currentSessionId }
+                    val eventSession = currentSessionId.get()
                     // Dispatch away from JNA native thread before invoking application callbacks
                     eventDispatcher.execute {
                         val cb = playerLock.withLock {
-                            if (eventSession != currentSessionId) return@execute
+                            if (eventSession != currentSessionId.get()) return@execute
                             // Re-apply speed rate: libVLC resets rate to 1.0f on loading new media
                             mediaPlayer.controls().setRate(currentRate)
                             val len = mediaPlayer.status().length().coerceAtLeast(0L)
@@ -274,10 +287,10 @@ class VlcPlayerEngine : PlayerEngine {
                 }
 
                 override fun playing(mediaPlayer: MediaPlayer) {
-                    val eventSession = playerLock.withLock { currentSessionId }
+                    val eventSession = currentSessionId.get()
                     eventDispatcher.execute {
-                        val cb = playerLock.withLock {
-                            if (eventSession != currentSessionId) return@execute
+                        val (cb, ttfa) = playerLock.withLock {
+                            if (eventSession != currentSessionId.get()) return@execute
                             isPlayingState = true
                             // Ensure active rate with WSOLA scaletempo time-stretch is enforced
                             mediaPlayer.controls().setRate(currentRate)
@@ -287,7 +300,13 @@ class VlcPlayerEngine : PlayerEngine {
                                 mediaPlayer.controls().setTime(ms)
                                 pendingSeekMs = null
                             }
-                            onReadyCallback
+                            val startMs = loadStartMs
+                            val elapsed = if (startMs > 0L) System.currentTimeMillis() - startMs else -1L
+                            loadStartMs = 0L
+                            Pair(onReadyCallback, elapsed)
+                        }
+                        if (ttfa >= 0L) {
+                            VlcBridge.logEngineInfo("[TTFA] Time to play: $ttfa ms")
                         }
                         if (cb != null) {
                             runOnUiThread { cb(cachedDurationMs) }
@@ -296,31 +315,31 @@ class VlcPlayerEngine : PlayerEngine {
                 }
 
                 override fun paused(mediaPlayer: MediaPlayer) {
-                    val eventSession = playerLock.withLock { currentSessionId }
+                    val eventSession = currentSessionId.get()
                     eventDispatcher.execute {
                         playerLock.withLock {
-                            if (eventSession != currentSessionId) return@withLock
+                            if (eventSession != currentSessionId.get()) return@withLock
                             isPlayingState = false
                         }
                     }
                 }
 
                 override fun stopped(mediaPlayer: MediaPlayer) {
-                    val eventSession = playerLock.withLock { currentSessionId }
+                    val eventSession = currentSessionId.get()
                     eventDispatcher.execute {
                         playerLock.withLock {
-                            if (eventSession != currentSessionId) return@withLock
+                            if (eventSession != currentSessionId.get()) return@withLock
                             isPlayingState = false
                         }
                     }
                 }
 
                 override fun finished(mediaPlayer: MediaPlayer) {
-                    val eventSession = playerLock.withLock { currentSessionId }
+                    val eventSession = currentSessionId.get()
                     // Do NOT call player methods synchronously from finished event callback
                     eventDispatcher.execute {
                         val cb = playerLock.withLock {
-                            if (eventSession != currentSessionId) return@execute
+                            if (eventSession != currentSessionId.get()) return@execute
                             isPlayingState = false
                             onFinishedCallback
                         }
@@ -331,13 +350,13 @@ class VlcPlayerEngine : PlayerEngine {
                 }
 
                 override fun error(mediaPlayer: MediaPlayer) {
-                    val eventSession = playerLock.withLock { currentSessionId }
+                    val eventSession = currentSessionId.get()
                     val mrl = runCatching { mediaPlayer.media().info().mrl() }.getOrNull()
                     val state = runCatching { mediaPlayer.status().state() }.getOrNull()
                     val path = currentPath
                     eventDispatcher.execute {
                         val cb = playerLock.withLock {
-                            if (eventSession != currentSessionId) return@execute
+                            if (eventSession != currentSessionId.get()) return@execute
                             val activeMrl = mrl ?: path ?: "unknown"
                             VlcBridge.logEngineError("VLC player encountered native playback error: mrl=$activeMrl, state=$state")
                             isPlayingState = false
@@ -352,23 +371,26 @@ class VlcPlayerEngine : PlayerEngine {
                 }
 
                 override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
-                    val eventSession = playerLock.withLock { currentSessionId }
-                    if (eventSession == currentSessionId) {
-                        cachedPositionMs = newTime.coerceAtLeast(0L)
-                    }
+                    cachedPositionMs = newTime.coerceAtLeast(0L)
                 }
 
                 override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) {
-                    val eventSession = playerLock.withLock { currentSessionId }
                     if (newLength > 0L) {
+                        val eventSession = currentSessionId.get()
                         eventDispatcher.execute {
                             val cb = playerLock.withLock {
-                                if (eventSession != currentSessionId) return@execute
+                                if (eventSession != currentSessionId.get()) return@execute
                                 cachedDurationMs = newLength
                                 onReadyCallback
                             }
                             if (cb != null) {
-                                runOnUiThread { cb(newLength) }
+                                runOnUiThread {
+                                    playerLock.withLock {
+                                        if (eventSession == currentSessionId.get()) {
+                                            cb(newLength)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -385,9 +407,10 @@ class VlcPlayerEngine : PlayerEngine {
     }
 
     override fun load(path: String, onReady: (Long) -> Unit, onFinished: () -> Unit, onError: ((String) -> Unit)?) {
+        val sessionId = currentSessionId.incrementAndGet()
         playerLock.withLock {
-            val sessionId = ++currentSessionId
             currentPath = path
+            loadStartMs = System.currentTimeMillis()
             onReadyCallback = onReady
             onFinishedCallback = onFinished
             onErrorCallback = onError
@@ -407,23 +430,33 @@ class VlcPlayerEngine : PlayerEngine {
 
                 val isRemote = path.startsWith("http://") || path.startsWith("https://")
                 val mrl = if (isRemote) path else File(path).absolutePath
-                val prepared = if (isRemote) {
-                    player.media().prepare(mrl, ":network-caching=150", ":clock-jitter=0", ":clock-synchro=0")
+                val started = if (isRemote) {
+                    player.media().play(
+                        mrl,
+                        ":network-caching=100",
+                        ":clock-jitter=0",
+                        ":clock-synchro=0"
+                    )
                 } else {
-                    player.media().prepare(mrl)
+                    player.media().play(mrl, ":file-caching=100")
                 }
-                val len = player.status().length().coerceAtLeast(0L)
-                if (len > 0L) cachedDurationMs = len
+
+                if (!started) {
+                    VlcBridge.logEngineError("VLC media.play() returned false for $mrl")
+                } else {
+                    isPlayingState = true
+                }
+
                 runOnUiThread {
                     playerLock.withLock {
-                        if (sessionId == currentSessionId) {
+                        if (sessionId == currentSessionId.get()) {
                             onReady(cachedDurationMs)
                         }
                     }
                 }
             } catch (t: Throwable) {
                 playerLock.withLock {
-                    if (sessionId == currentSessionId) {
+                    if (sessionId == currentSessionId.get()) {
                         VlcBridge.logEngineError("VLC load exception: ${t.javaClass.simpleName}: ${t.message}")
                         onError?.invoke(t.message ?: "Ошибка загрузки аудиофайла")
                     }
@@ -448,8 +481,8 @@ class VlcPlayerEngine : PlayerEngine {
     }
 
     override fun stop() {
+        currentSessionId.incrementAndGet()
         playerLock.withLock {
-            currentSessionId++
             isPlayingState = false
             onReadyCallback = null
             onFinishedCallback = null
@@ -545,7 +578,7 @@ class VlcPlayerEngine : PlayerEngine {
 
     override fun release() {
         playerLock.withLock {
-            currentSessionId++
+            currentSessionId.incrementAndGet()
             isPlayingState = false
             val p = mediaPlayer
             mediaPlayer = null

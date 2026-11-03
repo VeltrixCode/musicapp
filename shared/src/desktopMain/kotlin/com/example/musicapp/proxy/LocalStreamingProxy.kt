@@ -27,6 +27,10 @@ import java.net.ServerSocket
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 const val PROXY_SESSION_GRACE_PERIOD_MS = 5_000L // 5 seconds grace window for initial registration
 const val DIRECT_CDN_URL_TTL_MS = 10 * 60 * 1000L // 10 minutes sliding TTL for resolved direct CDN URL
@@ -113,6 +117,8 @@ object LocalStreamingProxy {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     var serverPort: Int = 0
         private set
+
+    private val proxyScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val proxyHttpClient: HttpClient by lazy {
         HttpClient {
@@ -246,14 +252,43 @@ object LocalStreamingProxy {
         cleanupExpiredSessions()
 
         val sessionToken = UUID.randomUUID().toString().replace("-", "")
-        sessions[sessionToken] = ProxySession(
+        val session = ProxySession(
             token = sessionToken,
             trackId = trackId,
             streamSource = streamSource,
             onRefreshNeeded = onRefreshNeeded
         )
+        sessions[sessionToken] = session
+
+        // Proactive async pre-fetch of direct CDN URL (e.g. Google Drive / CDN) in background
+        if (streamSource.url.startsWith("http://") || streamSource.url.startsWith("https://")) {
+            proxyScope.launch {
+                try {
+                    if (!session.isDirectUrlValid()) {
+                        fetchUpstream(
+                            streamSource = streamSource,
+                            rangeHeader = "bytes=0-0",
+                            httpClient = proxyHttpClient,
+                            directUrlOverride = null,
+                            onRedirectResolved = { cdnUrl ->
+                                session.setDirectUrl(cdnUrl)
+                            }
+                        )
+                    }
+                } catch (_: Throwable) {
+                    // Pre-fetch is opportunistic; fallback to on-demand resolution in route
+                }
+            }
+        }
+
         return "http://127.0.0.1:$serverPort/stream/$sessionToken"
     }
+
+    fun registerSession(
+        trackId: String,
+        streamSource: StreamSource,
+        onRefreshNeeded: (suspend () -> StreamSource?)? = null,
+    ): String = registerStream(trackId, streamSource, onRefreshNeeded)
 
     fun invalidateSession(token: String) {
         sessions.remove(token)
