@@ -128,6 +128,15 @@ class GoogleDriveProvider(
                 val artist = if (parts.size == 2) parts[0].trim() else "Google Диск"
                 val title = if (parts.size == 2) parts[1].trim() else cleanTitle
 
+                val rawMime = f.mimeType?.lowercase() ?: ""
+                val (detectedFormat, isLosslessTrack) = when {
+                    rawMime.contains("flac") || f.name.endsWith(".flac", ignoreCase = true) -> Pair("FLAC", true)
+                    rawMime.contains("wav") || f.name.endsWith(".wav", ignoreCase = true) -> Pair("WAV", true)
+                    rawMime.contains("ogg") || rawMime.contains("vorbis") || f.name.endsWith(".ogg", ignoreCase = true) -> Pair("OGG", false)
+                    rawMime.contains("mp4") || rawMime.contains("aac") || rawMime.contains("m4a") -> Pair("AAC", false)
+                    else -> Pair(f.name.substringAfterLast('.', "MP3").uppercase(), false)
+                }
+
                 RemoteTrack(
                     id = "gdrive_${f.id}",
                     title = title,
@@ -138,7 +147,8 @@ class GoogleDriveProvider(
                     sizeBytes = f.size?.toLongOrNull(),
                     source = TrackSource.GOOGLE_DRIVE,
                     mimeType = f.mimeType ?: "audio/mpeg",
-                    format = f.name.substringAfterLast('.', "MP3").uppercase()
+                    format = detectedFormat,
+                    isLossless = isLosslessTrack
                 )
             }
             Page(items = tracks, nextPageToken = response.nextPageToken)
@@ -197,6 +207,15 @@ class GoogleDriveProvider(
                 val artist = if (parts.size == 2) parts[0].trim() else "Google Диск"
                 val title = if (parts.size == 2) parts[1].trim() else cleanTitle
 
+                val rawMime = f.mimeType?.lowercase() ?: ""
+                val (detectedFormat, isLosslessTrack) = when {
+                    rawMime.contains("flac") || f.name.endsWith(".flac", ignoreCase = true) -> Pair("FLAC", true)
+                    rawMime.contains("wav") || f.name.endsWith(".wav", ignoreCase = true) -> Pair("WAV", true)
+                    rawMime.contains("ogg") || rawMime.contains("vorbis") || f.name.endsWith(".ogg", ignoreCase = true) -> Pair("OGG", false)
+                    rawMime.contains("mp4") || rawMime.contains("aac") || rawMime.contains("m4a") -> Pair("AAC", false)
+                    else -> Pair(f.name.substringAfterLast('.', "MP3").uppercase(), false)
+                }
+
                 RemoteTrack(
                     id = "gdrive_${f.id}",
                     title = title,
@@ -207,7 +226,8 @@ class GoogleDriveProvider(
                     sizeBytes = f.size?.toLongOrNull(),
                     source = TrackSource.GOOGLE_DRIVE,
                     mimeType = f.mimeType ?: "audio/mpeg",
-                    format = f.name.substringAfterLast('.', "MP3").uppercase()
+                    format = detectedFormat,
+                    isLossless = isLosslessTrack
                 )
             }
         } catch (e: Exception) {

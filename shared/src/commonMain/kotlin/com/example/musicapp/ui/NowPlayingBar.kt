@@ -165,7 +165,7 @@ internal fun NowPlayingBar(
             // Mobile Compact Mini Player Layout
             Box(Modifier.fillMaxSize()) {
                 // Top Progress indicator line (2dp)
-                val isLiveTrack = track?.isLiveStream == true || track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
+                val isLiveTrack = track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || (track?.isLiveStream == true && track?.sourceProvider != com.example.musicapp.model.TrackSource.GOOGLE_DRIVE)
                 val progFraction = if (hasTrack) (if (isLiveTrack) 1f else fraction) else 0f
                 Box(
                     modifier = Modifier
@@ -561,7 +561,7 @@ internal fun NowPlayingBar(
                 }
 
                 // Progress Bar Row (Accurate drag + tooltip + click)
-                val isLiveTrack = track?.isLiveStream == true || track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
+                val isLiveTrack = track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || (track?.isLiveStream == true && track?.sourceProvider != com.example.musicapp.model.TrackSource.GOOGLE_DRIVE)
                 Row(
                     modifier = Modifier.fillMaxWidth(if (isCompact) 0.95f else 0.82f),
                     verticalAlignment = Alignment.CenterVertically
@@ -1343,7 +1343,7 @@ internal fun FullscreenNowPlayingView(
             val duration = effectiveDuration.coerceAtLeast(1L)
             val fraction = (playbackState.positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
-            val isFullscreenLive = track?.isLiveStream == true || track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
+            val isFullscreenLive = track?.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || (track?.isLiveStream == true && track?.sourceProvider != com.example.musicapp.model.TrackSource.GOOGLE_DRIVE)
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.sm),
                 verticalAlignment = Alignment.CenterVertically

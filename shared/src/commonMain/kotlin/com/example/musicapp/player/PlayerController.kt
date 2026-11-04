@@ -813,7 +813,7 @@ class PlayerController(
                             runOnUiThread {
                                 if (current?.id != track.id) return@runOnUiThread
                                 consecutivePlaybackErrors = 0
-                                val isLive = track.isLiveStream || track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER
+                                val isLive = track.sourceProvider == com.example.musicapp.model.TrackSource.RADIO_BROWSER || (track.isLiveStream && track.sourceProvider != com.example.musicapp.model.TrackSource.GOOGLE_DRIVE)
                                 if (!isLive && authoritativeDur > 0) {
                                     durationMs = authoritativeDur
                                     if (current?.id == track.id) {

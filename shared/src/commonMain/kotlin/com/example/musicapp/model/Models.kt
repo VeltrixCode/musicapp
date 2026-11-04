@@ -48,10 +48,10 @@ data class Track(
     val workId: String? = null,
     val isMissing: Boolean = false,
     val fileSizeBytes: Long? = null,
+    val isLiveStream: Boolean = sourceProvider == TrackSource.RADIO_BROWSER,
 ) {
     val playableUri: String? get() = cachedFilePath ?: source
     val isCloud: Boolean get() = sourceProvider != TrackSource.LOCAL
-    val isLiveStream: Boolean get() = sourceProvider == TrackSource.RADIO_BROWSER || (durationMs == 0L && source != null && (source.startsWith("http://") || source.startsWith("https://")))
 }
 
 @Serializable
@@ -73,6 +73,7 @@ data class RemoteTrack(
     val format: String? = null,
     val isLossless: Boolean = false,
     val webPageUrl: String? = null,
+    val isLiveStream: Boolean = false,
 ) {
     fun toTrack(): Track = Track(
         id = id,
@@ -93,6 +94,7 @@ data class RemoteTrack(
         isLossless = isLossless,
         webPageUrl = webPageUrl,
         fileSizeBytes = sizeBytes,
+        isLiveStream = isLiveStream || (source == TrackSource.RADIO_BROWSER),
     )
 }
 
