@@ -290,7 +290,9 @@ private fun NowPlayingDetailPane(
                         Text("Жанр", color = AppColors.TextMuted, fontSize = 12.sp)
                         Text(track.genre?.takeIf { it.isNotBlank() } ?: "—", color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                     }
-                    val formatStr = (track.format?.uppercase() ?: track.source?.substringAfterLast('.', "")?.uppercase())?.takeIf { it.isNotBlank() } ?: "MP3"
+                    val formatStr = track.format?.uppercase()?.takeIf { it.isNotBlank() }
+                        ?: (if (track.source?.startsWith("http", ignoreCase = true) != true) track.source?.substringAfterLast('.', "")?.uppercase()?.takeIf { it.isNotBlank() } else null)
+                        ?: "MP3"
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Формат", color = AppColors.TextMuted, fontSize = 12.sp)
                         Text(formatStr, color = AppColors.TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)

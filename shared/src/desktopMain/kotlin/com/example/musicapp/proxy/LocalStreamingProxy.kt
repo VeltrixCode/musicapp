@@ -18,6 +18,7 @@ import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.http.ContentType
 import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
@@ -28,6 +29,7 @@ import java.net.ServerSocket
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -525,9 +527,6 @@ fun configureStreamingProxyRoutes(
                 val isRangeRequest = !incomingRange.isNullOrBlank()
                 val resolvedContentType = resolveAudioContentType(session.streamSource, upstreamResponse.headers[HttpHeaders.ContentType])
 
-                call.response.header(HttpHeaders.ContentType, resolvedContentType)
-                call.response.header(HttpHeaders.AcceptRanges, "bytes")
-
                 val upstreamContentRange = upstreamResponse.headers[HttpHeaders.ContentRange]
                 val knownTotalLength = upstreamContentRange?.substringAfterLast('/')?.toLongOrNull()
                     ?: upstreamResponse.headers[HttpHeaders.ContentLength]?.toLongOrNull()
@@ -569,14 +568,24 @@ fun configureStreamingProxyRoutes(
                 if (outgoingContentRange != null) {
                     call.response.header(HttpHeaders.ContentRange, outgoingContentRange)
                 }
-                if (outgoingContentLength != null && outgoingContentLength > 0L) {
-                    call.response.header(HttpHeaders.ContentLength, outgoingContentLength.toString())
-                }
+                call.response.header(HttpHeaders.AcceptRanges, "bytes")
 
                 val channel = upstreamResponse.bodyAsChannel()
-                call.response.status(outgoingStatus)
-                call.respondBytesWriter(contentLength = outgoingContentLength) {
-                    channel.copyTo(this)
+                val parsedContentType = runCatching {
+                    ContentType.parse(resolvedContentType)
+                }.getOrDefault(ContentType.Application.OctetStream)
+
+                call.respondBytesWriter(
+                    contentType = parsedContentType,
+                    status = outgoingStatus,
+                    contentLength = outgoingContentLength
+                ) {
+                    try {
+                        channel.copyTo(this)
+                    } catch (_: Throwable) {
+                        // Игнорируем штатный обрыв клиентом (VLC) при нажатии Стоп или смене трека
+                        channel.cancel(CancellationException("Client disconnected"))
+                    }
                 }
             } catch (e: Exception) {
                 val errDetails = "${e.javaClass.simpleName}: ${e.message}"

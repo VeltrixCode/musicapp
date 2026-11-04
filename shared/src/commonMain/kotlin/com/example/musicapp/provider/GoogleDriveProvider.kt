@@ -137,7 +137,8 @@ class GoogleDriveProvider(
                     streamUrl = "https://www.googleapis.com/drive/v3/files/${f.id}?alt=media",
                     sizeBytes = f.size?.toLongOrNull(),
                     source = TrackSource.GOOGLE_DRIVE,
-                    mimeType = f.mimeType ?: "audio/mpeg"
+                    mimeType = f.mimeType ?: "audio/mpeg",
+                    format = f.name.substringAfterLast('.', "MP3").uppercase()
                 )
             }
             Page(items = tracks, nextPageToken = response.nextPageToken)
@@ -205,7 +206,8 @@ class GoogleDriveProvider(
                     streamUrl = "https://www.googleapis.com/drive/v3/files/${f.id}?alt=media",
                     sizeBytes = f.size?.toLongOrNull(),
                     source = TrackSource.GOOGLE_DRIVE,
-                    mimeType = f.mimeType ?: "audio/mpeg"
+                    mimeType = f.mimeType ?: "audio/mpeg",
+                    format = f.name.substringAfterLast('.', "MP3").uppercase()
                 )
             }
         } catch (e: Exception) {
