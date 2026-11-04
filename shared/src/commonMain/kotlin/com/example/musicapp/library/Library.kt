@@ -230,6 +230,17 @@ class Library {
         }
     }
 
+    fun updateTrackMetadata(trackId: String, format: String, isLossless: Boolean) {
+        val idx = tracks.indexOfFirst { it.id == trackId }
+        if (idx >= 0) {
+            val track = tracks[idx]
+            if (track.format != format || track.isLossless != isLossless) {
+                tracks[idx] = track.copy(format = format, isLossless = isLossless)
+                save()
+            }
+        }
+    }
+
     fun createPlaylist(name: String, description: String = "", coverUrl: String? = null) {
         playlists.add(
             Playlist(

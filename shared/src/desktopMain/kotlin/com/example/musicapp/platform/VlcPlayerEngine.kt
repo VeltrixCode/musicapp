@@ -229,6 +229,7 @@ class VlcPlayerEngine : PlayerEngine {
     private var onFinishedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
     private var spectrumCallback: ((FloatArray) -> Unit)? = null
+    override var onAudioMetadataResolved: ((codec: String, bitDepth: Int, sampleRate: Int) -> Unit)? = null
     private val currentSessionId = java.util.concurrent.atomic.AtomicLong(0L)
     private var currentPath: String? = null
     private var loadStartMs = 0L
@@ -283,6 +284,7 @@ class VlcPlayerEngine : PlayerEngine {
                         if (cb != null) {
                             runOnUiThread { cb(cachedDurationMs) }
                         }
+                        checkAndNotifyMetadata(mediaPlayer, eventSession)
                     }
                 }
 
@@ -311,6 +313,7 @@ class VlcPlayerEngine : PlayerEngine {
                         if (cb != null) {
                             runOnUiThread { cb(cachedDurationMs) }
                         }
+                        checkAndNotifyMetadata(mediaPlayer, eventSession)
                     }
                 }
 
@@ -392,6 +395,7 @@ class VlcPlayerEngine : PlayerEngine {
                                     }
                                 }
                             }
+                            checkAndNotifyMetadata(mediaPlayer, eventSession)
                         }
                     }
                 }
@@ -399,6 +403,23 @@ class VlcPlayerEngine : PlayerEngine {
             mediaPlayer = player
         } catch (t: Throwable) {
             System.err.println("Failed to init VLC MediaPlayer: ${t.message}")
+        }
+    }
+
+    private fun checkAndNotifyMetadata(mediaPlayer: MediaPlayer, eventSession: Long) {
+        val metaCb = onAudioMetadataResolved ?: return
+        val tracks = runCatching { mediaPlayer.media()?.info()?.audioTracks() }.getOrNull() ?: emptyList()
+        val first = tracks.firstOrNull() ?: return
+        val codec = first.codecName()?.takeIf { it.isNotBlank() }
+            ?: first.codecDescription()?.takeIf { it.isNotBlank() }
+            ?: return
+        val rate = first.rate()
+        runOnUiThread {
+            playerLock.withLock {
+                if (eventSession == currentSessionId.get()) {
+                    metaCb(codec, 0, rate)
+                }
+            }
         }
     }
 

@@ -134,7 +134,9 @@ class GoogleDriveProvider(
                     rawMime.contains("wav") || f.name.endsWith(".wav", ignoreCase = true) -> Pair("WAV", true)
                     rawMime.contains("ogg") || rawMime.contains("vorbis") || f.name.endsWith(".ogg", ignoreCase = true) -> Pair("OGG", false)
                     rawMime.contains("mp4") || rawMime.contains("aac") || rawMime.contains("m4a") -> Pair("AAC", false)
-                    else -> Pair(f.name.substringAfterLast('.', "MP3").uppercase(), false)
+                    rawMime.contains("mp3") || rawMime.contains("mpeg") || f.name.endsWith(".mp3", ignoreCase = true) -> Pair("MP3", false)
+                    f.name.contains('.') -> Pair(f.name.substringAfterLast('.').uppercase(), false)
+                    else -> Pair("AUDIO", false)
                 }
 
                 RemoteTrack(
@@ -213,7 +215,9 @@ class GoogleDriveProvider(
                     rawMime.contains("wav") || f.name.endsWith(".wav", ignoreCase = true) -> Pair("WAV", true)
                     rawMime.contains("ogg") || rawMime.contains("vorbis") || f.name.endsWith(".ogg", ignoreCase = true) -> Pair("OGG", false)
                     rawMime.contains("mp4") || rawMime.contains("aac") || rawMime.contains("m4a") -> Pair("AAC", false)
-                    else -> Pair(f.name.substringAfterLast('.', "MP3").uppercase(), false)
+                    rawMime.contains("mp3") || rawMime.contains("mpeg") || f.name.endsWith(".mp3", ignoreCase = true) -> Pair("MP3", false)
+                    f.name.contains('.') -> Pair(f.name.substringAfterLast('.').uppercase(), false)
+                    else -> Pair("AUDIO", false)
                 }
 
                 RemoteTrack(

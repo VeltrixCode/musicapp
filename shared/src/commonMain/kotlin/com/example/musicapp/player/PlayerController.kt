@@ -166,6 +166,7 @@ interface AudioPlayer {
 class PlayerController(
     val settingsRepository: SettingsRepository = SettingsRepository(),
     var onTrackDurationResolved: ((trackId: String, durationMs: Long) -> Unit)? = null,
+    var onTrackMetadataResolved: ((trackId: String, format: String, isLossless: Boolean) -> Unit)? = null,
     customEngine: PlayerEngine? = null,
 ) : AudioPlayer {
     private val engine: PlayerEngine = customEngine ?: createPlayerEngine()
@@ -398,6 +399,37 @@ class PlayerController(
                 ((r1 + r2) / 2f).coerceIn(0f, 1f)
             }
             _spectrumState.value = target
+        }
+
+        // Setup reactive audio metadata resolution callback (e.g. from LibVLC)
+        engine.onAudioMetadataResolved = { rawCodec, bitDepth, sampleRate ->
+            runOnUiThread {
+                val cur = current ?: return@runOnUiThread
+                val detectedFormat = when {
+                    rawCodec.contains("flac", ignoreCase = true) -> "FLAC"
+                    rawCodec.contains("mp3", ignoreCase = true) || rawCodec.contains("mpga", ignoreCase = true) -> "MP3"
+                    rawCodec.contains("aac", ignoreCase = true) || rawCodec.contains("mp4a", ignoreCase = true) -> "AAC"
+                    rawCodec.contains("ogg", ignoreCase = true) || rawCodec.contains("vorb", ignoreCase = true) -> "OGG"
+                    rawCodec.contains("opus", ignoreCase = true) -> "OPUS"
+                    rawCodec.contains("wav", ignoreCase = true) || rawCodec.contains("pcm", ignoreCase = true) -> "WAV"
+                    rawCodec.contains("alac", ignoreCase = true) -> "ALAC"
+                    else -> rawCodec.uppercase()
+                }
+                val isLossless = detectedFormat.equals("FLAC", true) || detectedFormat.equals("WAV", true) || detectedFormat.equals("ALAC", true)
+                current = cur.copy(
+                    format = detectedFormat.uppercase(),
+                    isLossless = isLossless
+                )
+                val qIdx = _queue.indexOfFirst { it.id == cur.id }
+                if (qIdx >= 0) {
+                    _queue[qIdx] = _queue[qIdx].copy(
+                        format = detectedFormat.uppercase(),
+                        isLossless = isLossless
+                    )
+                }
+                onTrackMetadataResolved?.invoke(cur.id, detectedFormat.uppercase(), isLossless)
+                syncState()
+            }
         }
 
         com.example.musicapp.platform.registerPlatformPlayerCallbacks(
@@ -817,7 +849,11 @@ class PlayerController(
                                 if (!isLive && authoritativeDur > 0) {
                                     durationMs = authoritativeDur
                                     if (current?.id == track.id) {
-                                        current = track.copy(durationMs = authoritativeDur)
+                                        current = current?.copy(durationMs = authoritativeDur) ?: track.copy(durationMs = authoritativeDur)
+                                    }
+                                    val qIdx = _queue.indexOfFirst { it.id == track.id }
+                                    if (qIdx >= 0) {
+                                        _queue[qIdx] = _queue[qIdx].copy(durationMs = authoritativeDur)
                                     }
                                     onTrackDurationResolved?.invoke(track.id, authoritativeDur)
                                 }

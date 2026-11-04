@@ -322,8 +322,13 @@ fun MusicApp(
     }
 
     LaunchedEffect(player, library) {
-        (player as? PlayerController)?.onTrackDurationResolved = { trackId, resolvedDur ->
-            library.updateTrackDuration(trackId, resolvedDur)
+        (player as? PlayerController)?.let { pc ->
+            pc.onTrackDurationResolved = { trackId, resolvedDur ->
+                library.updateTrackDuration(trackId, resolvedDur)
+            }
+            pc.onTrackMetadataResolved = { trackId, format, isLossless ->
+                library.updateTrackMetadata(trackId, format, isLossless)
+            }
         }
     }
 
