@@ -4,6 +4,7 @@ import com.example.musicapp.cache.AudioOfflineCache
 import com.example.musicapp.model.StreamSource
 import com.example.musicapp.platform.VlcBridge
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO as CIOClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
@@ -17,12 +18,12 @@ import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
-import io.ktor.server.response.respondOutputStream
+import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.head
 import io.ktor.server.routing.routing
-import io.ktor.utils.io.jvm.javaio.copyTo
+import io.ktor.utils.io.copyTo
 import java.net.ServerSocket
 import java.net.URI
 import java.util.UUID
@@ -121,8 +122,14 @@ object LocalStreamingProxy {
     private val proxyScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val proxyHttpClient: HttpClient by lazy {
-        HttpClient {
+        HttpClient(CIOClient) {
             followRedirects = false
+            engine {
+                maxConnectionsCount = 10
+                requestTimeout = 0  // unlimited for streaming
+                endpoint.keepAliveTime = 60_000
+                endpoint.connectTimeout = 10_000
+            }
         }
     }
 
@@ -567,7 +574,8 @@ fun configureStreamingProxyRoutes(
                 }
 
                 val channel = upstreamResponse.bodyAsChannel()
-                call.respondOutputStream(status = outgoingStatus) {
+                call.response.status(outgoingStatus)
+                call.respondBytesWriter(contentLength = outgoingContentLength) {
                     channel.copyTo(this)
                 }
             } catch (e: Exception) {

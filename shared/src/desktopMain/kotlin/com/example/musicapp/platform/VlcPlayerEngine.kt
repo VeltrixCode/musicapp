@@ -435,7 +435,11 @@ class VlcPlayerEngine : PlayerEngine {
                         mrl,
                         ":network-caching=100",
                         ":clock-jitter=0",
-                        ":clock-synchro=0"
+                        ":clock-synchro=0",
+                        ":demux=any",
+                        ":no-audio-time-stretch",
+                        ":http-continuous",
+                        ":http-forward-cookies"
                     )
                 } else {
                     player.media().play(mrl, ":file-caching=100")
