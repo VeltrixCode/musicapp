@@ -34,7 +34,7 @@ interface PlayerEngine {
     fun getEqualizerGainRange(): ClosedFloatingPointRange<Float> = -24f..12f
     fun getEqualizerBandFrequencies(): List<Int> = listOf(32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
     fun setSpectrumListener(listener: ((FloatArray) -> Unit)?)
-    var onAudioMetadataResolved: ((codec: String, bitDepth: Int, sampleRate: Int) -> Unit)?
+    var onAudioMetadataResolved: ((fourcc: String, codecDesc: String, sampleRate: Int) -> Unit)?
         get() = null
         set(_) {}
     fun release()

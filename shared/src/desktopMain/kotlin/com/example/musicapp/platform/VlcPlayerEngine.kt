@@ -229,7 +229,7 @@ class VlcPlayerEngine : PlayerEngine {
     private var onFinishedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
     private var spectrumCallback: ((FloatArray) -> Unit)? = null
-    override var onAudioMetadataResolved: ((codec: String, bitDepth: Int, sampleRate: Int) -> Unit)? = null
+    override var onAudioMetadataResolved: ((fourcc: String, codecDesc: String, sampleRate: Int) -> Unit)? = null
     private val currentSessionId = java.util.concurrent.atomic.AtomicLong(0L)
     private var currentPath: String? = null
     private var loadStartMs = 0L
@@ -408,17 +408,17 @@ class VlcPlayerEngine : PlayerEngine {
 
     private fun checkAndNotifyMetadata(mediaPlayer: MediaPlayer, eventSession: Long) {
         val metaCb = onAudioMetadataResolved ?: return
+        if (eventSession != currentSessionId.get()) return
         val tracks = runCatching { mediaPlayer.media()?.info()?.audioTracks() }.getOrNull() ?: emptyList()
         val first = tracks.firstOrNull() ?: return
-        val codec = first.codecName()?.takeIf { it.isNotBlank() }
-            ?: first.codecDescription()?.takeIf { it.isNotBlank() }
-            ?: return
+        val fourccStr = com.example.musicapp.util.fourccToString(first.codec())
+        val codecDesc = first.codecDescription() ?: first.codecName() ?: ""
         val rate = first.rate()
+        if (fourccStr.isBlank() && codecDesc.isBlank()) return
+        if (eventSession != currentSessionId.get()) return
         runOnUiThread {
-            playerLock.withLock {
-                if (eventSession == currentSessionId.get()) {
-                    metaCb(codec, 0, rate)
-                }
+            if (eventSession == currentSessionId.get()) {
+                metaCb(fourccStr, codecDesc, rate)
             }
         }
     }

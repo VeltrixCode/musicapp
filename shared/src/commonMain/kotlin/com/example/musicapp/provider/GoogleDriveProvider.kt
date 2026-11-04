@@ -128,16 +128,8 @@ class GoogleDriveProvider(
                 val artist = if (parts.size == 2) parts[0].trim() else "Google Диск"
                 val title = if (parts.size == 2) parts[1].trim() else cleanTitle
 
-                val rawMime = f.mimeType?.lowercase() ?: ""
-                val (detectedFormat, isLosslessTrack) = when {
-                    rawMime.contains("flac") || f.name.endsWith(".flac", ignoreCase = true) -> Pair("FLAC", true)
-                    rawMime.contains("wav") || f.name.endsWith(".wav", ignoreCase = true) -> Pair("WAV", true)
-                    rawMime.contains("ogg") || rawMime.contains("vorbis") || f.name.endsWith(".ogg", ignoreCase = true) -> Pair("OGG", false)
-                    rawMime.contains("mp4") || rawMime.contains("aac") || rawMime.contains("m4a") -> Pair("AAC", false)
-                    rawMime.contains("mp3") || rawMime.contains("mpeg") || f.name.endsWith(".mp3", ignoreCase = true) -> Pair("MP3", false)
-                    f.name.contains('.') -> Pair(f.name.substringAfterLast('.').uppercase(), false)
-                    else -> Pair("AUDIO", false)
-                }
+                val detectedFormat = com.example.musicapp.util.detectFormatFromName(f.name, f.mimeType)
+                val isLosslessTrack = detectedFormat in listOf("FLAC", "WAV", "ALAC")
 
                 RemoteTrack(
                     id = "gdrive_${f.id}",
@@ -209,16 +201,8 @@ class GoogleDriveProvider(
                 val artist = if (parts.size == 2) parts[0].trim() else "Google Диск"
                 val title = if (parts.size == 2) parts[1].trim() else cleanTitle
 
-                val rawMime = f.mimeType?.lowercase() ?: ""
-                val (detectedFormat, isLosslessTrack) = when {
-                    rawMime.contains("flac") || f.name.endsWith(".flac", ignoreCase = true) -> Pair("FLAC", true)
-                    rawMime.contains("wav") || f.name.endsWith(".wav", ignoreCase = true) -> Pair("WAV", true)
-                    rawMime.contains("ogg") || rawMime.contains("vorbis") || f.name.endsWith(".ogg", ignoreCase = true) -> Pair("OGG", false)
-                    rawMime.contains("mp4") || rawMime.contains("aac") || rawMime.contains("m4a") -> Pair("AAC", false)
-                    rawMime.contains("mp3") || rawMime.contains("mpeg") || f.name.endsWith(".mp3", ignoreCase = true) -> Pair("MP3", false)
-                    f.name.contains('.') -> Pair(f.name.substringAfterLast('.').uppercase(), false)
-                    else -> Pair("AUDIO", false)
-                }
+                val detectedFormat = com.example.musicapp.util.detectFormatFromName(f.name, f.mimeType)
+                val isLosslessTrack = detectedFormat in listOf("FLAC", "WAV", "ALAC")
 
                 RemoteTrack(
                     id = "gdrive_${f.id}",

@@ -402,33 +402,31 @@ class PlayerController(
         }
 
         // Setup reactive audio metadata resolution callback (e.g. from LibVLC)
-        engine.onAudioMetadataResolved = { rawCodec, bitDepth, sampleRate ->
+        engine.onAudioMetadataResolved = { fourcc, codecDesc, sampleRate ->
             runOnUiThread {
                 val cur = current ?: return@runOnUiThread
-                val detectedFormat = when {
-                    rawCodec.contains("flac", ignoreCase = true) -> "FLAC"
-                    rawCodec.contains("mp3", ignoreCase = true) || rawCodec.contains("mpga", ignoreCase = true) -> "MP3"
-                    rawCodec.contains("aac", ignoreCase = true) || rawCodec.contains("mp4a", ignoreCase = true) -> "AAC"
-                    rawCodec.contains("ogg", ignoreCase = true) || rawCodec.contains("vorb", ignoreCase = true) -> "OGG"
-                    rawCodec.contains("opus", ignoreCase = true) -> "OPUS"
-                    rawCodec.contains("wav", ignoreCase = true) || rawCodec.contains("pcm", ignoreCase = true) -> "WAV"
-                    rawCodec.contains("alac", ignoreCase = true) -> "ALAC"
-                    else -> rawCodec.uppercase()
-                }
-                val isLossless = detectedFormat.equals("FLAC", true) || detectedFormat.equals("WAV", true) || detectedFormat.equals("ALAC", true)
-                current = cur.copy(
-                    format = detectedFormat.uppercase(),
-                    isLossless = isLossless
-                )
-                val qIdx = _queue.indexOfFirst { it.id == cur.id }
-                if (qIdx >= 0) {
-                    _queue[qIdx] = _queue[qIdx].copy(
-                        format = detectedFormat.uppercase(),
+                val (detectedFormat, isLossless) = com.example.musicapp.util.mapCodecToFormat(fourcc, codecDesc)
+                val isVlcFormatValid = detectedFormat in com.example.musicapp.util.VALID_AUDIO_FORMATS
+                val isCurFormatEmptyOrPlaceholder = cur.format.isNullOrBlank() || cur.format.equals("AUDIO", ignoreCase = true)
+
+                // Overwrite ONLY if VLC detected a verified valid audio format,
+                // OR if current format was empty/placeholder and VLC provided a format other than AUDIO.
+                // Value from VLC never replaces an already valid format with AUDIO.
+                if (isVlcFormatValid || (isCurFormatEmptyOrPlaceholder && detectedFormat != "AUDIO")) {
+                    current = cur.copy(
+                        format = detectedFormat,
                         isLossless = isLossless
                     )
+                    val qIdx = _queue.indexOfFirst { it.id == cur.id }
+                    if (qIdx >= 0) {
+                        _queue[qIdx] = _queue[qIdx].copy(
+                            format = detectedFormat,
+                            isLossless = isLossless
+                        )
+                    }
+                    onTrackMetadataResolved?.invoke(cur.id, detectedFormat, isLossless)
+                    syncState()
                 }
-                onTrackMetadataResolved?.invoke(cur.id, detectedFormat.uppercase(), isLossless)
-                syncState()
             }
         }
 
