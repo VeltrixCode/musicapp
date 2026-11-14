@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -100,6 +101,7 @@ fun ThemeCustomizationDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier
             .widthIn(min = 480.dp, max = 680.dp)
+            .fillMaxHeight(0.88f)
             .clip(RoundedCornerShape(16.dp))
     ) {
         Surface(
@@ -205,14 +207,14 @@ fun ThemeCustomizationDialog(
                                 Spacer(Modifier.width(spacing.sm))
                                 Column {
                                     Text(
-                                        "PHANTOM / СНАЙПЕР",
+                                        "Название трека",
                                         style = MaterialTheme.typography.bodyMedium.copy(
                                             fontWeight = FontWeight.Bold,
                                             color = AppColors.TextPrimary
                                         )
                                     )
                                     Text(
-                                        "Демонстрация активного стиля",
+                                        "Исполнитель",
                                         style = MaterialTheme.typography.bodySmall.copy(
                                             color = AppColors.TextSecondary
                                         )
@@ -229,7 +231,7 @@ fun ThemeCustomizationDialog(
                                     "Акцент",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (com.example.musicapp.theme.isLightColor(AppColors.Accent)) Color.Black else Color.White
+                                    color = AppColors.OnAccent
                                 )
                             }
                         }
@@ -553,7 +555,7 @@ fun ThemeCustomizationDialog(
                                 )
                             )
                             Text(
-                                "Стиль референса: 2 колонки, часы, визуализатор и текст",
+                                "2 колонки, часы, визуализатор и текст",
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = AppColors.TextSecondary,
                                     fontSize = 10.5.sp
@@ -653,7 +655,7 @@ fun ThemeCustomizationDialog(
                         onClick = onDismiss,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = AppColors.Accent,
-                            contentColor = if (com.example.musicapp.theme.isLightColor(AppColors.Accent)) Color.Black else Color.White
+                            contentColor = AppColors.OnAccent
                         ),
                         shape = RoundedCornerShape(8.dp)
                     ) {

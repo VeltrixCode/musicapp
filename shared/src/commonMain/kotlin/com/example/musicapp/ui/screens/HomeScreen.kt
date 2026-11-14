@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
@@ -246,61 +248,105 @@ fun HomeScreen(
 
         // Quick Cards Adaptive Grid (min ~280dp, max 4-5 columns)
         val quickCards = buildList {
-            add(QuickCardData("Любимые треки", Icons.Rounded.Favorite, Color(0xFF0F5A3E), favoriteTracks))
-            add(QuickCardData("Микс дня", Icons.Rounded.Shuffle, Color(0xFF1E3264), mixOfDay))
-            add(QuickCardData("Свежее в медиатеке", Icons.Rounded.Explore, Color(0xFF148A3C), recentlyAdded))
-            add(QuickCardData("Часто слушаемое", Icons.Rounded.PlayArrow, Color(0xFF8D67AB), frequentlyPlayed))
-            if (isOnline) {
+            if (favoriteTracks.isNotEmpty()) {
+                add(QuickCardData("Любимые треки", Icons.Rounded.Favorite, Color(0xFF0F5A3E), favoriteTracks))
+            }
+            if (mixOfDay.isNotEmpty()) {
+                add(QuickCardData("Микс дня", Icons.Rounded.Shuffle, Color(0xFF1E3264), mixOfDay))
+            }
+            if (recentlyAdded.isNotEmpty()) {
+                add(QuickCardData("Свежее в медиатеке", Icons.Rounded.Explore, Color(0xFF148A3C), recentlyAdded))
+            }
+            if (frequentlyPlayed.isNotEmpty()) {
+                add(QuickCardData("Часто слушаемое", Icons.Rounded.PlayArrow, Color(0xFF8D67AB), frequentlyPlayed))
+            }
+            if (isOnline && cloudTracks.isNotEmpty()) {
                 add(QuickCardData("Новое в облаке", Icons.Rounded.CloudQueue, Color(0xFFE91429), cloudTracks))
             }
         }
 
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val totalCards = quickCards.size
-            val maxColsPossible = (maxWidth / 220.dp).toInt().coerceIn(2, 6)
-            val columns = when {
-                totalCards <= 2 -> 2
-                totalCards <= maxColsPossible -> totalCards
-                totalCards == 4 && maxColsPossible in 2..3 -> 2
-                totalCards == 4 && maxColsPossible >= 4 -> 4
-                else -> (maxColsPossible downTo 2).firstOrNull { totalCards % it == 0 } ?: maxColsPossible
+        if (quickCards.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(AppColors.Surface)
+                    .border(1.dp, AppColors.Border, RoundedCornerShape(12.dp))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Rounded.MusicNote,
+                        contentDescription = null,
+                        tint = AppColors.Accent,
+                        modifier = Modifier.size(44.dp)
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Медиатека пока пуста",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary
+                        )
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Импортируйте треки кнопкой «Файл» / «Папка» вверху или подключите облако в разделе «Источники»",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = AppColors.TextSecondary
+                        )
+                    )
+                }
             }
-            val chunks = quickCards.chunked(columns)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                chunks.forEach { rowCards ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        rowCards.forEach { card ->
-                            val (cardType, cardId) = if (card.title == "Любимые треки") {
-                                PlaybackContextType.Playlist to FAVORITES_PLAYLIST_ID
-                            } else {
-                                PlaybackContextType.SmartMix to card.title
-                            }
-                            val isCardPlaying = player.isContextPlaying(cardType, cardId)
-                            QuickGridCard(
-                                data = card,
-                                isPlaying = isCardPlaying,
-                                modifier = Modifier.weight(1f),
-                                onPlay = {
-                                    if (isCardPlaying) {
-                                        player.pause()
-                                    } else if (player.playbackContext.value?.type == cardType && player.playbackContext.value?.id == cardId && player.current != null) {
-                                        player.resume()
-                                    } else if (card.tracks.isNotEmpty()) {
-                                        val ctx = PlaybackContext(cardType, cardId, card.title)
-                                        player.play(card.tracks.first(), card.tracks, ctx)
-                                    }
-                                },
-                                onClick = {
-                                    when (card.title) {
-                                        "Любимые треки" -> onNavigatePlaylist(FAVORITES_PLAYLIST_ID)
-                                        "Новое в облаке" -> onNavigateCloud()
-                                        else -> onNavigateSmartMix(card.title)
-                                    }
+        } else {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val totalCards = quickCards.size
+                val maxColsPossible = (maxWidth / 220.dp).toInt().coerceIn(2, 6)
+                val columns = when {
+                    totalCards <= 2 -> 2
+                    totalCards <= maxColsPossible -> totalCards
+                    totalCards == 4 && maxColsPossible in 2..3 -> 2
+                    totalCards == 4 && maxColsPossible >= 4 -> 4
+                    else -> (maxColsPossible downTo 2).firstOrNull { totalCards % it == 0 } ?: maxColsPossible
+                }
+                val chunks = quickCards.chunked(columns)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    chunks.forEach { rowCards ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            rowCards.forEach { card ->
+                                val (cardType, cardId) = if (card.title == "Любимые треки") {
+                                    PlaybackContextType.Playlist to FAVORITES_PLAYLIST_ID
+                                } else {
+                                    PlaybackContextType.SmartMix to card.title
                                 }
-                            )
+                                val isCardPlaying = player.isContextPlaying(cardType, cardId)
+                                QuickGridCard(
+                                    data = card,
+                                    isPlaying = isCardPlaying,
+                                    modifier = Modifier.weight(1f),
+                                    onPlay = {
+                                        if (isCardPlaying) {
+                                            player.pause()
+                                        } else if (player.playbackContext.value?.type == cardType && player.playbackContext.value?.id == cardId && player.current != null) {
+                                            player.resume()
+                                        } else if (card.tracks.isNotEmpty()) {
+                                            val ctx = PlaybackContext(cardType, cardId, card.title)
+                                            player.play(card.tracks.first(), card.tracks, ctx)
+                                        }
+                                    },
+                                    onClick = {
+                                        when (card.title) {
+                                            "Любимые треки" -> onNavigatePlaylist(FAVORITES_PLAYLIST_ID)
+                                            "Новое в облаке" -> onNavigateCloud()
+                                            else -> onNavigateSmartMix(card.title)
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }

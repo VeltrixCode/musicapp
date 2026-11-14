@@ -228,7 +228,11 @@ class GoogleDriveProvider(
         val url = "https://www.googleapis.com/drive/v3/files/$rawId?alt=media"
         val headers = mutableMapOf<String, String>()
         val token = getValidToken()
-        token?.let { headers["Authorization"] = "Bearer $it" }
+        if (token.isNullOrBlank()) {
+            markNeedsReauth(true)
+            throw IllegalStateException("Сессия Google Диска истекла. Пожалуйста, выполните повторный вход в разделе «Источники».")
+        }
+        headers["Authorization"] = "Bearer $token"
         return StreamSource(
             url = url,
             headers = headers,

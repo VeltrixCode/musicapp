@@ -800,7 +800,18 @@ class PlayerController(
                             unsupportedFormatNotice = "Формат FLAC/OGG не поддерживается встроенным движком JavaFX Media. Рекомендуется MP3/M4A/AAC или библиотека VLCJ."
                         }
 
-                        val streamSource = providerRegistry.getStreamSource(track)
+                        val streamSource = try {
+                            providerRegistry.getStreamSource(track)
+                        } catch (e: Exception) {
+                            val errorMsg = e.message ?: "Ошибка получения аудиопотока"
+                            runOnUiThread {
+                                engine.stop()
+                                isPlaying = false
+                                postError(com.example.musicapp.model.AppError.Generic(errorMsg))
+                                syncState()
+                            }
+                            return@launch
+                        }
                         ensureActive()
                         if (streamSource != null) {
                             // Queue background download only if auto-cache is explicitly enabled by user

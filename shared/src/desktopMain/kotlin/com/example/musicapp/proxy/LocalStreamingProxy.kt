@@ -522,6 +522,8 @@ fun configureStreamingProxyRoutes(
 
                 if (upstreamResponse.status.value >= 400) {
                     VlcBridge.logEngineError("Proxy upstream HTTP error ${upstreamResponse.status.value} for token=$token (Range: $incomingRange, URL: ${streamSource.url.take(120)})")
+                    call.respond(upstreamResponse.status)
+                    return@get
                 }
 
                 val isRangeRequest = !incomingRange.isNullOrBlank()

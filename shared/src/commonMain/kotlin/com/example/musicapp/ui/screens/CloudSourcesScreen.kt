@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -216,6 +217,7 @@ fun CloudSourcesScreen(
 
         // Provider Card 1: Google Drive
         val isGDriveNeedsReauth by registry.gdrive.needsReauth.collectAsState()
+        val isReauthNeeded = isGDriveNeedsReauth || appSettings.lastSyncStatus?.contains("Нужен повторный вход") == true
         val gdriveTracksCount = library.tracks.count { it.sourceProvider == com.example.musicapp.model.TrackSource.GOOGLE_DRIVE }
         val gdriveSyncInfo = buildString {
             if (gdriveTracksCount > 0) append("$gdriveTracksCount трек(ов) • ")
@@ -223,55 +225,21 @@ fun CloudSourcesScreen(
             append(formatSyncTime(appSettings.lastSyncTimeMs))
         }
 
-        if (isGDriveNeedsReauth || appSettings.lastSyncStatus?.contains("Нужен повторный вход") == true) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF3B1F24))
-                    .padding(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                        Text(
-                            "Нужен повторный вход в Google Диск",
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFF6B6B),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "Срок действия токена истек (ограничение 7 дней в режиме Testing OAuth). Нажмите кнопку для входа.",
-                            color = AppColors.TextSecondary,
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    Button(
-                        onClick = { showGDriveTokenDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
-                    ) {
-                        Text("Войти снова", color = Color.Black, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
-
         CloudProviderItem(
             name = "Google Диск",
-            description = if (gdriveTracksCount > 0) {
+            description = if (isReauthNeeded) {
+                "Срок действия токена истек (ограничение Testing OAuth). Нажмите «Войти снова» для продолжения работы."
+            } else if (gdriveTracksCount > 0) {
                 "Синхронизировано $gdriveTracksCount треков. Они доступны в разделе «Медиатека» (фильтр «Google Диск»)."
             } else {
                 "OAuth 2.0 PKCE • Чтение файлов audio/* • Потоковое воспроизведение с Range"
             },
-            isConnected = isGDriveSignedIn,
+            isConnected = isGDriveSignedIn && !isReauthNeeded,
+            isReauthNeeded = isReauthNeeded,
             accountEmail = appSettings.gdriveAccountEmail ?: if (isGDriveSignedIn) "Google Drive Account" else null,
             folderId = appSettings.gdriveSyncFolderId,
             lastSyncTime = gdriveSyncInfo,
+            connectButtonText = if (isReauthNeeded) "Войти снова" else "Подключить",
             onSelectFolder = {
                 folderInput = appSettings.gdriveSyncFolderId ?: ""
                 showGDriveFolderDialog = true
@@ -1255,6 +1223,7 @@ private fun CloudProviderItem(
     name: String,
     description: String,
     isConnected: Boolean,
+    isReauthNeeded: Boolean = false,
     accountEmail: String? = null,
     folderId: String? = null,
     lastSyncTime: String? = null,
@@ -1264,6 +1233,22 @@ private fun CloudProviderItem(
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
+    val iconBg = when {
+        isReauthNeeded -> Color(0xFFE91429).copy(alpha = 0.2f)
+        isConnected -> AppColors.Accent.copy(alpha = 0.2f)
+        else -> AppColors.SurfaceElevated
+    }
+    val iconTint = when {
+        isReauthNeeded -> Color(0xFFFF6B6B)
+        isConnected -> AppColors.Accent
+        else -> AppColors.TextMuted
+    }
+    val iconVector = when {
+        isReauthNeeded -> Icons.Rounded.Warning
+        isConnected -> Icons.Rounded.CloudDone
+        else -> Icons.Rounded.CloudOff
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1282,35 +1267,60 @@ private fun CloudProviderItem(
                         modifier = Modifier
                             .size(44.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isConnected) AppColors.Accent.copy(alpha = 0.2f) else AppColors.SurfaceElevated),
+                            .background(iconBg),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (isConnected) Icons.Rounded.CloudDone else Icons.Rounded.CloudOff,
+                            imageVector = iconVector,
                             contentDescription = null,
-                            tint = if (isConnected) AppColors.Accent else AppColors.TextMuted,
+                            tint = iconTint,
                             modifier = Modifier.size(24.dp)
                         )
                     }
                     Spacer(Modifier.width(14.dp))
                     Column {
                         Text(name, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
-                        Text(description, style = MaterialTheme.typography.bodySmall, color = AppColors.TextSecondary)
+                        Text(
+                            description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isReauthNeeded) Color(0xFFFF6B6B) else AppColors.TextSecondary
+                        )
                     }
                 }
 
                 if (!isAlwaysActive) {
                     Spacer(Modifier.width(16.dp))
-                    if (isConnected) {
+                    if (isReauthNeeded) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(onClick = onDisconnect) {
+                                Text("Отключить", color = AppColors.Error)
+                            }
+                            Button(
+                                onClick = onConnect,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = AppColors.Accent,
+                                    contentColor = AppColors.OnAccent
+                                )
+                            ) {
+                                Text("Войти снова", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    } else if (isConnected) {
                         OutlinedButton(onClick = onDisconnect) {
                             Text("Отключить", color = AppColors.Error)
                         }
                     } else {
                         Button(
                             onClick = onConnect,
-                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AppColors.Accent,
+                                contentColor = AppColors.OnAccent
+                            )
                         ) {
-                            Text(connectButtonText, color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text(connectButtonText, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {

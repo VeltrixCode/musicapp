@@ -73,7 +73,7 @@ object ThemePresets {
     val PHANTOM = ThemePreset(
         id = "PHANTOM",
         name = "Phantom Cyber-Noir",
-        description = "Ультра-тёмный эстетичный минимализм из референса",
+        description = "Ультра-тёмный минимализм",
         background = Color(0xFF090909),
         surface = Color(0xFF131313),
         surfaceElevated = Color(0xFF1D1D1D),
@@ -250,7 +250,7 @@ fun Color.darken(factor: Float): Color {
 
 fun isLightColor(color: Color): Boolean {
     val lum = 0.299f * color.red + 0.587f * color.green + 0.114f * color.blue
-    return lum > 0.55f
+    return lum > 0.50f
 }
 
 /**
@@ -269,6 +269,7 @@ object AppColors {
     val Accent: Color get() = customAccent ?: currentPalette.defaultAccent
     val AccentHover: Color get() = Accent.lighten(0.12f)
     val AccentPressed: Color get() = Accent.darken(0.15f)
+    val OnAccent: Color get() = if (isLightColor(Accent)) Color(0xFF101010) else Color(0xFFFFFFFF)
 
     val TextPrimary: Color get() = currentPalette.textPrimary
     // #B3B3B3 on #121212 yields ~7.5:1 contrast ratio (exceeds WCAG AA 4.5:1 requirement)
@@ -392,6 +393,9 @@ fun fallbackGradientFor(seed: String): Brush {
     val idx = abs(seed.hashCode()) % VibrantGradients.size
     return Brush.verticalGradient(VibrantGradients[idx])
 }
+
+fun neutralCoverBrush(): Brush =
+    Brush.verticalGradient(listOf(AppColors.SurfaceElevated, AppColors.Surface))
 
 @Composable
 fun AppTheme(
