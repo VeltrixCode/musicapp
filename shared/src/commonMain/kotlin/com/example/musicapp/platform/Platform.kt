@@ -48,6 +48,8 @@ expect fun runOnUiThread(block: () -> Unit)
 
 expect fun currentTimeMillis(): Long
 
+expect fun getLiveFormattedTimeAndDate(): Pair<String, String>
+
 data class TrackInfo(
     val title: String?,
     val artist: String?,

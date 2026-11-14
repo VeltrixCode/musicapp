@@ -54,6 +54,7 @@ import com.example.musicapp.util.getEffectiveDurationMs
 import com.example.musicapp.ui.screens.CloudSourcesScreen
 import com.example.musicapp.ui.screens.HomeScreen
 import com.example.musicapp.ui.screens.SearchScreen
+import com.example.musicapp.ui.components.ThemeCustomizationDialog
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -304,8 +305,13 @@ fun MusicApp(
     var showEqualizerDialog by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
+    var showThemeCustomizationDialog by remember { mutableStateOf(false) }
     var isFullscreenNowPlaying by remember { mutableStateOf(false) }
     var renamingTrack by remember { mutableStateOf<Track?>(null) }
+
+    LaunchedEffect(Unit) {
+        AppColors.applyTheme(initialSettings.themePresetId, initialSettings.customAccentHex)
+    }
 
     // Search debounce 250ms
     LaunchedEffect(searchQuery) {
@@ -456,6 +462,7 @@ fun MusicApp(
                                         }
                                     },
                                     onOpenSources = { navigateTo(AppScreen.CloudSources) },
+                                    onOpenThemeCustomization = { showThemeCustomizationDialog = true },
                                     isCompact = isCompact,
                                     isSyncing = (player as? PlayerController)?.providerRegistry?.isSyncing?.collectAsState()?.value ?: false,
                                     isOffline = settingsRepo.settings.collectAsState().value.offlineMode,
@@ -806,9 +813,11 @@ fun MusicApp(
                     FullscreenNowPlayingView(
                         player = player,
                         library = library,
+                        settingsRepository = settingsRepo,
                         onOpenEqualizer = { showEqualizerDialog = true },
                         onOpenSpeed = { showSpeedDialog = true },
                         onOpenSleepTimer = { showSleepTimerDialog = true },
+                        onOpenThemeCustomization = { showThemeCustomizationDialog = true },
                         onClose = { isFullscreenNowPlaying = false }
                     )
                 }
@@ -917,6 +926,13 @@ fun MusicApp(
         SpeedDialog(
             player = player,
             onDismiss = { showSpeedDialog = false }
+        )
+    }
+
+    if (showThemeCustomizationDialog) {
+        ThemeCustomizationDialog(
+            settingsRepository = settingsRepo,
+            onDismiss = { showThemeCustomizationDialog = false }
         )
     }
 

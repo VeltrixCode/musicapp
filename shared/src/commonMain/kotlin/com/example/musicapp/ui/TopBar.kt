@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Button
@@ -62,6 +63,7 @@ internal fun AppTopBar(
     onUploadSong: () -> Unit,
     onUploadFolder: () -> Unit,
     onOpenSources: () -> Unit,
+    onOpenThemeCustomization: () -> Unit = {},
     isCompact: Boolean,
     isSyncing: Boolean = false,
     isOffline: Boolean = false,
@@ -227,6 +229,22 @@ internal fun AppTopBar(
                 }
                 Spacer(Modifier.width(spacing.xs))
             }
+
+            IconButton(
+                onClick = onOpenThemeCustomization,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(AppColors.SurfaceElevated)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Palette,
+                    contentDescription = "Оформление и темы",
+                    tint = AppColors.Accent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Spacer(Modifier.width(spacing.xs))
 
             if (isCompact) {
                 var menuOpen by remember { mutableStateOf(false) }

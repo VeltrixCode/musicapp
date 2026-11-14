@@ -33,6 +33,20 @@ actual fun runOnUiThread(block: () -> Unit) {
 
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
 
+actual fun getLiveFormattedTimeAndDate(): Pair<String, String> {
+    val cal = java.util.Calendar.getInstance()
+    val hour = cal.get(java.util.Calendar.HOUR_OF_DAY).toString().padStart(2, '0')
+    val minute = cal.get(java.util.Calendar.MINUTE).toString().padStart(2, '0')
+    val time = "$hour:$minute"
+    val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
+    val months = listOf("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря")
+    val month = months.getOrElse(cal.get(java.util.Calendar.MONTH)) { "" }
+    val dows = listOf("ВС", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ")
+    val dow = dows.getOrElse((cal.get(java.util.Calendar.DAY_OF_WEEK) - 1).coerceIn(0, 6)) { "" }
+    val date = "$day $month $dow"
+    return Pair(time, date)
+}
+
 actual fun readTrackInfo(path: String): TrackInfo? = runCatching {
     val file = AudioFileIO.read(File(path))
     val tag = file.tag

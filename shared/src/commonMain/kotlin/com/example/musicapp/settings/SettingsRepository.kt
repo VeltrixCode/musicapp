@@ -46,6 +46,9 @@ data class AppSettings(
     val sidebarWidthDp: Float = 240f,
     val isAutoCacheEnabled: Boolean = false,
     val lastSyncStatus: String? = null,
+    val themePresetId: String = "JVX_DEFAULT",
+    val customAccentHex: String? = null,
+    val playerViewMode: String = "PHANTOM_DASHBOARD",
 )
 
 class SettingsRepository {
