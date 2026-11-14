@@ -26,13 +26,20 @@ class ThemeTest {
         assertNotNull(presets.find { it.id == "SUNSET_AMBER" })
         assertNotNull(presets.find { it.id == "CRIMSON" })
         assertNotNull(presets.find { it.id == "AMOLED" })
+        assertNotNull(presets.find { it.id == "RETRO_VINYL" })
+        assertNotNull(presets.find { it.id == "DEEP_SPACE" })
+        assertNotNull(presets.find { it.id == "NORDIC_FROST" })
+        assertNotNull(presets.find { it.id == "ANIME_LOFI" })
 
-        // Check color integrity
+        // Check color integrity and visual metadata
         presets.forEach { p ->
             assertTrue(p.name.isNotBlank(), "Preset name should not be blank")
             assertTrue(p.background.alpha > 0f)
             assertTrue(p.surface.alpha > 0f)
             assertTrue(p.defaultAccent.alpha > 0f)
+            assertNotNull(p.pattern, "Preset pattern should not be null")
+            assertNotNull(p.illustrationKind, "Preset illustrationKind should not be null")
+            assertTrue(p.badgeText.isNotBlank(), "Preset badgeText should not be blank")
         }
     }
 
@@ -41,8 +48,39 @@ class ThemeTest {
         assertEquals(ThemePresets.PHANTOM, ThemePresets.fromId("PHANTOM"))
         assertEquals(ThemePresets.PHANTOM, ThemePresets.fromId("phantom"))
         assertEquals(ThemePresets.JVX_EMERALD, ThemePresets.fromId("JVX_DEFAULT"))
+        assertEquals(ThemePresets.CYBERPUNK_VIOLET, ThemePresets.fromId("CYBERPUNK"))
+        assertEquals(ThemePresets.RETRO_VINYL, ThemePresets.fromId("RETRO_VINYL"))
+        assertEquals(ThemePresets.DEEP_SPACE, ThemePresets.fromId("DEEP_SPACE"))
+        assertEquals(ThemePresets.NORDIC_FROST, ThemePresets.fromId("NORDIC_FROST"))
+        assertEquals(ThemePresets.ANIME_LOFI, ThemePresets.fromId("ANIME_LOFI"))
         assertEquals(ThemePresets.JVX_EMERALD, ThemePresets.fromId("unknown_id"))
         assertEquals(ThemePresets.JVX_EMERALD, ThemePresets.fromId(null))
+    }
+
+    @Test
+    fun testThemeConfigSerialization() {
+        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        val config = ThemeConfig(
+            presetId = "CYBERPUNK",
+            customAccentHex = "#00E5FF",
+            patternEnabled = true,
+            patternStyle = "CYBER_GRID",
+            ambientGlowEnabled = true
+        )
+        val encoded = json.encodeToString(config)
+        assertTrue(encoded.contains("\"presetId\":\"CYBERPUNK\""))
+        assertTrue(encoded.contains("\"patternEnabled\":true"))
+
+        val decoded = json.decodeFromString<ThemeConfig>(encoded)
+        assertEquals("CYBERPUNK", decoded.presetId)
+        assertEquals("#00E5FF", decoded.customAccentHex)
+        assertTrue(decoded.patternEnabled)
+
+        // Backwards compatibility with empty json
+        val defaultDecoded = json.decodeFromString<ThemeConfig>("{}")
+        assertEquals("JVX_DEFAULT", defaultDecoded.presetId)
+        assertNull(defaultDecoded.customAccentHex)
+        assertTrue(defaultDecoded.patternEnabled)
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.example.musicapp.settings
 
 import com.example.musicapp.platform.AppStorage
 import com.example.musicapp.player.RepeatMode
+import com.example.musicapp.theme.ThemeConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -48,7 +49,9 @@ data class AppSettings(
     val lastSyncStatus: String? = null,
     val themePresetId: String = "JVX_DEFAULT",
     val customAccentHex: String? = null,
+    val showThemeBackdrop: Boolean = true,
     val playerViewMode: String = "PHANTOM_DASHBOARD",
+    val themeConfig: ThemeConfig = ThemeConfig(presetId = themePresetId, customAccentHex = customAccentHex, patternEnabled = showThemeBackdrop),
 )
 
 class SettingsRepository {

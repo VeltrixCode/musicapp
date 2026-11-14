@@ -2,9 +2,11 @@ package com.example.musicapp.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode as AnimRepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -40,6 +42,10 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1028,29 +1034,110 @@ internal fun VolumeScrubBar(
 }
 
 @Composable
-internal fun SpectrumCanvas(
-    spectrum: FloatArray,
-    modifier: Modifier = Modifier,
+internal fun AudioVisualizerView(
+    spectrum: FloatArray = remember { FloatArray(0) },
+    isPlaying: Boolean = false,
     barColor: Color = AppColors.Accent,
+    modifier: Modifier = Modifier,
+    barCount: Int = 28,
 ) {
+    val hasRealSpectrum = isPlaying && spectrum.isNotEmpty() && spectrum.any { it > 0.02f }
+
+    // Smooth active playback transition: rises when playing, smooth decay to idle baseline when paused
+    val activeProgress by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0f,
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        label = "visualizerActiveProgress"
+    )
+
+    // Continuous rhythmic phase loop driven during playback
+    val infiniteTransition = rememberInfiniteTransition(label = "visualizerAnim")
+    val phase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = (2f * PI.toFloat()) * 30f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 30_000, easing = LinearEasing),
+            repeatMode = AnimRepeatMode.Restart
+        ),
+        label = "visualizerPhase"
+    )
+
     androidx.compose.foundation.Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height
-        val bands = spectrum.size.coerceAtLeast(1)
-        val barW = (w / bands.toFloat()) * 0.75f
-        val gap = (w / bands.toFloat()) * 0.25f
+        val bands = if (hasRealSpectrum && spectrum.size >= 8) spectrum.size else barCount.coerceAtLeast(12)
+        val gapRatio = 0.25f
+        val slotW = w / bands.toFloat()
+        val barW = (slotW * (1f - gapRatio)).coerceAtLeast(1.5f)
+        val gap = slotW * gapRatio
+
+        // Dynamic color: subtle translucent accent at idle, full vibrant accent when active
+        val effectiveColor = barColor.copy(alpha = (0.35f + 0.65f * activeProgress).coerceIn(0.2f, 1f))
+        val minBarH = 2.5.dp.toPx()
 
         for (i in 0 until bands) {
-            val magnitude = spectrum[i].coerceIn(0.05f, 1.0f)
-            val barH = h * magnitude
+            val magnitude: Float = if (hasRealSpectrum) {
+                val realVal = spectrum.getOrElse(i) { 0f }.coerceIn(0f, 1f)
+                (realVal * activeProgress).coerceIn(0.05f, 1.0f)
+            } else {
+                val x = i.toFloat() / (bands - 1).coerceAtLeast(1)
+
+                // Rhythmic multi-frequency waveform:
+                // 1. Bass punch & kick pulse (heavier on lower frequencies)
+                val bassPunch = (sin(phase * 2.2f).pow(2)) * (1f - x).coerceAtLeast(0f)
+                val kickBeat = (sin(phase * 4.4f).pow(4)) * 0.5f
+
+                // 2. Mid harmonic undulation
+                val midWave1 = sin(phase * 3.6f + i * 0.45f) * 0.5f + 0.5f
+                val midWave2 = cos(phase * 5.8f - i * 0.35f) * 0.5f + 0.5f
+
+                // 3. High shimmer / treble flutter
+                val highFlutter = (sin(phase * 11.2f + i * 1.4f) * cos(phase * 7.4f - i * 0.8f)) * 0.5f + 0.5f
+
+                // Spectral envelope shape (rich bass & mids, natural treble taper)
+                val envelope = 0.5f + 0.5f * sin((x * 0.85f + 0.08f) * PI.toFloat())
+                val barVariance = sin(i * 1.8f + phase * 1.2f) * 0.12f
+
+                val synthAmp = (
+                    bassPunch * 0.35f +
+                    kickBeat * 0.20f +
+                    midWave1 * 0.30f +
+                    midWave2 * 0.20f +
+                    highFlutter * 0.25f * x +
+                    barVariance
+                ).coerceIn(0f, 1.2f)
+
+                val dynamicBar = (synthAmp * envelope).coerceIn(0.12f, 0.95f)
+
+                // When playing: lively rhythmic dance. When paused: smoothly decays to 0.05f idle baseline.
+                (dynamicBar * activeProgress).coerceIn(0.05f, 1.0f)
+            }
+
+            val barH = maxOf(h * magnitude, minBarH)
+            val left = i * (barW + gap)
             drawRoundRect(
-                color = barColor,
-                topLeft = Offset(i * (barW + gap), h - barH),
+                color = effectiveColor,
+                topLeft = Offset(left, h - barH),
                 size = Size(barW, barH),
-                cornerRadius = CornerRadius(barW / 2f)
+                cornerRadius = CornerRadius(barW / 2f, barW / 2f)
             )
         }
     }
+}
+
+@Composable
+internal fun SpectrumCanvas(
+    spectrum: FloatArray,
+    modifier: Modifier = Modifier,
+    isPlaying: Boolean = false,
+    barColor: Color = AppColors.Accent,
+) {
+    AudioVisualizerView(
+        spectrum = spectrum,
+        isPlaying = isPlaying,
+        barColor = barColor,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -1707,8 +1794,9 @@ internal fun FullscreenNowPlayingView(
                                         )
                                     )
                                     Spacer(Modifier.weight(1f))
-                                    SpectrumCanvas(
+                                    AudioVisualizerView(
                                         spectrum = spectrum,
+                                        isPlaying = player.isPlaying || playbackState.isPlaying,
                                         barColor = AppColors.Accent,
                                         modifier = Modifier.fillMaxWidth().height(36.dp)
                                     )
@@ -1855,10 +1943,11 @@ internal fun FullscreenNowPlayingView(
                     }
                 }
 
-                if (player.supportsSpectrum) {
+                if (player.supportsSpectrum || (player.isPlaying && track != null)) {
                     Spacer(Modifier.height(spacing.md))
-                    SpectrumCanvas(
+                    AudioVisualizerView(
                         spectrum = spectrum,
+                        isPlaying = player.isPlaying || playbackState.isPlaying,
                         barColor = AppColors.Accent,
                         modifier = Modifier.fillMaxWidth(0.6f).height(36.dp)
                     )

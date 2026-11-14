@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -50,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -62,6 +64,10 @@ import com.example.musicapp.theme.AccentOption
 import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.DefaultAccentOptions
 import com.example.musicapp.theme.LocalSpacing
+import com.example.musicapp.theme.ThemeBackdrop
+import com.example.musicapp.theme.ThemeConfig
+import com.example.musicapp.theme.ThemeIllustration
+import com.example.musicapp.theme.ThemePattern
 import com.example.musicapp.theme.ThemePreset
 import com.example.musicapp.theme.ThemePresets
 import com.example.musicapp.theme.parseHexColor
@@ -79,20 +85,33 @@ fun ThemeCustomizationDialog(
     var selectedThemeId by remember { mutableStateOf(currentSettings.themePresetId) }
     var selectedAccentHex by remember { mutableStateOf(currentSettings.customAccentHex) }
     var selectedPlayerViewMode by remember { mutableStateOf(currentSettings.playerViewMode) }
+    var showBackdrop by remember { mutableStateOf(currentSettings.showThemeBackdrop) }
     var customHexInput by remember { mutableStateOf(selectedAccentHex ?: "") }
     var hexError by remember { mutableStateOf(false) }
 
-    fun commitSettings(themeId: String, accentHex: String?, playerMode: String) {
+    fun commitSettings(
+        themeId: String,
+        accentHex: String?,
+        playerMode: String,
+        backdrop: Boolean = showBackdrop
+    ) {
         selectedThemeId = themeId
         selectedAccentHex = accentHex
         selectedPlayerViewMode = playerMode
-        AppColors.applyTheme(themeId, accentHex)
+        showBackdrop = backdrop
+        AppColors.applyTheme(themeId, accentHex, backdrop)
         val cur = settingsRepository.load()
         settingsRepository.save(
             cur.copy(
                 themePresetId = themeId,
                 customAccentHex = accentHex,
-                playerViewMode = playerMode
+                playerViewMode = playerMode,
+                showThemeBackdrop = backdrop,
+                themeConfig = ThemeConfig(
+                    presetId = themeId,
+                    customAccentHex = accentHex,
+                    patternEnabled = backdrop
+                )
             )
         )
     }
@@ -166,9 +185,11 @@ fun ThemeCustomizationDialog(
 
                 Spacer(Modifier.height(spacing.md))
 
-                // Interactive Mini Preview Card
+                // Interactive Mini Preview Card with Rich Visual Artwork & Theme Backdrop
+                val activePreset = ThemePresets.fromId(selectedThemeId)
+                val activeBorderGradient = activePreset.cardBorderGradient
                 Text(
-                    "ПРЕДПРОСМОТР",
+                    "ПРЕДПРОСМОТР ТЕМЫ И ОФОРМЛЕНИЯ",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = AppColors.TextMuted,
                         letterSpacing = 1.sp
@@ -178,45 +199,100 @@ fun ThemeCustomizationDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(AppColors.Background)
-                        .border(1.dp, AppColors.Border, RoundedCornerShape(12.dp))
-                        .padding(spacing.md)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(activePreset.background)
+                        .then(
+                            if (activeBorderGradient != null) {
+                                Modifier.border(
+                                    width = 1.5.dp,
+                                    brush = Brush.horizontalGradient(activeBorderGradient),
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                            } else {
+                                Modifier.border(1.dp, activePreset.border, RoundedCornerShape(14.dp))
+                            }
+                        )
                 ) {
-                    Column {
+                    // Live theme backdrop inside preview card
+                    if (showBackdrop && activePreset.pattern != ThemePattern.NONE) {
+                        ThemeBackdrop(
+                            pattern = activePreset.pattern,
+                            accent = AppColors.Accent,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
+
+                    Column(modifier = Modifier.padding(spacing.md)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Theme miniature artwork cover thumbnail
                                 Box(
                                     modifier = Modifier
-                                        .size(40.dp)
+                                        .size(48.dp)
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(AppColors.SurfaceElevated),
+                                        .background(activePreset.surfaceElevated)
+                                        .border(1.dp, activePreset.border.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.PlayArrow,
-                                        contentDescription = null,
-                                        tint = AppColors.Accent,
-                                        modifier = Modifier.size(24.dp)
+                                    ThemeIllustration(
+                                        kind = activePreset.illustrationKind,
+                                        accent = AppColors.Accent,
+                                        modifier = Modifier.fillMaxSize()
                                     )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.55f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.PlayArrow,
+                                            contentDescription = null,
+                                            tint = AppColors.Accent,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                                 Spacer(Modifier.width(spacing.sm))
                                 Column {
-                                    Text(
-                                        "Название трека",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = AppColors.TextPrimary
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            "Демо-трек",
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = activePreset.textPrimary
+                                            )
                                         )
-                                    )
+                                        if (activePreset.badgeText.isNotBlank()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(activePreset.defaultAccent.copy(alpha = 0.18f))
+                                                    .border(0.8.dp, activePreset.defaultAccent.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    activePreset.badgeText,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = activePreset.defaultAccent,
+                                                    letterSpacing = 0.5.sp
+                                                )
+                                            }
+                                        }
+                                    }
                                     Text(
-                                        "Исполнитель",
+                                        if (activePreset.patternLabel.isNotBlank()) "Стиль: ${activePreset.patternLabel}" else activePreset.name,
                                         style = MaterialTheme.typography.bodySmall.copy(
-                                            color = AppColors.TextSecondary
+                                            color = activePreset.textSecondary
                                         )
                                     )
                                 }
@@ -244,7 +320,7 @@ fun ThemeCustomizationDialog(
                                 .fillMaxWidth()
                                 .height(4.dp)
                                 .clip(CircleShape)
-                                .background(AppColors.SurfaceElevated)
+                                .background(activePreset.surfaceElevated)
                         ) {
                             Box(
                                 modifier = Modifier
@@ -260,13 +336,54 @@ fun ThemeCustomizationDialog(
                 Spacer(Modifier.height(spacing.md))
 
                 // Section 1: Themes
-                Text(
-                    "ТЕМА ОФОРМЛЕНИЯ",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = AppColors.TextMuted,
-                        letterSpacing = 1.sp
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "ТЕМА ОФОРМЛЕНИЯ И АРТ",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = AppColors.TextMuted,
+                            letterSpacing = 1.sp
+                        )
                     )
-                )
+
+                    // Ambient backdrop texture toggle
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                commitSettings(selectedThemeId, selectedAccentHex, selectedPlayerViewMode, !showBackdrop)
+                            }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            "Фоновые текстуры",
+                            fontSize = 11.sp,
+                            color = if (showBackdrop) AppColors.Accent else AppColors.TextMuted
+                        )
+                        Box(
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (showBackdrop) AppColors.Accent else AppColors.SurfaceElevated)
+                                .border(1.dp, if (showBackdrop) AppColors.Accent else AppColors.Border, RoundedCornerShape(3.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (showBackdrop) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    tint = AppColors.OnAccent,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(spacing.xs))
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -275,17 +392,17 @@ fun ThemeCustomizationDialog(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(if (isSelected) AppColors.SurfaceElevated else AppColors.Surface)
                                 .border(
                                     width = if (isSelected) 1.5.dp else 1.dp,
                                     color = if (isSelected) AppColors.Accent else AppColors.Border,
-                                    shape = RoundedCornerShape(10.dp)
+                                    shape = RoundedCornerShape(12.dp)
                                 )
                                 .clickable {
-                                    commitSettings(preset.id, selectedAccentHex, selectedPlayerViewMode)
+                                    commitSettings(preset.id, selectedAccentHex, selectedPlayerViewMode, showBackdrop)
                                 }
-                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .padding(10.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -296,40 +413,70 @@ fun ThemeCustomizationDialog(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    // Mini palette swatch dots
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Box(
-                                            Modifier
-                                                .size(16.dp)
-                                                .clip(CircleShape)
-                                                .background(preset.background)
-                                                .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                                    // Visual Miniature Illustration Artwork Preview Card
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 82.dp, height = 54.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(preset.background)
+                                            .border(1.dp, preset.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                    ) {
+                                        ThemeIllustration(
+                                            kind = preset.illustrationKind,
+                                            accent = preset.defaultAccent,
+                                            modifier = Modifier.fillMaxSize()
                                         )
-                                        Box(
-                                            Modifier
-                                                .size(16.dp)
-                                                .clip(CircleShape)
-                                                .background(preset.surface)
-                                                .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                                        )
-                                        Box(
-                                            Modifier
-                                                .size(16.dp)
-                                                .clip(CircleShape)
-                                                .background(preset.defaultAccent)
-                                        )
+
+                                        if (preset.badgeText.isNotBlank()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomStart)
+                                                    .padding(3.dp)
+                                                    .clip(RoundedCornerShape(3.dp))
+                                                    .background(Color.Black.copy(alpha = 0.7f))
+                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    preset.badgeText,
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = preset.defaultAccent,
+                                                    letterSpacing = 0.5.sp
+                                                )
+                                            }
+                                        }
                                     }
 
-                                    Spacer(Modifier.width(spacing.sm))
+                                    Spacer(Modifier.width(12.dp))
 
                                     Column {
-                                        Text(
-                                            preset.name,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = if (isSelected) AppColors.Accent else AppColors.TextPrimary
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                preset.name,
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = if (isSelected) AppColors.Accent else AppColors.TextPrimary
+                                                )
                                             )
-                                        )
+                                            if (preset.patternLabel.isNotBlank()) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(preset.defaultAccent.copy(alpha = 0.12f))
+                                                        .padding(horizontal = 5.dp, vertical = 1.dp)
+                                                ) {
+                                                    Text(
+                                                        preset.patternLabel,
+                                                        fontSize = 9.5.sp,
+                                                        color = preset.defaultAccent,
+                                                        fontWeight = FontWeight.Medium
+                                                    )
+                                                }
+                                            }
+                                        }
                                         Text(
                                             preset.description,
                                             style = MaterialTheme.typography.bodySmall.copy(
@@ -338,16 +485,42 @@ fun ThemeCustomizationDialog(
                                             ),
                                             maxLines = 1
                                         )
+
+                                        Spacer(Modifier.height(3.dp))
+
+                                        // Mini color swatches
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Box(Modifier.size(11.dp).clip(CircleShape).background(preset.background).border(0.5.dp, Color.White.copy(alpha = 0.3f), CircleShape))
+                                            Box(Modifier.size(11.dp).clip(CircleShape).background(preset.surface).border(0.5.dp, Color.White.copy(alpha = 0.3f), CircleShape))
+                                            Box(Modifier.size(11.dp).clip(CircleShape).background(preset.defaultAccent))
+                                            Spacer(Modifier.width(2.dp))
+                                            Text(
+                                                preset.defaultAccent.toHexRgb(),
+                                                fontSize = 10.sp,
+                                                color = AppColors.TextMuted
+                                            )
+                                        }
                                     }
                                 }
 
                                 if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Check,
-                                        contentDescription = "Выбрано",
-                                        tint = AppColors.Accent,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(AppColors.Accent),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Check,
+                                            contentDescription = "Выбрано",
+                                            tint = AppColors.OnAccent,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -633,7 +806,7 @@ fun ThemeCustomizationDialog(
                         onClick = {
                             customHexInput = ""
                             hexError = false
-                            commitSettings("JVX_DEFAULT", null, "PHANTOM_DASHBOARD")
+                            commitSettings("JVX_DEFAULT", null, "PHANTOM_DASHBOARD", true)
                         },
                         colors = ButtonDefaults.outlinedButtonColors(
                             contentColor = AppColors.TextSecondary

@@ -55,6 +55,7 @@ import com.example.musicapp.ui.screens.CloudSourcesScreen
 import com.example.musicapp.ui.screens.HomeScreen
 import com.example.musicapp.ui.screens.SearchScreen
 import com.example.musicapp.ui.components.ThemeCustomizationDialog
+import com.example.musicapp.theme.ThemeBackdrop
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
@@ -428,6 +429,13 @@ fun MusicApp(
                                 .background(AppColors.Background),
                             contentAlignment = Alignment.TopCenter
                         ) {
+                            if (AppColors.backdropEnabled) {
+                                ThemeBackdrop(
+                                    pattern = AppColors.Pattern,
+                                    accent = AppColors.Accent,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
