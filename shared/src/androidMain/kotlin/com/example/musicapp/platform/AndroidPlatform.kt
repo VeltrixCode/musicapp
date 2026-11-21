@@ -28,12 +28,22 @@ import com.example.musicapp.model.StreamSource
 import com.example.musicapp.model.Track
 import com.example.musicapp.oauth.GoogleOAuthAndroid
 import com.example.musicapp.security.SecureStorage
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.charset.Charset
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
+import java.util.concurrent.TimeUnit
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 
 /** Set by the app at startup: the context and the picker launchers registered in MainActivity. */
 object AndroidBridge {
@@ -43,6 +53,7 @@ object AndroidBridge {
         set(value) { _appContext = value }
     val appContextOrNull: Context? get() = _appContext
     var pickAudio: (((Uri?) -> Unit) -> Unit)? = null
+    var pickMediaFiles: (((List<Uri>) -> Unit) -> Unit)? = null
     var pickFolder: (((Uri?) -> Unit) -> Unit)? = null
     var onHeadphonesUnplugged: (() -> Unit)? = null
     var onNextTrackRequested: (() -> Unit)? = null
@@ -69,20 +80,6 @@ actual fun runOnUiThread(block: () -> Unit) {
 }
 
 actual fun currentTimeMillis(): Long = System.currentTimeMillis()
-
-actual fun getLiveFormattedTimeAndDate(): Pair<String, String> {
-    val cal = java.util.Calendar.getInstance()
-    val hour = cal.get(java.util.Calendar.HOUR_OF_DAY).toString().padStart(2, '0')
-    val minute = cal.get(java.util.Calendar.MINUTE).toString().padStart(2, '0')
-    val time = "$hour:$minute"
-    val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
-    val months = listOf("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря")
-    val month = months.getOrElse(cal.get(java.util.Calendar.MONTH)) { "" }
-    val dows = listOf("ВС", "ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ")
-    val dow = dows.getOrElse((cal.get(java.util.Calendar.DAY_OF_WEEK) - 1).coerceIn(0, 6)) { "" }
-    val date = "$day $month $dow"
-    return Pair(time, date)
-}
 
 private fun setMetadataDataSource(r: MediaMetadataRetriever, path: String) {
     val ctx = AndroidBridge.appContextOrNull
@@ -160,9 +157,380 @@ actual fun isFileAvailable(source: String?): Boolean {
     }.getOrDefault(false)
 }
 
+object AndroidZipExtractor {
+    val AUDIO_EXTENSIONS: Set<String> = setOf("mp3", "wav", "m4a", "aac", "flac", "ogg")
+    val ARCHIVE_EXTENSIONS: Set<String> = setOf("zip")
+
+    fun isAudioName(name: String): Boolean =
+        AUDIO_EXTENSIONS.any { name.endsWith(".$it", ignoreCase = true) }
+
+    fun isArchiveName(name: String): Boolean =
+        ARCHIVE_EXTENSIONS.any { name.endsWith(".$it", ignoreCase = true) }
+
+    fun getUploadsDir(ctx: Context): File =
+        File(ctx.filesDir, "uploads").apply { mkdirs() }
+
+    private fun openZipFile(zipFile: File): Pair<ZipFile, AutoCloseable>? {
+        return try {
+            val zf = ZipFile(zipFile, StandardCharsets.UTF_8)
+            Pair(zf, zf)
+        } catch (_: Exception) {
+            try {
+                val zf = ZipFile(zipFile, Charset.forName("CP866"))
+                Pair(zf, zf)
+            } catch (_: Exception) {
+                try {
+                    val zf = ZipFile(zipFile)
+                    Pair(zf, zf)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
+    fun extractTracksFromZip(
+        ctx: Context,
+        zipFile: File,
+        destinationDir: File = getUploadsDir(ctx)
+    ): List<Track> {
+        if (!zipFile.exists() || !zipFile.isFile) return emptyList()
+        destinationDir.mkdirs()
+        val canonicalDest = destinationDir.canonicalFile
+
+        val (zf, closeable) = openZipFile(zipFile) ?: return emptyList()
+        val extractedTracks = mutableListOf<Track>()
+        val nestedZips = mutableListOf<File>()
+
+        try {
+            val entries = zf.entries().asSequence().toList()
+
+            val lrcEntries = mutableMapOf<String, ZipEntry>()
+            for (entry in entries) {
+                if (entry.isDirectory) continue
+                val normalizedName = entry.name.replace('\\', '/')
+                if (normalizedName.contains("..")) continue
+                val fileName = normalizedName.substringAfterLast('/')
+                if (normalizedName.startsWith("__MACOSX/") || fileName.startsWith("._") || fileName.startsWith(".")) {
+                    continue
+                }
+                val ext = fileName.substringAfterLast('.', "").lowercase()
+                if (ext == "lrc") {
+                    val base = normalizedName.substringBeforeLast('.').lowercase()
+                    lrcEntries[base] = entry
+                }
+            }
+
+            for (entry in entries) {
+                if (entry.isDirectory) continue
+                val normalizedName = entry.name.replace('\\', '/')
+                if (normalizedName.contains("..")) continue
+                val fileName = normalizedName.substringAfterLast('/')
+                if (normalizedName.startsWith("__MACOSX/") || fileName.startsWith("._") || fileName.startsWith(".")) {
+                    continue
+                }
+
+                val safeFileName = fileName.replace(Regex("[^a-zA-Z0-9._\\-\\s\\u0400-\\u04FF]"), "_")
+                if (safeFileName.isBlank() || safeFileName.contains("..")) {
+                    continue
+                }
+
+                val ext = fileName.substringAfterLast('.', "").lowercase()
+
+                if (ext in AUDIO_EXTENSIONS) {
+                    val trackId = newId()
+                    val destFile = File(destinationDir, "${trackId}_$safeFileName").canonicalFile
+                    if (!destFile.path.startsWith(canonicalDest.path + File.separator)) {
+                        continue
+                    }
+
+                    zf.getInputStream(entry).use { input ->
+                        FileOutputStream(destFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    val baseName = normalizedName.substringBeforeLast('.').lowercase()
+                    val matchingLrc = lrcEntries[baseName]
+                    if (matchingLrc != null) {
+                        val destLrc = File(destinationDir, "${destFile.nameWithoutExtension}.lrc").canonicalFile
+                        if (destLrc.path.startsWith(canonicalDest.path + File.separator)) {
+                            zf.getInputStream(matchingLrc).use { lrcIn ->
+                                FileOutputStream(destLrc).use { lrcOut ->
+                                    lrcIn.copyTo(lrcOut)
+                                }
+                            }
+                        }
+                    }
+
+                    val info = readTrackInfo(destFile.absolutePath)
+                    val title = info?.title ?: safeFileName.substringBeforeLast('.').trim()
+                    val artist = info?.artist ?: "Неизвестный исполнитель"
+                    extractedTracks.add(
+                        Track(
+                            id = trackId,
+                            title = title,
+                            artist = artist,
+                            album = info?.album ?: "",
+                            genre = info?.genre,
+                            year = info?.year,
+                            source = destFile.absolutePath,
+                            durationMs = info?.durationMs ?: 0L,
+                            addedAt = currentTimeMillis()
+                        )
+                    )
+                } else if (ext in ARCHIVE_EXTENSIONS) {
+                    val tempZip = File(destinationDir, "nested_${newId()}_$safeFileName").canonicalFile
+                    if (tempZip.path.startsWith(canonicalDest.path + File.separator)) {
+                        zf.getInputStream(entry).use { input ->
+                            FileOutputStream(tempZip).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        nestedZips.add(tempZip)
+                    }
+                }
+            }
+        } finally {
+            runCatching { closeable.close() }
+        }
+
+        for (nestedZip in nestedZips) {
+            try {
+                extractedTracks.addAll(extractTracksFromZip(ctx, nestedZip, destinationDir))
+            } finally {
+                runCatching { nestedZip.delete() }
+            }
+        }
+
+        return extractedTracks
+    }
+
+    fun extractTracksFromZipUri(
+        ctx: Context,
+        uri: Uri,
+        destinationDir: File = getUploadsDir(ctx)
+    ): List<Track> {
+        val tempZip = File.createTempFile("zip_import_", ".zip", ctx.cacheDir)
+        return try {
+            ctx.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(tempZip).use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return emptyList()
+            extractTracksFromZip(ctx, tempZip, destinationDir)
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            runCatching { tempZip.delete() }
+        }
+    }
+}
+
+private fun queryFileName(ctx: Context, uri: Uri): String {
+    if (uri.scheme == "content") {
+        ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0) {
+                    cursor.getString(idx)?.let { return it }
+                }
+            }
+        }
+    }
+    return uri.lastPathSegment?.substringAfterLast('/') ?: "track.mp3"
+}
+
+private suspend fun importFromUris(uris: List<Uri>): List<Track> = withContext(Dispatchers.IO) {
+    val ctx = AndroidBridge.appContextOrNull ?: return@withContext emptyList()
+    val uploadsDir = AndroidZipExtractor.getUploadsDir(ctx)
+    val canonicalDest = uploadsDir.canonicalFile
+    val result = mutableListOf<Track>()
+
+    val lrcMap = mutableMapOf<String, Uri>()
+    val otherUris = mutableListOf<Pair<Uri, String>>()
+
+    for (uri in uris) {
+        val name = queryFileName(ctx, uri)
+        if (name.lowercase().endsWith(".lrc")) {
+            val base = name.substringBeforeLast('.').lowercase()
+            lrcMap[base] = uri
+        } else {
+            otherUris.add(uri to name)
+        }
+    }
+
+    for ((uri, name) in otherUris) {
+        val mime = runCatching { ctx.contentResolver.getType(uri) }.getOrNull()
+        val isZip = name.lowercase().endsWith(".zip") ||
+            mime == "application/zip" ||
+            mime == "application/x-zip-compressed"
+
+        if (isZip) {
+            val tracks = AndroidZipExtractor.extractTracksFromZipUri(ctx, uri, uploadsDir)
+            result.addAll(tracks)
+        } else {
+            val isAudio = AndroidZipExtractor.isAudioName(name) || mime?.startsWith("audio/") == true
+            if (isAudio) {
+                val trackId = newId()
+                val safeName = name.replace(Regex("[^a-zA-Z0-9._\\-\\s\\u0400-\\u04FF]"), "_").ifBlank { "track.mp3" }
+                val destFile = File(uploadsDir, "${trackId}_$safeName").canonicalFile
+                if (!destFile.path.startsWith(canonicalDest.path + File.separator)) {
+                    continue
+                }
+
+                ctx.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val baseName = name.substringBeforeLast('.').lowercase()
+                val matchingLrc = lrcMap[baseName]
+                if (matchingLrc != null) {
+                    val destLrc = File(uploadsDir, "${destFile.nameWithoutExtension}.lrc").canonicalFile
+                    if (destLrc.path.startsWith(canonicalDest.path + File.separator)) {
+                        ctx.contentResolver.openInputStream(matchingLrc)?.use { lrcIn ->
+                            FileOutputStream(destLrc).use { lrcOut ->
+                                lrcIn.copyTo(lrcOut)
+                            }
+                        }
+                    }
+                }
+
+                val info = readTrackInfo(destFile.absolutePath)
+                val title = info?.title ?: safeName.substringBeforeLast('.').trim()
+                val artist = info?.artist ?: "Неизвестный исполнитель"
+                result.add(
+                    Track(
+                        id = trackId,
+                        title = title,
+                        artist = artist,
+                        album = info?.album ?: "",
+                        genre = info?.genre,
+                        year = info?.year,
+                        source = destFile.absolutePath,
+                        durationMs = info?.durationMs ?: 0L,
+                        addedAt = currentTimeMillis()
+                    )
+                )
+            }
+        }
+    }
+    result
+}
+
+private suspend fun importFromTreeUri(treeUri: Uri): List<Track> = withContext(Dispatchers.IO) {
+    val ctx = AndroidBridge.appContextOrNull ?: return@withContext emptyList()
+    val root = DocumentFile.fromTreeUri(ctx, treeUri) ?: return@withContext emptyList()
+    val uploadsDir = AndroidZipExtractor.getUploadsDir(ctx)
+    val canonicalDest = uploadsDir.canonicalFile
+    val tracks = mutableListOf<Track>()
+
+    fun scan(dir: DocumentFile) {
+        val files = dir.listFiles()
+        val lrcMap = mutableMapOf<String, DocumentFile>()
+        for (f in files) {
+            if (f.isFile && f.name?.lowercase()?.endsWith(".lrc") == true) {
+                val base = f.name.orEmpty().substringBeforeLast('.').lowercase()
+                lrcMap[base] = f
+            }
+        }
+
+        for (f in files) {
+            if (f.isDirectory) {
+                scan(f)
+            } else if (f.isFile) {
+                val name = f.name.orEmpty()
+                val mime = f.type
+                val isZip = name.lowercase().endsWith(".zip") ||
+                    mime == "application/zip" ||
+                    mime == "application/x-zip-compressed"
+
+                if (isZip) {
+                    val extracted = AndroidZipExtractor.extractTracksFromZipUri(ctx, f.uri, uploadsDir)
+                    tracks.addAll(extracted)
+                } else {
+                    val isAudio = AndroidZipExtractor.isAudioName(name) || mime?.startsWith("audio/") == true
+                    if (isAudio) {
+                        val trackId = newId()
+                        val safeName = name.replace(Regex("[^a-zA-Z0-9._\\-\\s\\u0400-\\u04FF]"), "_").ifBlank { "track.mp3" }
+                        val destFile = File(uploadsDir, "${trackId}_$safeName").canonicalFile
+                        if (!destFile.path.startsWith(canonicalDest.path + File.separator)) {
+                            continue
+                        }
+
+                        ctx.contentResolver.openInputStream(f.uri)?.use { input ->
+                            FileOutputStream(destFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+
+                        val baseName = name.substringBeforeLast('.').lowercase()
+                        val matchingLrc = lrcMap[baseName]
+                        if (matchingLrc != null) {
+                            val destLrc = File(uploadsDir, "${destFile.nameWithoutExtension}.lrc").canonicalFile
+                            if (destLrc.path.startsWith(canonicalDest.path + File.separator)) {
+                                ctx.contentResolver.openInputStream(matchingLrc.uri)?.use { lrcIn ->
+                                    FileOutputStream(destLrc).use { lrcOut ->
+                                        lrcIn.copyTo(lrcOut)
+                                    }
+                                }
+                            }
+                        }
+
+                        val info = readTrackInfo(destFile.absolutePath)
+                        val title = info?.title ?: safeName.substringBeforeLast('.').trim()
+                        val artist = info?.artist ?: "Неизвестный исполнитель"
+                        tracks.add(
+                            Track(
+                                id = trackId,
+                                title = title,
+                                artist = artist,
+                                album = info?.album ?: "",
+                                genre = info?.genre,
+                                year = info?.year,
+                                source = destFile.absolutePath,
+                                durationMs = info?.durationMs ?: 0L,
+                                addedAt = currentTimeMillis()
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    scan(root)
+    tracks
+}
+
 actual fun launchAudioImport(onImported: (Track) -> Unit) {
-    val picker = AndroidBridge.pickAudio ?: return
-    picker { uri -> if (uri != null) importFromUri(uri, onImported) }
+    val pickFiles = AndroidBridge.pickMediaFiles
+    if (pickFiles != null) {
+        pickFiles { uris ->
+            if (uris.isNotEmpty()) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    val tracks = importFromUris(uris)
+                    withContext(Dispatchers.Main) {
+                        tracks.forEach { onImported(it) }
+                    }
+                }
+            }
+        }
+    } else {
+        val picker = AndroidBridge.pickAudio ?: return
+        picker { uri ->
+            if (uri != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    val tracks = importFromUris(listOf(uri))
+                    withContext(Dispatchers.Main) {
+                        tracks.forEach { onImported(it) }
+                    }
+                }
+            }
+        }
+    }
 }
 
 actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
@@ -170,54 +538,18 @@ actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
     if (folderPicker != null) {
         folderPicker { treeUri ->
             if (treeUri != null) {
-                importFromTreeUri(treeUri, onImported)
+                CoroutineScope(Dispatchers.IO).launch {
+                    val tracks = importFromTreeUri(treeUri)
+                    withContext(Dispatchers.Main) {
+                        if (tracks.isNotEmpty()) {
+                            onImported(tracks)
+                        }
+                    }
+                }
             }
         }
     } else {
         launchAudioImport { track -> onImported(listOf(track)) }
-    }
-}
-
-private fun importFromTreeUri(treeUri: Uri, onImported: (List<Track>) -> Unit) {
-    val ctx = AndroidBridge.appContextOrNull ?: return
-    val root = DocumentFile.fromTreeUri(ctx, treeUri) ?: return
-    val tracks = mutableListOf<Track>()
-
-    fun scan(dir: DocumentFile) {
-        val files = dir.listFiles()
-        for (f in files) {
-            if (f.isDirectory) {
-                scan(f)
-            } else if (f.isFile) {
-                val name = f.name.orEmpty()
-                val isAudio = f.type?.startsWith("audio/") == true ||
-                    listOf(".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg").any { name.endsWith(it, ignoreCase = true) }
-                if (isAudio) {
-                    val u = f.uri.toString()
-                    val info = readTrackInfo(u)
-                    val title = info?.title ?: name.substringBeforeLast('.').trim()
-                    val artist = info?.artist ?: "Неизвестный исполнитель"
-                    tracks.add(
-                        Track(
-                            id = newId(),
-                            title = title,
-                            artist = artist,
-                            album = info?.album ?: "",
-                            genre = info?.genre,
-                            year = info?.year,
-                            source = u,
-                            durationMs = info?.durationMs ?: 0L,
-                            addedAt = currentTimeMillis()
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    scan(root)
-    if (tracks.isNotEmpty()) {
-        onImported(tracks)
     }
 }
 
@@ -246,6 +578,26 @@ actual fun prepareStreamUrlForPlayback(trackId: String, streamSource: StreamSour
     return AndroidStreamRegistry.register(trackId, streamSource)
 }
 
+actual fun warmStreamHead(trackId: String, streamSource: StreamSource) {
+    if (!streamSource.url.startsWith("http://") && !streamSource.url.startsWith("https://")) return
+    AndroidStreamRegistry.register(trackId, streamSource)
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        runCatching {
+            val reqBuilder = Request.Builder().url(streamSource.url)
+            streamSource.headers.forEach { (k, v) -> reqBuilder.header(k, v) }
+            if (streamSource.supportsRange) {
+                reqBuilder.header("Range", "bytes=0-32767")
+            }
+            streamingOkHttpClient.newCall(reqBuilder.build()).execute().use { resp ->
+                resp.body?.byteStream()?.use { stream ->
+                    val buf = ByteArray(8192)
+                    stream.read(buf)
+                }
+            }
+        }
+    }
+}
+
 actual fun onPlaybackTrackChanged(previousTrackId: String?, newTrackId: String?) {
     if (previousTrackId != null && previousTrackId != newTrackId) {
         AndroidStreamRegistry.invalidateTrack(previousTrackId)
@@ -256,40 +608,14 @@ actual fun onPlaybackReleased() {
     // Android ExoPlayer handles release cleanup
 }
 
-private fun importFromUri(uri: Uri, onImported: (Track) -> Unit) {
-    val ctx = AndroidBridge.appContext
-    val scheme = uri.scheme
-    val fileName = if (scheme == "content") {
-        ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0) cursor.getString(idx) else null
-            } else null
-        } ?: "track.mp3"
-    } else {
-        uri.lastPathSegment ?: "track.mp3"
-    }
-
-    val uriString = uri.toString()
-    val info = readTrackInfo(uriString)
-    val title = info?.title ?: fileName.substringBeforeLast('.').trim()
-    val artist = info?.artist ?: "Неизвестный исполнитель"
-    val track = Track(
-        id = newId(),
-        title = title,
-        artist = artist,
-        album = info?.album ?: "",
-        genre = info?.genre,
-        year = info?.year,
-        source = uriString,
-        durationMs = info?.durationMs ?: 0L,
-        addedAt = currentTimeMillis(),
-    )
-    onImported(track)
-}
-
 internal val streamingOkHttpClient: OkHttpClient by lazy {
     OkHttpClient.Builder()
+        .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .followRedirects(true)
+        .followSslRedirects(true)
         .addInterceptor { chain ->
             val original = chain.request()
             val urlString = original.url.toString()
@@ -501,7 +827,7 @@ internal class AndroidPlayerEngine : PlayerEngine {
                 var album = currentTrack?.album
                 var rawArtwork: ByteArray? = null
 
-                if (!isRemote) {
+                if (!isRemote && (title == null || artist == null)) {
                     runCatching {
                         val r = MediaMetadataRetriever()
                         try {
@@ -573,16 +899,6 @@ internal class AndroidPlayerEngine : PlayerEngine {
     override fun pause() {
         postOnMain { player ->
             player?.pause()
-            cachedIsPlaying = false
-            mainHandler.removeCallbacks(progressUpdater)
-        }
-    }
-
-    override fun stop() {
-        postOnMain { player ->
-            try {
-                player?.stop()
-            } catch (_: Throwable) {}
             cachedIsPlaying = false
             mainHandler.removeCallbacks(progressUpdater)
         }
@@ -701,3 +1017,19 @@ internal class AndroidPlayerEngine : PlayerEngine {
 actual fun getEnv(name: String): String? = System.getenv(name) ?: System.getProperty(name)
 
 actual inline fun <R> synchronizedPlatform(lock: Any, block: () -> R): R = synchronized(lock) { block() }
+
+actual fun currentClockInfo(): ClockInfo {
+    val cal = java.util.Calendar.getInstance()
+    val locale = java.util.Locale("ru")
+    val timeFmt = java.text.SimpleDateFormat("HH:mm", locale)
+    val dateFmt = java.text.SimpleDateFormat("d MMMM", locale)
+    val weekdayFmt = java.text.SimpleDateFormat("EE", locale)
+    val now = cal.time
+    val sec = cal.get(java.util.Calendar.SECOND)
+    return ClockInfo(
+        timeText = timeFmt.format(now),
+        dateText = dateFmt.format(now),
+        weekdayShort = weekdayFmt.format(now).trimEnd('.').uppercase(locale),
+        secondFraction = sec / 60f,
+    )
+}

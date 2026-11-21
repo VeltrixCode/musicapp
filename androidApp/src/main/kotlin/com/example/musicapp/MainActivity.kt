@@ -13,9 +13,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.example.musicapp.platform.AndroidBridge
 import com.example.musicapp.player.PlayerController
 import com.example.musicapp.ui.MusicApp
-import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private var pendingMediaFiles: ((List<Uri>) -> Unit)? = null
     private var pendingAudio: ((Uri?) -> Unit)? = null
     private var pendingFolder: ((Uri?) -> Unit)? = null
 
@@ -32,6 +32,16 @@ class MainActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+    }
+
+    private val mediaFilesPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        uris.forEach { uri ->
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: SecurityException) {}
+        }
+        pendingMediaFiles?.invoke(uris)
+        pendingMediaFiles = null
     }
 
     private val audioPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -56,14 +66,44 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.musicapp.config.AppFeatures.devOnlineSourcesEnabled = true
         AndroidBridge.appContext = applicationContext
+        runCatching { com.example.musicapp.platform.AndroidPlaybackManager.getOrCreatePlayer(applicationContext) }
+        AndroidBridge.pickMediaFiles = { callback ->
+            pendingMediaFiles = callback
+            mediaFilesPicker.launch(arrayOf("*/*"))
+        }
         AndroidBridge.pickAudio = { callback ->
-            pendingAudio = callback
-            audioPicker.launch(arrayOf("audio/*"))
+            pendingMediaFiles = { uris ->
+                if (uris.isNotEmpty()) {
+                    uris.forEach { callback(it) }
+                } else {
+                    callback(null)
+                }
+            }
+            mediaFilesPicker.launch(arrayOf("*/*"))
         }
         AndroidBridge.pickFolder = { callback ->
-            pendingFolder = callback
-            folderPicker.launch(null)
+            pendingFolder = { treeUri ->
+                if (treeUri == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Папка не выбрана. Для выбора архивов или файлов используйте «Файл / ZIP».",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                callback(treeUri)
+            }
+            try {
+                folderPicker.launch(null)
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Выбор папки недоступен на данном устройстве. Используйте «Файл / ZIP».",
+                    Toast.LENGTH_LONG
+                ).show()
+                callback(null)
+            }
         }
         AndroidBridge.onHeadphonesUnplugged = {
             player.pause()
@@ -75,40 +115,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        handleOAuthIntent(intent)
-
         setContent {
             MusicApp(player = player)
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleOAuthIntent(intent)
-    }
-
-    private fun handleOAuthIntent(intent: Intent?) {
-        val uri = intent?.data ?: return
-        if (uri.scheme == "com.example.musicapp" && (uri.host == "oauth2callback" || uri.path?.contains("oauth2callback") == true)) {
-            val code = uri.getQueryParameter("code")
-            val error = uri.getQueryParameter("error")
-            if (!code.isNullOrBlank()) {
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                    val result = com.example.musicapp.oauth.GoogleOAuthAndroid.handleAuthCode(code)
-                    if (result.isSuccess) {
-                        val token = result.getOrNull()
-                        if (!token.isNullOrBlank()) {
-                            player.providerRegistry.gdrive.updateToken(token)
-                            Toast.makeText(this@MainActivity, "Google Диск успешно подключен!", Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        Toast.makeText(this@MainActivity, "Ошибка входа Google: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            } else if (error != null) {
-                Toast.makeText(this, "Вход Google отменен: $error", Toast.LENGTH_SHORT).show()
-            }
         }
     }
 
