@@ -176,4 +176,88 @@ class LyricsServiceTest {
         val lyrics = LyricsService.getLyrics(track, client)
         assertTrue(lyrics.isEmpty())
     }
+
+    @Test
+    fun testTitleAndArtistCleaningBeforeQuery() = runBlocking {
+        var requestedUrl = ""
+        val ts = System.currentTimeMillis()
+        val mockEngine = MockEngine { request ->
+            requestedUrl = request.url.toString()
+            respond(
+                content = """{
+                    "id": 555,
+                    "name": "Karma Police $ts",
+                    "artistName": "Radiohead $ts",
+                    "syncedLyrics": "[00:10.00]Karma Police, arrest this man"
+                }""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }
+        val client = HttpClient(mockEngine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+
+        LyricsService.fetchOnlineLyrics = true
+
+        val track = Track(
+            id = "t_cleaning_$ts",
+            title = "Karma Police $ts (Remastered 2020) (feat. Someone)",
+            artist = "Radiohead $ts feat. Guest",
+            album = "OK Computer",
+            durationMs = 260_000L
+        )
+
+        val lyrics = LyricsService.getLyrics(track, client)
+        assertEquals(1, lyrics.size)
+        assertEquals("Karma Police, arrest this man", lyrics[0].text)
+        assertTrue(requestedUrl.contains("Karma") && requestedUrl.contains("Police"))
+        assertTrue(!requestedUrl.contains("Remastered"))
+        assertTrue(!requestedUrl.contains("Someone"))
+        assertTrue(!requestedUrl.contains("Guest"))
+    }
+
+    @Test
+    fun testFallbackQueryWhenInitialQueryFails() = runBlocking {
+        val requestedUrls = mutableListOf<String>()
+        val ts = System.currentTimeMillis()
+        val mockEngine = MockEngine { request ->
+            val url = request.url.toString()
+            requestedUrls.add(url)
+            if (url.contains("Single%20Version") || url.contains("Single+Version")) {
+                respond("{}", HttpStatusCode.NotFound)
+            } else if (url.contains("Heroes")) {
+                respond(
+                    content = """{
+                        "id": 888,
+                        "name": "Heroes $ts",
+                        "artistName": "David Bowie $ts",
+                        "syncedLyrics": "[00:20.00]I, I will be king"
+                    }""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            } else {
+                respond("{}", HttpStatusCode.NotFound)
+            }
+        }
+        val client = HttpClient(mockEngine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+
+        LyricsService.fetchOnlineLyrics = true
+
+        val track = Track(
+            id = "t_fallback_$ts",
+            title = "Heroes $ts - Single Version",
+            artist = "David Bowie $ts",
+            album = "Heroes",
+            durationMs = 210_000L
+        )
+
+        val lyrics = LyricsService.getLyrics(track, client)
+        assertEquals(1, lyrics.size)
+        assertEquals("I, I will be king", lyrics[0].text)
+        assertTrue(requestedUrls.size >= 2, "Expected initial query to fail and fallback query to execute")
+    }
 }

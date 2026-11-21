@@ -588,7 +588,7 @@ fun ThemeCustomizationDialog(
                                 Icon(
                                     imageVector = Icons.Rounded.Check,
                                     contentDescription = opt.name,
-                                    tint = if (com.example.musicapp.theme.isLightColor(opt.color)) Color.Black else Color.White,
+                                    tint = com.example.musicapp.theme.contrastColorFor(opt.color),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }

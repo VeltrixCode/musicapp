@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.serialization.Serializable
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 
 /**
@@ -367,6 +368,8 @@ object ThemePresets {
         AMOLED_BLACK
     )
 
+    val ALL: List<ThemePreset> get() = all
+
     fun fromId(id: String?): ThemePreset =
         all.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: JVX_EMERALD
 }
@@ -438,9 +441,83 @@ fun Color.darken(factor: Float): Color {
     )
 }
 
+val DarkOnAccent: Color = Color(0xFF121212)
+val LightOnAccent: Color = Color(0xFFFFFFFF)
+
+/**
+ * Calculates standard WCAG 2.1 relative luminance (L) for a given sRGB color:
+ * L = 0.2126 * R + 0.7152 * G + 0.0722 * B
+ * where linear sRGB component = if (c <= 0.04045) c / 12.92 else ((c + 0.055) / 1.055) ^ 2.4.
+ */
+fun relativeLuminance(color: Color): Double {
+    fun toLinear(c: Float): Double {
+        val cd = c.toDouble()
+        return if (cd <= 0.04045) {
+            cd / 12.92
+        } else {
+            ((cd + 0.055) / 1.055).pow(2.4)
+        }
+    }
+    val rLinear = toLinear(color.red)
+    val gLinear = toLinear(color.green)
+    val bLinear = toLinear(color.blue)
+    return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear
+}
+
+@kotlin.jvm.JvmName("colorRelativeLuminance")
+fun Color.relativeLuminance(): Double = relativeLuminance(this)
+
+/**
+ * Contrast ratio between color C and white: (1.05) / (L + 0.05).
+ */
+fun contrastRatioWithWhite(color: Color): Double {
+    val l = relativeLuminance(color)
+    return 1.05 / (l + 0.05)
+}
+
+/**
+ * Contrast ratio between color C and black: (L + 0.05) / 0.05.
+ */
+fun contrastRatioWithBlack(color: Color): Double {
+    val l = relativeLuminance(color)
+    return (l + 0.05) / 0.05
+}
+
+/**
+ * General WCAG 2.1 contrast ratio between two colors: (L1 + 0.05) / (L2 + 0.05).
+ */
+fun contrastRatio(c1: Color, c2: Color): Double {
+    val l1 = relativeLuminance(c1)
+    val l2 = relativeLuminance(c2)
+    val lighter = if (l1 >= l2) l1 else l2
+    val darker = if (l1 < l2) l1 else l2
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
+@kotlin.jvm.JvmName("colorContrastRatioWith")
+fun Color.contrastRatioWith(other: Color): Double = contrastRatio(this, other)
+
+/**
+ * WCAG 2.1 check: evaluates whether black text provides a strictly higher contrast ratio than white text.
+ */
 fun isLightColor(color: Color): Boolean {
-    val lum = 0.299f * color.red + 0.587f * color.green + 0.114f * color.blue
-    return lum > 0.50f
+    val whiteContrast = contrastRatioWithWhite(color)
+    val blackContrast = contrastRatioWithBlack(color)
+    return blackContrast > whiteContrast
+}
+
+/**
+ * Chooses the text color (White or Black/Dark #121212) that provides the HIGHER contrast ratio
+ * meeting or maximizing WCAG 2.1 contrast standards.
+ */
+fun contrastColorFor(
+    color: Color,
+    darkColor: Color = DarkOnAccent,
+    lightColor: Color = LightOnAccent
+): Color {
+    val whiteContrast = contrastRatioWithWhite(color)
+    val blackContrast = contrastRatioWithBlack(color)
+    return if (blackContrast > whiteContrast) darkColor else lightColor
 }
 
 /**
@@ -460,7 +537,7 @@ object AppColors {
     val Accent: Color get() = customAccent ?: currentPalette.defaultAccent
     val AccentHover: Color get() = Accent.lighten(0.12f)
     val AccentPressed: Color get() = Accent.darken(0.15f)
-    val OnAccent: Color get() = if (isLightColor(Accent)) Color(0xFF101010) else Color(0xFFFFFFFF)
+    val OnAccent: Color get() = contrastColorFor(Accent)
 
     val TextPrimary: Color get() = currentPalette.textPrimary
     val TextSecondary: Color get() = currentPalette.textSecondary
@@ -1200,7 +1277,7 @@ fun AppTheme(
 ) {
     val dynamicColorScheme = darkColorScheme(
         primary = AppColors.Accent,
-        onPrimary = if (isLightColor(AppColors.Accent)) Color.Black else Color.White,
+        onPrimary = AppColors.OnAccent,
         surface = AppColors.Surface,
         onSurface = AppColors.TextPrimary,
         surfaceVariant = AppColors.SurfaceElevated,

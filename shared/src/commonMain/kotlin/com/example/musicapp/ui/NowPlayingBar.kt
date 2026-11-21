@@ -142,8 +142,10 @@ import com.example.musicapp.theme.AppColors
 import com.example.musicapp.theme.LocalSpacing
 import com.example.musicapp.ui.components.AppTooltip
 import androidx.compose.foundation.Canvas
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
+import com.example.musicapp.service.LyricsService
 import com.example.musicapp.util.formatTime
 
 @Composable
@@ -1314,6 +1316,23 @@ internal fun FullscreenNowPlayingView(
     val sleepSec by player.sleepTimerRemainingSec.collectAsState()
     var showLyrics by remember { mutableStateOf(false) }
 
+    var lyrics by remember(track?.id) { mutableStateOf<List<LrcLine>>(player.lyrics) }
+    var isLoadingLyrics by remember(track?.id) { mutableStateOf(false) }
+
+    LaunchedEffect(track?.id, player.lyrics) {
+        if (track == null) {
+            lyrics = emptyList()
+            isLoadingLyrics = false
+        } else if (player.lyrics.isNotEmpty()) {
+            lyrics = player.lyrics
+            isLoadingLyrics = false
+        } else {
+            isLoadingLyrics = true
+            lyrics = LyricsService.getLyrics(track)
+            isLoadingLyrics = false
+        }
+    }
+
     val currentSettings = remember { settingsRepository?.load() }
     var playerViewMode by remember { mutableStateOf(currentSettings?.playerViewMode ?: "PHANTOM_DASHBOARD") }
     val isDashboard = playerViewMode == "PHANTOM_DASHBOARD"
@@ -1432,7 +1451,7 @@ internal fun FullscreenNowPlayingView(
                         Spacer(Modifier.width(spacing.xs))
                     }
 
-                    if (player.lyrics.isNotEmpty()) {
+                    if (lyrics.isNotEmpty()) {
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
@@ -1815,37 +1834,8 @@ internal fun FullscreenNowPlayingView(
                             .border(1.dp, AppColors.Border.copy(alpha = 0.6f), RoundedCornerShape(18.dp))
                             .padding(horizontal = 20.dp, vertical = 14.dp)
                     ) {
-                        // Lyrics Header Badge
-                        val isSynchronized = player.lyrics.size > 1 && player.lyrics.any { it.timestampMs > 0 }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(AppColors.SurfaceElevated)
-                                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isSynchronized) AppColors.Accent else AppColors.TextMuted)
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        if (isSynchronized) "Синхронизировано" else "Текст песни",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = AppColors.TextSecondary
-                                    )
-                                }
-                            }
-                        }
-
                         if (track == null) {
+                            // 1. Нет трека (плашка скрыта)
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
@@ -1874,14 +1864,29 @@ internal fun FullscreenNowPlayingView(
                                     )
                                 }
                             }
-                        } else if (player.lyrics.isNotEmpty()) {
-                            LyricsView(
-                                lyrics = player.lyrics,
-                                positionMs = playbackState.positionMs,
+                        } else if (isLoadingLyrics) {
+                            // 2. Загрузка (плашка скрыта)
+                            Box(
                                 modifier = Modifier.fillMaxSize(),
-                                alignLeft = true
-                            )
-                        } else {
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(
+                                        color = AppColors.Accent,
+                                        modifier = Modifier.size(36.dp),
+                                        strokeWidth = 3.dp
+                                    )
+                                    Spacer(Modifier.height(14.dp))
+                                    Text(
+                                        "Поиск и загрузка текста...",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            color = AppColors.TextSecondary
+                                        )
+                                    )
+                                }
+                            }
+                        } else if (lyrics.isEmpty()) {
+                            // 3. Не найдено (плашка скрыта)
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
@@ -1902,6 +1907,58 @@ internal fun FullscreenNowPlayingView(
                                     )
                                 }
                             }
+                        } else {
+                            // 4. Найдено (плашка LRCLIB / синхронизировано появляется только в этом состоянии)
+                            val isSynchronized = lyrics.size > 1 && lyrics.any { it.timestampMs > 0 }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(AppColors.SurfaceElevated)
+                                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isSynchronized) AppColors.Accent else AppColors.TextMuted)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            if (isSynchronized) "Синхронизировано" else "Текст песни",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = AppColors.TextSecondary
+                                        )
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(AppColors.SurfaceElevated)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        "LRCLIB",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AppColors.TextSecondary
+                                    )
+                                }
+                            }
+
+                            LyricsView(
+                                lyrics = lyrics,
+                                positionMs = playbackState.positionMs,
+                                modifier = Modifier.fillMaxSize(),
+                                alignLeft = true
+                            )
                         }
                     }
                 }
@@ -1909,9 +1966,9 @@ internal fun FullscreenNowPlayingView(
                 // CLASSIC VIEW (Original Centered Cover Layout)
                 Spacer(Modifier.weight(0.1f))
 
-                if (showLyrics && player.lyrics.isNotEmpty()) {
+                if (showLyrics && lyrics.isNotEmpty()) {
                     LyricsView(
-                        lyrics = player.lyrics,
+                        lyrics = lyrics,
                         positionMs = playbackState.positionMs,
                         modifier = Modifier.weight(0.8f).fillMaxWidth(0.9f)
                     )
@@ -2355,9 +2412,12 @@ internal fun EqualizerDialog(
         confirmButton = {
             Button(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AppColors.Accent,
+                    contentColor = AppColors.OnAccent
+                )
             ) {
-                Text("Готово", color = Color.Black, fontWeight = FontWeight.Bold)
+                Text("Готово", color = AppColors.OnAccent, fontWeight = FontWeight.Bold)
             }
         },
         containerColor = AppColors.Surface

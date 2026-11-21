@@ -274,7 +274,7 @@ internal fun AppTopBar(
                         modifier = Modifier.background(AppColors.SurfaceElevated)
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Добавить файлы", fontSize = 13.sp) },
+                            text = { Text("Файл или ZIP", fontSize = 13.sp) },
                             leadingIcon = { Icon(Icons.Rounded.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp)) },
                             onClick = {
                                 menuOpen = false
@@ -300,7 +300,7 @@ internal fun AppTopBar(
                 ) {
                     Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = AppColors.TextPrimary, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(spacing.xs))
-                    Text("Файл", color = AppColors.TextPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Файл / ZIP", color = AppColors.TextPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 Spacer(Modifier.width(spacing.xs))

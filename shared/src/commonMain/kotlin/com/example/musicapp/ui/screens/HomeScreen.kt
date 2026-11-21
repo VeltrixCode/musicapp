@@ -204,11 +204,14 @@ fun HomeScreen(
                             onClick = {
                                 com.example.musicapp.platform.launchAudioImport { tr -> library.addTrack(tr) }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AppColors.Accent,
+                                contentColor = AppColors.OnAccent
+                            )
                         ) {
-                            Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = Color.Black)
+                            Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = AppColors.OnAccent)
                             Spacer(Modifier.width(6.dp))
-                            Text("Добавить файлы", color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text("Файлы / ZIP", color = AppColors.OnAccent, fontWeight = FontWeight.Bold)
                         }
                         OutlinedButton(
                             onClick = {
@@ -546,7 +549,7 @@ private fun QuickGridCard(
                     Icon(
                         imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription = if (isPlaying) "Пауза" else "Слушать",
-                        tint = Color.Black,
+                        tint = AppColors.OnAccent,
                         modifier = Modifier.size(20.dp)
                     )
                 }

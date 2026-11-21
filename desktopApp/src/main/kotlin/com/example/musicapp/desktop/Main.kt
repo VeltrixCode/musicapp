@@ -129,17 +129,9 @@ fun main() {
                         if (transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
                             val droppedList = transferable.getTransferData(DataFlavor.javaFileListFlavor) as? List<*>
                             val files = droppedList?.filterIsInstance<File>() ?: emptyList()
-                            val audioExtensions = listOf("mp3", "wav", "m4a", "aac", "flac", "ogg")
                             val newTracks = mutableListOf<com.example.musicapp.model.Track>()
-
                             for (item in files) {
-                                if (item.isDirectory) {
-                                    item.walkTopDown().filter { it.isFile && it.extension.lowercase() in audioExtensions }.forEach { f ->
-                                        newTracks.add(importLocalAudioFile(f))
-                                    }
-                                } else if (item.isFile && item.extension.lowercase() in audioExtensions) {
-                                    newTracks.add(importLocalAudioFile(item))
-                                }
+                                newTracks.addAll(com.example.musicapp.platform.ZipAudioExtractor.importFileOrArchive(item))
                             }
                             if (newTracks.isNotEmpty()) {
                                 library.addTracks(newTracks)

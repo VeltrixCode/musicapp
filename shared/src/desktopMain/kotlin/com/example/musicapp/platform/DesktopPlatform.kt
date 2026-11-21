@@ -91,41 +91,33 @@ actual fun readLrcContent(audioPath: String): String? {
 }
 
 actual fun launchAudioImport(onImported: (Track) -> Unit) {
-    val dialog = FileDialog(null as Frame?, "Выберите аудиотрек", FileDialog.LOAD)
+    val dialog = FileDialog(null as Frame?, "Выберите аудиотрек или ZIP-архив", FileDialog.LOAD)
     dialog.setFilenameFilter { _, name ->
         val lower = name.lowercase()
-        AUDIO_EXTENSIONS.any { lower.endsWith(it) }
+        AUDIO_EXTENSIONS.any { lower.endsWith(it) } || lower.endsWith(".zip")
     }
     dialog.isVisible = true
     val dir = dialog.directory ?: return
     val name = dialog.file ?: return
 
-    val uploads = File(System.getProperty("user.home"), "JVXMusic/uploads").apply { mkdirs() }
-    val dest = File(uploads, "${newId()}_$name")
-    File(dir, name).copyTo(dest, overwrite = true)
-    onImported(importedTrack(dest.absolutePath, name))
+    val file = File(dir, name)
+    val importedTracks = ZipAudioExtractor.importFileOrArchive(file)
+    importedTracks.forEach { track ->
+        onImported(track)
+    }
 }
 
 actual fun launchFolderImport(onImported: (List<Track>) -> Unit) {
     SwingUtilities.invokeLater {
         val chooser = JFileChooser().apply {
-            dialogTitle = "Выберите папку с музыкой"
+            dialogTitle = "Выберите папку с музыкой или архивами"
             fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
             isAcceptAllFileFilterUsed = false
         }
         val result = chooser.showOpenDialog(null)
         if (result == JFileChooser.APPROVE_OPTION) {
             val selectedDir = chooser.selectedFile ?: return@invokeLater
-            val uploads = File(System.getProperty("user.home"), "JVXMusic/uploads").apply { mkdirs() }
-            val tracks = mutableListOf<Track>()
-            selectedDir.walkTopDown().filter { it.isFile }.forEach { file ->
-                val lower = file.name.lowercase()
-                if (AUDIO_EXTENSIONS.any { lower.endsWith(it) }) {
-                    val dest = File(uploads, "${newId()}_${file.name}")
-                    runCatching { file.copyTo(dest, overwrite = true) }
-                    tracks.add(importedTrack(dest.absolutePath, file.name))
-                }
-            }
+            val tracks = ZipAudioExtractor.importDirectory(selectedDir)
             if (tracks.isNotEmpty()) {
                 runOnUiThread { onImported(tracks) }
             }
@@ -160,12 +152,15 @@ actual fun onPlaybackReleased() {
     com.example.musicapp.proxy.LocalStreamingProxy.invalidateAllSessions()
 }
 
-/** Handles external drag-and-drop of audio files into the desktop app. */
+/** Handles external drag-and-drop of audio files and archives into the desktop app. */
 fun importLocalAudioFile(sourceFile: File): Track {
-    val uploads = File(System.getProperty("user.home"), "JVXMusic/uploads").apply { mkdirs() }
-    val dest = File(uploads, "${newId()}_${sourceFile.name}")
-    sourceFile.copyTo(dest, overwrite = true)
-    return importedTrack(dest.absolutePath, sourceFile.name)
+    val imported = ZipAudioExtractor.importFileOrArchive(sourceFile)
+    return imported.firstOrNull() ?: run {
+        val uploads = ZipAudioExtractor.getUploadsDir()
+        val dest = File(uploads, "${newId()}_${sourceFile.name}")
+        sourceFile.copyTo(dest, overwrite = true)
+        importedTrack(dest.absolutePath, sourceFile.name)
+    }
 }
 
 internal class JavaFxPlayerEngine : PlayerEngine {
